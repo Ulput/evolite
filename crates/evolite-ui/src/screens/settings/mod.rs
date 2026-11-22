@@ -6,6 +6,7 @@ mod about;
 mod advanced;
 mod appearance;
 mod backup;
+mod collections;
 mod network;
 mod parts;
 pub mod report;
@@ -120,6 +121,8 @@ pub struct SettingsState {
     /// FEAT-0042: the account public key's dialog, its password, the key once shown, the
     /// pause's cut and whether «Copy» went (`Some(false)`: it could not go past the history).
     pub xpub_dialog: bool,
+    /// FEAT-0054: «Add a collection by id» (Advanced).
+    pub collections: collections::CollectionsForm,
     pub xpub_password: Zeroizing<String>,
     pub xpub: Option<Result<evolite_api::Xpub, CoreError>>,
     xpub_cut: crate::screens::pause::Cut,
@@ -310,6 +313,7 @@ impl SettingsState {
             xpub: None,
             xpub_cut: Default::default(),
             xpub_copied: None,
+            collections: Default::default(),
             backup_file: Default::default(),
             empty_hint_closed: false,
             restart: false,
@@ -762,6 +766,9 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
     crate::screens::message::window(ui, a, cx);
     if state.xpub_dialog {
         xpub::xpub_dialog(ui, a, cx, state);
+    }
+    if state.collections.open {
+        collections::collections_dialog(ui, a, cx, state);
     }
     if state.phrase_dialog {
         phrase_dialog(ui, a, cx, state);

@@ -31,7 +31,6 @@ pub use spv::{chain, contact_scans, mined, provider, sync, turn};
 pub use store::store_refusal;
 
 use evolite_api::CoreError;
-use evolite_art as art;
 use evolite_common::{diag, dpns, layers};
 use evolite_local::{folders, journal, json_file, node, pending};
 use key_wallet::mnemonic::Mnemonic;

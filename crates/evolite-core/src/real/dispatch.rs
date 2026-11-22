@@ -726,6 +726,21 @@ impl Real {
                 self.nfts.ask_now();
                 return (None, true);
             }
+            Command::AddCollection { id } => Event::Done {
+                what: DoneWhat::Collection,
+                result: self.add_collection(&id).await,
+                ask: None,
+            },
+            Command::RemoveCollection { id } => Event::Done {
+                what: DoneWhat::Collection,
+                result: self.remove_collection(&id),
+                ask: None,
+            },
+            Command::TrustIssuer { issuer } => Event::Done {
+                what: DoneWhat::Collection,
+                result: self.trust_issuer(&issuer),
+                ask: None,
+            },
             Command::ReadIdentityKeys { identity } => match self.read_identity_keys(identity) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::Done {

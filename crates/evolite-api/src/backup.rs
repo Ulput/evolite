@@ -16,6 +16,8 @@ pub enum Section {
     /// The journals: Platform's history, top-ups, name claims, the pool's, contacts' addresses.
     Journals,
     Tokens,
+    /// FEAT-0054: the collections added by id and the issuers whose pictures are shown.
+    Collections,
 }
 
 /// What a restore took from the file, by section: counts only (UC-2).
@@ -36,6 +38,8 @@ pub struct Restored {
     pub records: usize,
     /// Tokens added by hand.
     pub tokens: usize,
+    /// FEAT-0054: collections added by id and issuers whose pictures are shown, new here.
+    pub collections: usize,
     /// The wallet's settings the file holds, as the interface gave them when it was saved
     /// (JSON): the interface applies them. `None`: the file has none.
     pub settings: Option<String>,

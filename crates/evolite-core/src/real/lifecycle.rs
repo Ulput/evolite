@@ -100,6 +100,8 @@ impl Real {
             series_run: Default::default(),
             pool_history,
             address_book: address_book::AddressBook::new(paths.address_book.clone()),
+            added_collections: evolite_local::json_file::Store::new(paths.collections.clone()),
+            trusted_issuers: evolite_local::json_file::Store::new(paths.trusted_issuers.clone()),
             paths,
             chain: Arc::new(Chain::default()),
             out,

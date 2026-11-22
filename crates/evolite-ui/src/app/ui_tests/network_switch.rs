@@ -27,7 +27,7 @@ fn on_network(kit: &mut Kit, network: evolite_api::Network, seen: impl Fn(&Kit) 
 }
 
 /// AC-T8, AC-A5: each network's menu has what the network matrix lets in; on mainnet now
-/// «Tokens» yes, «Apps» and «Collection» not yet.
+/// «Tokens» and «Collection» yes (FEAT-0054: the beta on mainnet), «Apps» not yet.
 #[test]
 fn the_menu_follows_the_network_matrix() {
     use evolite_api::Network::{Mainnet, Testnet};
@@ -194,8 +194,8 @@ fn an_empty_network_says_where_the_wallets_are() {
 }
 
 /// AC-A5, N4: on mainnet Settings → Network explains what is on testnet only, from the network
-/// matrix — App Connect, the collection, the Platform address's payments; not tokens (on mainnet
-/// now). Testnet has no such group.
+/// matrix — App Connect, the Platform address's payments; not tokens nor the Collection (on
+/// mainnet now, FEAT-0054). Testnet has no such group.
 #[test]
 fn settings_say_what_is_testnet_only() {
     let (_turn, mut kit) = demo_app("settings", "en");
@@ -205,11 +205,14 @@ fn settings_say_what_is_testnet_only() {
     });
     for row in [
         "Signing in to sites and apps with App Connect",
-        "Jembe NFTs: their contract exists on testnet only",
         "Payments from a Platform address",
     ] {
         assert!(has_text(&kit, row), "«{row}»");
     }
+    assert!(!has_text(
+        &kit,
+        "NFTs of evolite collections: testnet only for now"
+    ));
     assert!(!has_text(
         &kit,
         "Finding, balances and transfers of Dash Platform tokens"

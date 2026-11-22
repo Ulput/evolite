@@ -487,3 +487,65 @@ fn long_identities_fit_at_every_width_uk() {
 fn long_identities_fit_at_every_width_ar() {
     long_identities_at_every_width("ar");
 }
+
+/// FEAT-0054 r1 Must 3: a group tile whose picture waits for «Show» (an issuer not trusted, a
+/// source not chosen) keeps «Picture from …» and «Show» under its «×N», never drawn over it — at
+/// the medium widths, in every language of the check.
+fn untrusted_groups_at_medium_widths(lang: &str) {
+    let mut wrong = Vec::new();
+    for width in WORKSHOP_WIDTHS.into_iter().chain([1280.0]) {
+        let (_turn, mut kit) = demo_app("collection", lang);
+        kit.set_size(egui::vec2(width, 800.0));
+        quiet(&mut kit, |app| {
+            if let Some(w) = app.snapshot.as_mut().and_then(|s| s.wallet.as_mut()) {
+                for nft in &mut w.nfts {
+                    nft.issuer = "stranger".into();
+                    nft.chosen = false;
+                }
+            }
+        });
+        assert!(
+            kit.query_all_by_label(&crate::i18n::spoken("Show"))
+                .next()
+                .is_some(),
+            "{lang} @{width}: the pictures wait for «Show»"
+        );
+        for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
+            wrong.push(format!("@{width}: {w}"));
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{lang}:
+{}",
+        wrong.join(
+            "
+"
+        )
+    );
+}
+
+#[test]
+fn untrusted_group_tiles_keep_their_words_clear_en() {
+    untrusted_groups_at_medium_widths("en");
+}
+
+#[test]
+fn untrusted_group_tiles_keep_their_words_clear_ru() {
+    untrusted_groups_at_medium_widths("ru");
+}
+
+#[test]
+fn untrusted_group_tiles_keep_their_words_clear_de() {
+    untrusted_groups_at_medium_widths("de");
+}
+
+#[test]
+fn untrusted_group_tiles_keep_their_words_clear_uk() {
+    untrusted_groups_at_medium_widths("uk");
+}
+
+#[test]
+fn untrusted_group_tiles_keep_their_words_clear_ar() {
+    untrusted_groups_at_medium_widths("ar");
+}

@@ -17,6 +17,14 @@ impl Real {
             evolite_api::features::Feature::Collection,
             crate::network::current(),
         );
+        // r1 (answer 1): the collections the person chose — any of the wallet's identities' own
+        // and those added by id: their pictures are drawn without asking.
+        let added = self.added_collections.read(Clone::clone);
+        let mut chosen: Vec<String> = identities
+            .iter()
+            .flat_map(|i| self.chain.workshop_collection_ids(&i.id))
+            .collect();
+        chosen.extend(added.iter().cloned());
         for identity in identities {
             if !(here && self.chain.platform_ready() && self.nfts.due(&identity.id)) {
                 continue;
@@ -28,33 +36,118 @@ impl Real {
                 .map(|n| format!("@{n}"))
                 .unwrap_or_else(|| owner.chars().take(8).collect());
             let (chain, nfts, refresh) = (self.chain.clone(), self.nfts.clone(), self.refresher());
-            let known = nfts.known_models();
+            // FEAT-0054: the identity's own collections (kept from the Workshop) and the ones
+            // added by id; only those of the evolite standard are read.
+            let mut collections: Vec<String> = self
+                .chain
+                .workshop_collection_ids(owner)
+                .into_iter()
+                .collect();
+            for added in &added {
+                if !collections.contains(added) {
+                    collections.push(added.clone());
+                }
+            }
+            let chosen = chosen.clone();
             let owner = owner.clone();
             tokio::spawn(async move {
-                let result = match Identifier::from_string(&owner, Encoding::Base58) {
-                    Ok(id) => {
-                        // TECH-read-deadlines (audit Д9): the limit on a task of its own, not
-                        // on a `poll` a stuck proof would block (`names::read_within`).
-                        let read = async move {
-                            turn::timed("nft_read", chain.jembe_gifts(id, &known)).await
-                        };
-                        super::names::read_within(nfts::ASK_TIMEOUT, read)
-                            .await
-                            .map_err(|e| match super::names::timed_out(&e) {
-                                true => nfts::no_answer().into(),
-                                false => e,
-                            })
+                // TECH-read-deadlines (audit Д9): the limit on a task of its own, not on a
+                // `poll` a stuck proof would block (`names::read_within`).
+                let read = {
+                    let owner = owner.clone();
+                    async move {
+                        turn::timed(
+                            "nft_read",
+                            chain.standard_nfts(&owner, &name, &collections, &chosen),
+                        )
+                        .await
                     }
-                    Err(e) => Err(e.to_string()),
                 };
+                let result = super::names::read_within(nfts::ASK_TIMEOUT, read)
+                    .await
+                    .map_err(|e| match super::names::timed_out(&e) {
+                        true => nfts::no_answer().into(),
+                        false => e,
+                    });
                 if result.is_ok() {
                     crate::diag::fresh("nfts", "network");
                 }
-                nfts.found(&owner, &name, result);
+                nfts.found(&owner, result);
                 refresh();
             });
         }
         self.nfts.shown(&owners)
+    }
+
+    /// FEAT-0054 «Add a collection by id»: the contract read with its proof and kept only when
+    /// it is an NFT collection of the evolite standard; the identities' lists are asked again.
+    pub(in crate::real) async fn add_collection(&self, id: &str) -> Result<(), CoreError> {
+        let id = id.trim().to_owned();
+        // r1 Should 2: not where the network matrix leaves the Collection off (FEAT-0037).
+        if !evolite_api::features::on(
+            evolite_api::features::Feature::Collection,
+            crate::network::current(),
+        ) {
+            return Err(CoreError::NotAvailable(
+                tr!("NFTs of evolite collections: testnet only for now").into(),
+            ));
+        }
+        if Identifier::from_string(&id, Encoding::Base58).is_err() {
+            return Err(CoreError::NotAvailable(
+                tr!("This is not a contract id: 44 letters and digits").into(),
+            ));
+        }
+        // r1 Should 3: a read that failed is said in words; the SDK's text goes to the journal.
+        let standard = self.chain.is_standard_collection(&id).await.map_err(|e| {
+            crate::diag::platform_failed("collection_check", &e);
+            CoreError::NotAvailable(tr!("Could not check the contract — try again").into())
+        })?;
+        if !standard {
+            return Err(CoreError::NotAvailable(
+                tr!("This contract is not an NFT collection of the evolite standard").into(),
+            ));
+        }
+        self.added_collections
+            .update(|all| {
+                let new = !all.contains(&id);
+                if new {
+                    all.push(id.clone());
+                }
+                ((), new)
+            })
+            .map_err(|e| CoreError::NotAvailable(e.to_string()))?;
+        self.nfts.ask_now();
+        Ok(())
+    }
+
+    /// FEAT-0054 r1: «Always show from …» — `issuer`'s pictures drawn without asking, kept.
+    pub(in crate::real) fn trust_issuer(&self, issuer: &str) -> Result<(), CoreError> {
+        let issuer = issuer.trim().to_owned();
+        if issuer.is_empty() {
+            return Ok(());
+        }
+        self.trusted_issuers
+            .update(|all| {
+                let new = !all.contains(&issuer);
+                if new {
+                    all.push(issuer.clone());
+                }
+                ((), new)
+            })
+            .map_err(|e| CoreError::NotAvailable(e.to_string()))
+    }
+
+    /// FEAT-0054: the collection `id` added by hand no longer shown.
+    pub(in crate::real) fn remove_collection(&self, id: &str) -> Result<(), CoreError> {
+        self.added_collections
+            .update(|all| {
+                let before = all.len();
+                all.retain(|c| c != id);
+                ((), all.len() != before)
+            })
+            .map_err(|e| CoreError::NotAvailable(e.to_string()))?;
+        self.nfts.ask_now();
+        Ok(())
     }
 
     /// "Fiat rate": fetch the price of DASH in `currency` now and every [`rates::EVERY`];
@@ -224,15 +317,14 @@ impl Real {
 
     /// The bytes of the picture `art` names, wherever this wallet has them.
     pub(in crate::real) fn stored_art(&self, art: &str) -> Option<crate::art::Stored> {
-        self.nfts
+        self.avatars
             .picture(art)
-            .or_else(|| {
-                self.avatars.picture(art).map(|bytes| crate::art::Stored {
-                    bytes,
-                    packing: evolite_render::Packing::Plain,
-                })
+            .map(|bytes| crate::art::Stored {
+                bytes,
+                packing: evolite_render::Packing::Plain,
             })
-            // BUG-269: a Workshop model's picture as read from Platform, on any copy.
+            // BUG-269: a Workshop model's picture as read from Platform, on any copy — and,
+            // FEAT-0054, every NFT's of the Collection.
             .or_else(|| {
                 self.chain
                     .workshop_picture(art)

@@ -8,6 +8,7 @@
 //! collections pass as base58 ids; after a series this side only reads again.
 
 mod chain;
+pub mod model_cache;
 pub mod profile;
 
 pub use chain::{model_of, model_picture};

@@ -10,7 +10,8 @@ pub enum Feature {
     Tokens,
     /// Signing in to sites and apps with App Connect.
     Apps,
-    /// The Jembe NFT collection (its contract is on testnet only; FEAT-0031 for mainnet).
+    /// The Collection: NFTs of evolite-standard collections (FEAT-0054; on mainnet with the
+    /// beta, the customer's decision 2026-11-22).
     Collection,
     /// Paying from a Platform address (FEAT-0015 stage 1).
     PlatformAddressPayments,
@@ -30,16 +31,16 @@ impl Feature {
 
 /// Whether `feature` works on `network`. Testnet has everything; the first mainnet release has
 /// what the customer let in (2026-11-14: tokens yes; App Connect and the Platform address
-/// pending the architect's plan; the collection until FEAT-0031).
+/// pending the architect's plan; 2026-11-22: the Collection, once it reads only the evolite
+/// standard, FEAT-0054).
 pub fn on(feature: Feature, network: Network) -> bool {
     match network {
         Network::Testnet => true,
         Network::Mainnet => match feature {
-            Feature::Tokens => true,
-            Feature::Apps
-            | Feature::Collection
-            | Feature::PlatformAddressPayments
-            | Feature::PlatformAddressTopUp => false,
+            Feature::Tokens | Feature::Collection => true,
+            Feature::Apps | Feature::PlatformAddressPayments | Feature::PlatformAddressTopUp => {
+                false
+            }
         },
     }
 }
@@ -56,14 +57,15 @@ mod tests {
         }
     }
 
-    /// The first mainnet release: tokens yes (the customer, 2026-11-14); App Connect, the Jembe
-    /// collection (until FEAT-0031) and the Platform address's payments and top-ups not yet.
+    /// The first mainnet release: tokens yes (the customer, 2026-11-14), the Collection with the
+    /// beta (2026-11-22, FEAT-0054: the evolite standard only); App Connect and the Platform
+    /// address's payments and top-ups not yet.
     #[test]
     fn mainnet_has_tokens_but_not_yet_the_rest() {
         assert!(on(Feature::Tokens, Network::Mainnet));
+        assert!(on(Feature::Collection, Network::Mainnet));
         for feature in [
             Feature::Apps,
-            Feature::Collection,
             Feature::PlatformAddressPayments,
             Feature::PlatformAddressTopUp,
         ] {

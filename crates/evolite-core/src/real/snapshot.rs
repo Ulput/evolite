@@ -773,6 +773,8 @@ impl Real {
             unfinished_top_up,
             unfinished_address_top_up,
             identities,
+            added_collections: self.added_collections.read(Clone::clone),
+            trusted_issuers: self.trusted_issuers.read(Clone::clone),
             address_book: self
                 .address_book
                 .entries()

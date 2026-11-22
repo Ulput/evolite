@@ -387,7 +387,7 @@ fn testnet_only(ui: &mut Ui, a: &mut Assets, network: evolite_api::Network) {
             Feature::Collection,
             "nft",
             tr!("Collection"),
-            tr!("Jembe NFTs: their contract exists on testnet only"),
+            tr!("NFTs of evolite collections: testnet only for now"),
         ),
         (
             Feature::PlatformAddressPayments,

@@ -112,7 +112,7 @@ fn copies_of_one_model_are_one_tile_and_open_their_card() {
     }
 }
 
-/// BUG-188 §5: one row — the tab «Collection», then the filters «Jembe · gifts» and «For sale»,
+/// BUG-188 §5: one row — the tab «Collection», then the filters «Received» and «For sale»,
 /// each on and off again; no «All» among them (FEAT-0055's «All» is the identities', in its own
 /// row above). «For sale» groups only the copies for sale.
 #[test]

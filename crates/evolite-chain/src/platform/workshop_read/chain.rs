@@ -512,4 +512,117 @@ impl Chain {
         };
         read.await.unwrap_or((None, None, None))
     }
+
+    /// FEAT-0054: whether contract `id` (base58) is an NFT collection of the evolite standard,
+    /// its body read with its proof (or kept fresh): the one test, [`profile::profile`].
+    pub async fn is_standard_collection(&self, id: &str) -> Result<bool, String> {
+        self.ready()?;
+        let kept = self.fresh_cached(id_of(id)?, CONTRACT_WITHIN).await?;
+        Ok(profile::profile(&kept.contract).is_ok())
+    }
+
+    /// FEAT-0054: the NFTs `owner` (base58) holds in `collections` (base58 contract ids), as the
+    /// Collection shows them — only collections of the evolite standard ([`profile::profile`]);
+    /// another contract is passed over, not an error. Each instance by the `$ownerId` index, at
+    /// most [`MAX_PAGES`] pages a collection, with its model's name and picture (kept to draw,
+    /// BUG-269). A failed read of a collection fails the whole: the screen keeps what it had.
+    /// `chosen`: the collections the person chose (one of the wallet's identities' own, one
+    /// added by id): their NFTs' pictures are drawn without asking (r1, answer 1).
+    pub async fn standard_nfts(
+        &self,
+        owner: &str,
+        owner_name: &str,
+        collections: &[String],
+        chosen: &[String],
+    ) -> Result<Vec<evolite_api::Nft>, String> {
+        self.ready()?;
+        // r2: no more than NFT_READS identities' lists read at once.
+        let _turn = self.nft_reads.acquire().await.map_err(|e| e.to_string())?;
+        let sdk = self.sdk().await?;
+        let holder = id_of(owner)?;
+        let mut out = Vec::new();
+        for collection in collections {
+            let Ok(id) = id_of(collection) else { continue };
+            let kept = self.fresh_cached(id, CONTRACT_WITHIN).await?;
+            let Ok(profile) = profile::profile(&kept.contract) else {
+                continue;
+            };
+            let contract = kept.contract.clone();
+            // The identity's instances first, then the models they name: kept for the run
+            // (r2: on mainnet each is its picture), read again only for one not kept.
+            let query = DocumentQuery::new(contract.clone(), &profile.instance)
+                .map_err(|e| format!("{e:?}"))?
+                .with_where(super::equal("$ownerId", holder));
+            let page = pages(&sdk, query, None, usize::MAX, MAX_PAGES, |_| true).await?;
+            let model_of_instance = |doc: &Document| {
+                doc.properties()
+                    .get(&profile.model_field)
+                    .and_then(|v| v.to_identifier().ok())
+                    .map(b58)
+            };
+            let needed: BTreeSet<String> = page.docs.iter().filter_map(model_of_instance).collect();
+            if needed.is_empty() {
+                continue;
+            }
+            let docs = self
+                .nft_models
+                .get(
+                    collection,
+                    |kept: &Arc<Vec<Document>>| {
+                        needed
+                            .iter()
+                            .all(|m| kept.iter().any(|d| b58(d.id()) == *m))
+                    },
+                    || async {
+                        let query = DocumentQuery::new(contract.clone(), &profile.model)
+                            .map_err(|e| format!("{e:?}"))?;
+                        let page =
+                            pages(&sdk, query, None, usize::MAX, MAX_PAGES, |_| true).await?;
+                        Ok(Arc::new(page.docs))
+                    },
+                )
+                .await?;
+            // BUG-269: the pictures of the models shown, kept to draw.
+            for doc in docs.iter().filter(|d| needed.contains(&b58(d.id()))) {
+                self.keep_workshop_picture(doc);
+            }
+            let models: BTreeMap<String, Model> = docs
+                .iter()
+                .map(model_of)
+                .map(|m| (m.id.clone(), m))
+                .collect();
+            let issuer = b58(contract.owner_id());
+            for doc in &page.docs {
+                let model = doc
+                    .properties()
+                    .get(&profile.model_field)
+                    .and_then(|v| v.to_identifier().ok())
+                    .and_then(|m| models.get(&b58(m)));
+                // An instance whose model is not read cannot be shown: nothing to show.
+                let Some(model) = model else { continue };
+                out.push(evolite_api::Nft {
+                    id: b58(doc.id()),
+                    name: model.name.clone(),
+                    description: model.description.clone(),
+                    art: model.art.clone(),
+                    // The key is the SHA-256 of the stored bytes: what is drawn is what is there.
+                    art_verified: true,
+                    origin: if contract.owner_id() == holder {
+                        evolite_api::NftOrigin::Release
+                    } else {
+                        evolite_api::NftOrigin::Received { at: None }
+                    },
+                    issuer: issuer.clone(),
+                    contract: collection.clone(),
+                    edition: (serial_of(doc), model.supply),
+                    owner: owner_name.into(),
+                    owner_id: owner.into(),
+                    // 1 duff = 1 000 credits.
+                    price: price_of(doc).map(|credits| (credits / 1000) as evolite_api::Duffs),
+                    chosen: chosen.contains(collection),
+                });
+            }
+        }
+        Ok(out)
+    }
 }

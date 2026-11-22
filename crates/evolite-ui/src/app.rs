@@ -951,6 +951,12 @@ impl App {
                     what: DoneWhat::AutoBackup,
                     ..
                 } => {}
+                // FEAT-0054: «Add a collection by id» / «Remove».
+                Event::Done {
+                    what: DoneWhat::Collection,
+                    result,
+                    ..
+                } => self.settings.on_collection(result),
                 Event::BackupSaved(result) => {
                     self.settings.backup_file.waiting = None;
                     self.settings.backup_file.said = Some(crate::backup_file::said_saved(result));

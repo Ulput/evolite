@@ -1,5 +1,5 @@
 //! BUG-74: what screens show while things load — no QR without its address, no red «At least…»
-//! while identities are looked for, no «0» beside «Loading NFTs…», and the first Tab on the
+//! while identities are looked for, no «0» beside «Looking for your NFTs…», and the first Tab on the
 //! screen, not in the menu.
 
 use super::*;
@@ -123,7 +123,7 @@ fn the_collection_counts_only_nfts_there_are() {
         w.nfts.clear();
         w.nfts_status = NftsStatus::Loading;
     });
-    assert!(has_text(&kit, "Loading NFTs from Dash Platform…"));
+    assert!(has_text(&kit, "Looking for your NFTs…"));
     assert!(!has_text(&kit, "0"), "no «0» while it loads");
     with_wallet(&mut kit, |w| {
         w.nfts.clear();

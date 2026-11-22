@@ -53,14 +53,24 @@ pub(super) fn advanced(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             ui,
             a,
             tr!("Tools"),
-            vec![(
-                tr!("Sign / check a message"),
-                tr!("Prove that a Core address is yours, or check someone's signature"),
-                Control::Button(tr!("Open"), crate::components::ButtonKind::Secondary),
-            )],
+            vec![
+                (
+                    tr!("Sign / check a message"),
+                    tr!("Prove that a Core address is yours, or check someone's signature"),
+                    Control::Button(tr!("Open"), crate::components::ButtonKind::Secondary),
+                ),
+                // FEAT-0054: the fallback for a collection the search did not find.
+                (
+                    tr!("Add a collection by id"),
+                    tr!("Show your NFTs of an evolite collection the Collection did not find"),
+                    Control::Button(tr!("Open"), crate::components::ButtonKind::Secondary),
+                ),
+            ],
         );
-        if pressed == Some(0) {
-            state.open_message = true;
+        match pressed {
+            Some(0) => state.open_message = true,
+            Some(1) => state.collections.open = true,
+            _ => {}
         }
     }
     ui.add_space(16.0);

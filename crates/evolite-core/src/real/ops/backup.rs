@@ -49,7 +49,10 @@ impl Real {
             hidden_requests: self.hidden.all(),
             connected_apps: self.apps.all(),
             settings: settings.and_then(|s| serde_json::from_str(&s).ok()),
-            nft: None,
+            nft: Some(file::NftChoices {
+                collections: self.added_collections.read(Clone::clone),
+                trusted_issuers: self.trusted_issuers.read(Clone::clone),
+            }),
             platform_history: self.journal.finished_entries(),
             top_up_credits: self.journal.top_ups(),
             name_requests: self.name_requests.load(),
@@ -164,6 +167,25 @@ impl Real {
             done.tokens = file
                 .merge_backup(&contents.tokens, &contents.hidden_tokens)
                 .map_err(|_| partial(&done, Section::Tokens))?;
+        }
+        // FEAT-0054 r1: the collections added by id and the issuers shown, added to what is here.
+        if let Some(nft) = &contents.nft {
+            let union = |store: &evolite_local::json_file::Store<Vec<String>>, from: &[String]| {
+                store.update(|all| {
+                    let before = all.len();
+                    for id in from {
+                        if !all.contains(id) {
+                            all.push(id.clone());
+                        }
+                    }
+                    let added = all.len() - before;
+                    (added, added > 0)
+                })
+            };
+            done.collections = union(&self.added_collections, &nft.collections)
+                .and_then(|a| Ok(a + union(&self.trusted_issuers, &nft.trusted_issuers)?))
+                .map_err(|_| partial(&done, Section::Collections))?;
+            self.nfts.ask_now();
         }
         Ok(done)
     }

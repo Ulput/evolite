@@ -81,9 +81,10 @@ pub struct Contents {
     /// read it, it carries it (the architect, answer 5).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<serde_json::Value>,
-    /// Reserved for the NFT decisions (FEAT-0031 R-10), once they have a file.
+    /// The NFT decisions (FEAT-0054 r1): the collections added by id and the issuers whose
+    /// pictures are shown — the person's intent, which no search gives back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub nft: Option<serde_json::Value>,
+    pub nft: Option<NftChoices>,
     /// The journal's finished lines: exact Platform fees, credit transfers, contact requests…
     #[serde(default)]
     pub platform_history: Vec<crate::journal::Entry>,
@@ -105,6 +106,17 @@ pub struct Contents {
     /// Contacts' addresses paid to, so the next payment goes to a new one (DIP-15).
     #[serde(default)]
     pub contact_addresses: crate::contact_addresses::Paid,
+}
+
+/// FEAT-0054 r1: the section `nft` — public ids only.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct NftChoices {
+    /// Collections added by id (`collections.json`), base58.
+    #[serde(default)]
+    pub collections: Vec<String>,
+    /// Issuers whose pictures are drawn without asking (`trusted-issuers.json`), base58.
+    #[serde(default)]
+    pub trusted_issuers: Vec<String>,
 }
 
 /// The sections a file has, by name: every field of [`Contents`] (the guard of AC-T-B2 holds
@@ -143,6 +155,12 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
     ),
     ("notes.enc", true, "notes"),
     ("address-book.json", true, "address_book"),
+    ("collections.json", true, "nft, the collections added by id"),
+    (
+        "trusted-issuers.json",
+        true,
+        "nft, the issuers whose pictures are shown",
+    ),
     ("contact-names.json", true, "contact_names"),
     ("hidden-requests.json", true, "hidden_requests"),
     ("connected-apps.json", true, "connected_apps"),

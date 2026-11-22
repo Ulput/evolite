@@ -50,6 +50,10 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::PreviewMixedLock { .. } => "preview_mixed_lock",
         Command::FindIdentities => "find_identities",
         Command::RefreshNfts => "refresh_nfts",
+        // FEAT-0054: no id in the journal.
+        Command::AddCollection { .. } => "add_collection",
+        Command::RemoveCollection { .. } => "remove_collection",
+        Command::TrustIssuer { .. } => "trust_issuer",
         Command::ReadIdentityKeys { .. } => "read_identity_keys",
         Command::ChooseIdentity { .. } => "choose_identity",
         Command::CheckContract { .. } => "check_contract",

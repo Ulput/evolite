@@ -62,7 +62,7 @@ use platform_wallet_storage::sqlite::{SqlitePersister, SqlitePersisterConfig};
 
 use crate::provider::{NotYet, SpvContextProvider};
 use crate::sync::{Phase, Reporter, SyncStatus, VerifiedLocks};
-use crate::{dashpay, identity, nfts};
+use crate::{dashpay, identity};
 
 /// The SQLite store with the DashPay backfill record and the spent-coin claims it does not keep
 /// (BUG-77, [`crate::store`]).
@@ -130,6 +130,11 @@ pub struct Chain {
     pub(crate) instance_models: Mutex<std::collections::HashMap<Identifier, Identifier>>,
     /// BUG-269: the Workshop's model pictures read this run, to draw ([`Self::workshop_picture`]).
     workshop_pictures: Mutex<Vec<WorkshopPicture>>,
+    /// FEAT-0054 r2: each collection's model documents, read once a run for the Collection.
+    pub(crate) nft_models:
+        crate::platform::workshop_read::model_cache::ModelCache<Arc<Vec<dpp::document::Document>>>,
+    /// FEAT-0054 r2: at most [`NFT_READS`] identities' NFT lists read at once.
+    pub(crate) nft_reads: tokio::sync::Semaphore,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
     #[cfg(any(test, feature = "test-support"))]
     pub proof_reads: std::sync::atomic::AtomicUsize,
@@ -184,6 +189,9 @@ pub struct PoolCounts {
     pub waited: std::collections::BTreeMap<[u8; 32], (u32, &'static str)>,
 }
 
+/// FEAT-0054 r2: how many identities' NFT lists are read at the same time.
+pub const NFT_READS: usize = 3;
+
 impl Default for Chain {
     fn default() -> Self {
         Self {
@@ -210,6 +218,8 @@ impl Default for Chain {
             contracts: Mutex::new(None),
             instance_models: Mutex::new(std::collections::HashMap::new()),
             workshop_pictures: Mutex::new(Vec::new()),
+            nft_models: Default::default(),
+            nft_reads: tokio::sync::Semaphore::new(NFT_READS),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1076,114 +1086,6 @@ impl Chain {
                 dashpay.start();
             }
         }
-    }
-
-    /// Jembe's gifts held by `owner`, and the models among them not in `known` (proved). The
-    /// gifts by the contract's `byOwner` index (`$ownerId`, `$createdAt`), the models one by
-    /// one by id: few, and never changing, so each is read once.
-    pub async fn jembe_gifts(
-        &self,
-        owner: Identifier,
-        known: &[String],
-    ) -> Result<nfts::Found, String> {
-        use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
-        use dash_sdk::platform::{DocumentQuery, Fetch, FetchMany};
-        use dpp::data_contract::DataContract;
-        use dpp::data_contract::accessors::v0::DataContractV0Getters;
-        use dpp::document::{Document, DocumentV0Getters};
-        use dpp::platform_value::Value;
-
-        self.ready()?;
-        let sdk = self.sdk().await?;
-        let id =
-            Identifier::from_string(nfts::CONTRACT, Encoding::Base58).map_err(|e| e.to_string())?;
-        let contract = Arc::new(
-            DataContract::fetch(&sdk, id)
-                .await
-                .map_err(|e| e.to_string())?
-                .ok_or(tr!("The Jembe NFT contract was not found"))?,
-        );
-        let issuer = contract.owner_id();
-        let base58 = |v: &Identifier| v.to_string(Encoding::Base58);
-        let text = |d: &Document, k: &str| {
-            d.properties()
-                .get(k)
-                .and_then(Value::as_text)
-                .unwrap_or_default()
-                .to_owned()
-        };
-        let integer =
-            |d: &Document, k: &str| d.properties().get(k).and_then(|v| v.as_integer::<u64>());
-
-        let query = DocumentQuery::new(contract.clone(), "gift")
-            .map_err(|e| e.to_string())?
-            .with_where(WhereClause {
-                field: "$ownerId".into(),
-                operator: WhereOperator::Equal,
-                value: Value::Identifier(owner.to_buffer()),
-            })
-            .with_order_by(OrderClause {
-                field: "$createdAt".into(),
-                ascending: true,
-            })
-            .with_limit(100);
-        let found = Document::fetch_many(&sdk, query)
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut gifts = Vec::new();
-        for doc in found.into_values().flatten() {
-            let Some(model_id) = doc
-                .properties()
-                .get("modelId")
-                .and_then(|v| v.to_identifier().ok())
-            else {
-                continue;
-            };
-            gifts.push(nfts::GiftDoc {
-                id: base58(&doc.id()),
-                model_id: base58(&model_id),
-                serial: integer(&doc, "serial").unwrap_or(0) as u32,
-                held_by_issuer: doc.owner_id() == issuer,
-                transferred_at: doc.transferred_at(),
-                price: integer(&doc, "$price"),
-            });
-        }
-
-        let mut models = Vec::new();
-        let wanted: std::collections::BTreeSet<&String> = gifts
-            .iter()
-            .map(|g| &g.model_id)
-            .filter(|m| !known.contains(m))
-            .collect();
-        for model_id in wanted {
-            let mid =
-                Identifier::from_string(model_id, Encoding::Base58).map_err(|e| e.to_string())?;
-            let query = DocumentQuery::new(contract.clone(), "giftModel")
-                .map_err(|e| e.to_string())?
-                .with_document_id(&mid);
-            let Some(doc) = Document::fetch(&sdk, query)
-                .await
-                .map_err(|e| e.to_string())?
-            else {
-                continue;
-            };
-            let bytes = |k: &str| {
-                doc.properties()
-                    .get(k)
-                    .and_then(|v| v.to_binary_bytes().ok())
-                    .unwrap_or_default()
-            };
-            models.push(nfts::ModelDoc {
-                id: model_id.clone(),
-                name: text(&doc, "name"),
-                description: text(&doc, "description"),
-                image: bytes("image"),
-                image_format: integer(&doc, "imageFormat").unwrap_or(0) as u8,
-                image_hash: bytes("imageHash"),
-                supply: integer(&doc, "supply").map(|s| s as u32),
-            });
-        }
-        Ok((gifts, models))
     }
 
     /// The wallet's next unused Platform address (`tdash1…`) and the credits on all its

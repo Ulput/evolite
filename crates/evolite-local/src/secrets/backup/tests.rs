@@ -58,7 +58,10 @@ fn full() -> Contents {
         hidden_requests: ["Spam1".to_owned()].into(),
         connected_apps: vec![app("C1", "Id1", 7)],
         settings: Some(serde_json::json!({"fee_rate": 2000})),
-        nft: Some(serde_json::json!({})),
+        nft: Some(NftChoices {
+            collections: vec!["Coll1".into()],
+            trusted_issuers: vec!["Issuer1".into()],
+        }),
         ..Contents::default()
     }
 }

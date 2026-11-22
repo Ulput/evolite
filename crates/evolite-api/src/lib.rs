@@ -1353,13 +1353,18 @@ pub struct Nft {
     pub origin: NftOrigin,
     pub issuer: String,
     pub contract: String,
-    /// Number and edition size; the size is 0 when the issuer set none.
-    pub edition: (u32, u32),
+    /// Number and edition size; the size is 0 when the issuer set none. FEAT-0054 r1: no number
+    /// when the document has none (shown without one, never «№ 0»).
+    pub edition: (Option<u32>, u32),
     pub owner: String,
     /// FEAT-0055: the id (base58) of the wallet's identity that holds it — the Collection shows
     /// every identity's NFTs together and filters by this.
     pub owner_id: String,
     pub price: Option<Duffs>,
+    /// FEAT-0054 r1 (answer 1): the person chose where it comes from — a collection of one of the
+    /// wallet's identities, one added by id, or (part 2) a purchase: its picture is drawn
+    /// without asking. A transfer from an issuer not chosen waits for «Show».
+    pub chosen: bool,
 }
 
 /// A drawn picture: frames of one size, straight-alpha RGBA, checked by the core. The frames
@@ -1734,6 +1739,12 @@ pub struct Wallet {
     /// under one identity's chip (another one's failed read is not this one's). Empty: only
     /// [`Self::nfts_status`] is known (the demo).
     pub nfts_statuses: Vec<(String, NftsStatus)>,
+    /// FEAT-0054: the collections added by hand (Advanced «Add a collection by id»), base58,
+    /// in the order added.
+    pub added_collections: Vec<String>,
+    /// FEAT-0054 r1: the issuers (collection owners' ids) whose pictures the person chose to see
+    /// («Always show from …»), kept by the wallet.
+    pub trusted_issuers: Vec<String>,
     /// DashPay contacts of the identity, requests both ways included.
     pub contacts: Vec<Contact>,
     /// FEAT-0020-resend: the contact requests the shown identity sends again after its DashPay
@@ -2521,10 +2532,28 @@ pub enum Command {
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
-    /// Ask Platform for the shown identity's NFTs again, now, not at the next refresh
+    /// Ask Platform for the identities' NFTs again, now, not at the next refresh
     /// (Collection's «Try again» after a failed load). The answer is in [`Wallet::nfts`] and
     /// [`Wallet::nfts_status`].
     RefreshNfts,
+    /// FEAT-0054: show the NFTs of the collection `id` (base58 contract id) too — the
+    /// Advanced fallback «Add a collection by id». Checked first: a contract of the evolite
+    /// standard only. `Done { what: DoneWhat::Collection }`; the list is
+    /// [`Wallet::added_collections`].
+    AddCollection {
+        id: String,
+    },
+    /// FEAT-0054: no longer show the collection `id` added by hand. `Done { what:
+    /// DoneWhat::Collection }`.
+    RemoveCollection {
+        id: String,
+    },
+    /// FEAT-0054 r1: «Always show from …» — the pictures of `issuer` (a collection owner's id)
+    /// are drawn without asking, kept by the wallet ([`Wallet::trusted_issuers`]). `Done {
+    /// what: DoneWhat::Collection }`.
+    TrustIssuer {
+        issuer: String,
+    },
     /// Read the shown identity `identity` (base58) from Platform again, now: its keys with their
     /// state (FEAT-0020 АРХ-4: platform-wallet keeps no keys on disk, so a key another wallet
     /// disabled looks acting until then). `Done { what: DoneWhat::KeysRead }`; the new snapshot
@@ -3203,6 +3232,8 @@ pub enum DoneWhat {
     /// reads its model again on it (FEAT-0038, the boundary of the two cores).
     Series,
     CoreNode,
+    /// `AddCollection` / `RemoveCollection` (FEAT-0054).
+    Collection,
     Create,
     Delete,
     DeleteOther,
@@ -3260,6 +3291,7 @@ impl DoneWhat {
             Self::ForgetApp => "forget-app",
             Self::Contact => "contact",
             Self::Contract => "contract",
+            Self::Collection => "collection",
             Self::Series => "series",
             Self::CoreNode => "core-node",
             Self::Create => "create",

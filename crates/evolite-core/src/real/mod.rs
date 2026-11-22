@@ -270,6 +270,10 @@ pub struct Paths {
     pub resync: PathBuf,
     /// Core addresses the person named ([`address_book::AddressBook`]).
     pub address_book: PathBuf,
+    /// FEAT-0054: the collections added by id by hand (Advanced), base58.
+    pub collections: PathBuf,
+    /// FEAT-0054 r1: the issuers whose pictures are drawn without asking, base58.
+    pub trusted_issuers: PathBuf,
     /// When payments out of a block were first seen ([`mempool::MempoolSeen`]).
     pub mempool: PathBuf,
     /// The block each Core transaction was seen in ([`mined::Mined`]).
@@ -330,6 +334,8 @@ impl Paths {
             pool_history: wallets.join("pool-history.json"),
             resync: wallets.join("resync-on-start"),
             address_book: wallets.join("address-book.json"),
+            collections: wallets.join("collections.json"),
+            trusted_issuers: wallets.join("trusted-issuers.json"),
             mempool: wallets.join("mempool-seen.json"),
             mined: wallets.join("mined.json"),
             contact_scans: wallets.join("contact-rescans.json"),
@@ -708,6 +714,10 @@ struct Real {
     first_seen: std::sync::Mutex<FirstSeen>,
     /// Core addresses the person named, to pay again.
     address_book: address_book::AddressBook,
+    /// FEAT-0054: the collections added by id by hand, whose NFTs the Collection shows too.
+    added_collections: evolite_local::json_file::Store<Vec<String>>,
+    /// FEAT-0054 r1: «Always show from …», kept by the wallet.
+    trusted_issuers: evolite_local::json_file::Store<Vec<String>>,
     /// The address shown in the last look before paying each contact (by identity): a payment
     /// to a contact is signed only to it.
     previews: Arc<std::sync::Mutex<HashMap<String, String>>>,

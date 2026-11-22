@@ -239,15 +239,16 @@ async fn the_snapshot_settles_its_lines_with_the_wallets_own_addresses() {
     core.chain.stop().await;
 }
 
-/// CS-1a r2 must 1: «Try again» reaches the NFT ask through the core. After a failed
-/// ask `RefreshNfts` makes the next snapshot ask at once, not after `REFRESH`, and asks
-/// for a new snapshot to do it.
+/// CS-1a r2 must 1: «Try again» reaches the NFT ask through the core and asks for a new
+/// snapshot to do it. FEAT-0054 (TEAM.md §8d-4): no more often than every 30 s — an ask that
+/// failed just now is not repeated at once (the chain's `try_again_asks_at_once_and_only_once`
+/// has the one 30 s old asked at once).
 #[tokio::test(flavor = "multi_thread")]
-async fn refresh_nfts_asks_at_once_after_a_failed_ask() {
+async fn refresh_nfts_asks_again_no_sooner_than_30_s_after_a_failed_ask() {
     let mut core = core_at(&fresh_dir("refresh-nfts"), TEST_WALLET);
     let owner = "owner";
     assert!(core.nfts.due(owner), "the first ask");
-    core.nfts.found(owner, "@o", Err("timeout".into()));
+    core.nfts.found(owner, Err("timeout".into()));
     assert!(
         !core.nfts.due(owner),
         "on its own, the next ask waits for REFRESH"
@@ -257,7 +258,10 @@ async fn refresh_nfts_asks_at_once_after_a_failed_ask() {
         event.is_none() && snapshot,
         "no answer of its own: a new snapshot"
     );
-    assert!(core.nfts.due(owner), "asked again at once");
+    assert!(
+        !core.nfts.due(owner),
+        "the failed ask is not 30 s old: not again yet"
+    );
 }
 
 /// BUG-103: the pool's lines are in the first snapshot after a start, from the file, before
@@ -535,4 +539,55 @@ fn a_withdrawal_to_own_core_is_its_own_line_and_its_arrival_is_matched() {
         withdrawals_on_their_way(&history).is_empty(),
         "arrived: nothing to hold"
     );
+}
+
+/// FEAT-0054 (TEAM.md §8d-1, read back): a collection added by hand is in the wallet's folder,
+/// so a new run (another core on the same folder) has it; «Remove» takes it out of the file. A
+/// text that is not a contract id is refused before the network.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_collection_added_by_id_is_read_back_by_a_new_run() {
+    let dir = fresh_dir("added-collections");
+    let id = "8rd3Ux7pQfAbCdEfGhJkLmNoPqRsTuVwXyZkV2mJ38R".to_string();
+    {
+        let core = core_at(&dir, TEST_WALLET);
+        // Kept as the core keeps a contract it found of the standard (the check needs the
+        // network: its function is `Chain::is_standard_collection`).
+        core.added_collections
+            .update(|all| {
+                all.push(id.clone());
+                ((), true)
+            })
+            .unwrap();
+    }
+    let mut again = core_at(&dir, TEST_WALLET);
+    assert_eq!(again.added_collections.read(Clone::clone), vec![id.clone()]);
+    let (event, _) = again
+        .handle(Command::AddCollection {
+            id: "not an id".into(),
+        })
+        .await;
+    assert!(
+        matches!(
+            event,
+            Some(Event::Done {
+                what: DoneWhat::Collection,
+                result: Err(_),
+                ..
+            })
+        ),
+        "{event:?}"
+    );
+    let (event, _) = again
+        .handle(Command::RemoveCollection { id: id.clone() })
+        .await;
+    assert!(matches!(
+        event,
+        Some(Event::Done {
+            what: DoneWhat::Collection,
+            result: Ok(()),
+            ..
+        })
+    ));
+    let third = core_at(&dir, TEST_WALLET);
+    assert!(third.added_collections.read(Clone::clone).is_empty());
 }

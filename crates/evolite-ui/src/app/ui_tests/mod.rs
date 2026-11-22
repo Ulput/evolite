@@ -7,6 +7,7 @@
 //! one-app turn ([`demo_app`]) to its end and reads the app's own state where the screen's
 //! answer is not in the tree.
 
+mod add_collection;
 mod add_name;
 mod address_solid;
 mod addresses;

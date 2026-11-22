@@ -65,7 +65,15 @@ async fn no_platform_read_goes_out_before_the_lists() {
         Some(chain::NOT_READY.into())
     );
     assert_eq!(
-        chain.jembe_gifts(id, &[]).await.err(),
+        chain
+            .standard_nfts(
+                "8rd3Ux7pQfAbCdEfGhJkLmNoPqRsTuVwXyZkV2mJ38R",
+                "@o",
+                &[],
+                &[]
+            )
+            .await
+            .err(),
         Some(chain::NOT_READY.into())
     );
     assert_eq!(count(&chain.proof_reads), 0, "nothing went out");

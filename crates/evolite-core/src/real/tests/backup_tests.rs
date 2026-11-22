@@ -39,6 +39,10 @@ async fn restore(core: &mut Real, path: &std::path::Path) -> Result<Restored, Ba
     }
 }
 
+/// FEAT-0054 r1: a collection's and an issuer's public ids, for the section `nft`.
+const COLLECTION: &str = "8rd3Ux7pQfAbCdEfGhJkLmNoPqRsTuVwXyZkV2mJ38R";
+const ISSUER: &str = "7Hk2Wm4nPq8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP";
+
 /// A wallet with a note, a named address and a hidden request, saved to a file.
 async fn saved(name: &str, file: &std::path::Path) -> Real {
     let mut core = unlocked(name).await;
@@ -49,6 +53,14 @@ async fn saved(name: &str, file: &std::path::Path) -> Real {
     .await;
     core.address_book.save("yExchangeQZX", "Exchange").unwrap();
     core.hidden.add("Spammer1").unwrap();
+    // FEAT-0054 r1: a collection added by id and an issuer whose pictures are shown.
+    core.added_collections
+        .update(|all| {
+            all.push(COLLECTION.into());
+            ((), true)
+        })
+        .unwrap();
+    assert_eq!(core.trust_issuer(ISSUER), Ok(()));
     let name = save(&mut core, file).await.expect("saved");
     assert_eq!(name, file.file_name().unwrap().to_string_lossy());
     core
@@ -83,9 +95,19 @@ async fn a_backup_brings_back_what_the_phrase_does_not() {
             notes: 1,
             addresses: 1,
             hidden_requests: 1,
+            collections: 2,
             settings: Some(r#"{"fee_rate":2000}"#.into()),
             ..Restored::default()
         }
+    );
+    // FEAT-0054 r1: the person's NFT choices came back with the file.
+    assert_eq!(
+        other.added_collections.read(Clone::clone),
+        vec![COLLECTION.to_string()]
+    );
+    assert_eq!(
+        other.trusted_issuers.read(Clone::clone),
+        vec![ISSUER.to_string()]
     );
     let note = other
         .notes

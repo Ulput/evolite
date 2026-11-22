@@ -28,6 +28,8 @@ use evolite_common::PASSWORD_NEEDED;
 /// The one password the demo's unlock refuses, so the UI tests can see "Wrong password"
 /// (BUG-16); any other opens the example wallet.
 pub const WRONG_PASSWORD: &str = "wrong";
+/// FEAT-0054: a contract id the demo refuses as not of the evolite standard (a token contract).
+pub const DEMO_NOT_STANDARD: &str = "9mK3pQ7vT2wR8sY4uZ6xB1cD5eF8gH2jK4LM7nP9qR3s";
 /// FEAT-0042: the demo's account public key — BIP32 test vector 1, testnet form.
 pub const DEMO_XPUB: &str = "tpubD6NzVbkrYhZ4XgiXtGrdW5XDAPFCL9h7we1vwNCpn8tGbBcgfVYjXyhWo4E1xkh56hjod1RhGjxbaTLV3X4FyWuejifB9jusQ46QzG87VKY";
 
@@ -443,6 +445,62 @@ impl Mock {
             },
             // The demo identity is always found.
             Command::FindIdentities => return changed,
+            // FEAT-0054: an id of 43–44 base58 characters is kept, as the real core keeps a
+            // contract of the evolite standard; DEMO_NOT_STANDARD is a contract that is not one.
+            Command::AddCollection { id } => {
+                let id = id.trim().to_owned();
+                let result = if id == DEMO_NOT_STANDARD {
+                    Err(CoreError::NotAvailable(
+                        tr!("This contract is not an NFT collection of the evolite standard")
+                            .into(),
+                    ))
+                } else if !(43..=44).contains(&id.len())
+                    || !id
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() && !"0OIl".contains(c))
+                {
+                    Err(CoreError::NotAvailable(
+                        tr!("This is not a contract id: 44 letters and digits").into(),
+                    ))
+                } else {
+                    if let Some(wallet) = &mut self.snapshot.wallet
+                        && !wallet.added_collections.contains(&id)
+                    {
+                        wallet.added_collections.push(id);
+                        changed = true;
+                    }
+                    Ok(())
+                };
+                Event::Done {
+                    what: DoneWhat::Collection,
+                    result,
+                    ask: None,
+                }
+            }
+            Command::TrustIssuer { issuer } => {
+                if let Some(wallet) = &mut self.snapshot.wallet
+                    && !wallet.trusted_issuers.contains(&issuer)
+                {
+                    wallet.trusted_issuers.push(issuer);
+                    changed = true;
+                }
+                Event::Done {
+                    what: DoneWhat::Collection,
+                    result: Ok(()),
+                    ask: None,
+                }
+            }
+            Command::RemoveCollection { id } => {
+                if let Some(wallet) = &mut self.snapshot.wallet {
+                    wallet.added_collections.retain(|c| *c != id);
+                    changed = true;
+                }
+                Event::Done {
+                    what: DoneWhat::Collection,
+                    result: Ok(()),
+                    ask: None,
+                }
+            }
             // The demo's NFTs are always there: asked again, the list is as good as new.
             Command::RefreshNfts => {
                 if let Some(wallet) = &mut self.snapshot.wallet {

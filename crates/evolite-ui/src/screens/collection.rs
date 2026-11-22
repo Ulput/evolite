@@ -1,8 +1,8 @@
-//! 18 · Collection: the identity's NFTs as the core found them on Platform (Jembe's gifts),
-//! with filters and the selected NFT on the right. Nothing is shown that is not there: an
-//! empty or still loading list says so. Only the demo core can "Give" (the dialog), beside an
-//! inactive "Sell" and "Get a gift" as in Figma; the release, without the demo core, shows none
-//! of the three until the real core can do them.
+//! 18 · Collection: the NFTs the wallet's identities hold (FEAT-0055) in collections of the
+//! evolite standard (FEAT-0054: no partner contract), as the core found them on Platform, with
+//! filters and the selected NFT on the right. Nothing is shown that is not there: an empty or
+//! still searched list says so. Only the demo core can "Give" (the dialog), beside an inactive
+//! "Sell"; the release, without the demo core, shows neither until the real core can do them.
 
 use super::txt;
 use crate::art::ArtCache;
@@ -27,14 +27,13 @@ use std::collections::HashSet;
 
 /// The filters of the Collection tab (BUG-188 §5): none chosen is all of it; 1 and 2 are
 /// what `matches` takes.
-const FILTERS: [&str; 2] = [tr!("Jembe · gifts"), tr!("For sale")];
+const FILTERS: [&str; 2] = [tr!("Received"), tr!("For sale")];
 
 /// BUG-188: a group's actions go through the Workshop's series windows, not built yet.
 const SERIES_LATER: &str = tr!("Actions on several copies come in the next version");
 
 /// Hints on the demo's buttons that are not there yet.
 #[cfg(demo_core)]
-const GIFT_LATER: &str = tr!("Receiving a gift by link comes in the next version");
 #[cfg(demo_core)]
 const SELL_LATER: &str = tr!("Selling NFTs comes in the next version");
 #[cfg(demo_core)]
@@ -46,7 +45,7 @@ fn matches(filter: usize, nft: &Nft) -> bool {
             matches!(
                 nft.origin,
                 NftOrigin::Gift { .. } | NftOrigin::Received { .. }
-            ) && nft.issuer == "jembe"
+            )
         }
         2 => nft.price.is_some(),
         _ => true,
@@ -83,8 +82,13 @@ pub struct CollectionState {
     pub shown: HashSet<String>,
 }
 
-/// Issuers trusted out of the box: the partner app whose gifts the wallet is made for.
+/// Issuers trusted out of the box: the demo's partner issuer only (FEAT-0054 r1). The real core
+/// has none: a picture is drawn at once from a source the person chose ([`Nft::chosen`]) or an
+/// issuer they trusted ([`evolite_api::Wallet::trusted_issuers`]).
+#[cfg(demo_core)]
 const TRUSTED: [&str; 1] = ["jembe"];
+#[cfg(not(demo_core))]
+const TRUSTED: [&str; 0] = [];
 
 impl CollectionState {
     /// Another wallet opens: the gift dialog, its answer and the pictures asked for go; the
@@ -115,10 +119,14 @@ impl CollectionState {
     }
 
     /// The picture of `nft` is not drawn until the person asks: an issuer nobody trusted may
-    /// send anything, and drawing it is the first thing that could go wrong.
-    pub fn waits_for_consent(&self, nft: &Nft) -> bool {
+    /// send anything, and drawing it is the first thing that could go wrong. FEAT-0054 r1: drawn
+    /// at once from a source the person chose (their own collection, one added by id, a
+    /// purchase) or an issuer the wallet keeps as trusted (`trusted`).
+    pub fn waits_for_consent(&self, nft: &Nft, trusted: &[String]) -> bool {
         self.ask_unknown
+            && !nft.chosen
             && !TRUSTED.contains(&nft.issuer.as_str())
+            && !trusted.contains(&nft.issuer)
             && !self.trusted.contains(&nft.issuer)
             && !self.shown.contains(&nft.id)
     }
@@ -149,12 +157,6 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     // The count only for NFTs there are: none while the list loads, not «0» beside «Loading…»
     // (BUG-74 №3, the designer's improvement 1 rule 9).
     let count = (!nfts.is_empty()).then(|| nfts.len().to_string());
-    #[cfg(demo_core)]
-    page_header(ui, a, tr!("Collection"), count.as_deref(), |ui, a| {
-        button_enabled(ui, a, tr!("Get a gift"), ButtonKind::Secondary, None, false)
-            .on_disabled_hover_text(crate::i18n::t(GIFT_LATER).into_owned());
-    });
-    #[cfg(not(demo_core))]
     page_header(ui, a, tr!("Collection"), count.as_deref(), |_, _| {});
     // Before the list: avatars ask too, and there may be no NFT here at all (BUG-95).
     if let Some(why) = state.art.off.or(a.avatars.off) {
@@ -257,7 +259,10 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     }
 
     let mut asked = Vec::new();
-    let asks: Vec<bool> = nfts.iter().map(|n| state.waits_for_consent(n)).collect();
+    let asks: Vec<bool> = nfts
+        .iter()
+        .map(|n| state.waits_for_consent(n, &wallet.trusted_issuers))
+        .collect();
     // BUG-188: copies of one model are one tile «×N».
     let groups = groups(nfts, &shown);
     let selected = groups
@@ -332,7 +337,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 a,
                 "info",
                 p.muted,
-                tr!("Jembe NFTs from Dash Platform: the picture is stored in the document itself — no outside servers — and checked against its hash on this computer."),
+                tr!("NFTs of evolite collections on Dash Platform: the picture is stored in the documents themselves — no outside servers — and drawn by its hash on this computer."),
             );
             clicked
         };
@@ -356,6 +361,10 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                                 );
                                 state.gifting |= picked.gift;
                                 if let Some(issuer) = picked.trust {
+                                    // r1: kept by the wallet, not only this run.
+                                    asked.push(Command::TrustIssuer {
+                                        issuer: issuer.clone(),
+                                    });
                                     state.trusted.insert(issuer);
                                 }
                             });
@@ -400,6 +409,10 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
         );
         state.gifting |= picked.gift;
         if let Some(issuer) = picked.trust {
+            // r1: kept by the wallet, not only this run.
+            asked.push(Command::TrustIssuer {
+                issuer: issuer.clone(),
+            });
             state.trusted.insert(issuer);
         }
         if close || picked.gift {
@@ -418,9 +431,11 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
 
 fn edition(nft: &Nft) -> String {
     match nft.edition {
+        // FEAT-0054 r1: the document has no number — none shown.
+        (None, _) => String::new(),
         // The issuer set no edition size.
-        (n, 0) => format!("№ {n}"),
-        (n, of) => format!(tr!("No. {n} of {of}"), n = n, of = of),
+        (Some(n), 0) => format!("№ {n}"),
+        (Some(n), of) => format!(tr!("No. {n} of {of}"), n = n, of = of),
     }
 }
 
@@ -430,16 +445,20 @@ fn empty(ui: &mut Ui, a: &mut Assets, status: &NftsStatus) -> bool {
     let mut again = false;
     let p = a.p;
     let (title, detail) = match status {
-        NftsStatus::Loading => (tr!("Loading NFTs from Dash Platform…"), String::new()),
+        // TEAM.md §8d-4: «still searching», not «none».
+        NftsStatus::Loading => (tr!("Looking for your NFTs…"), String::new()),
         NftsStatus::NoIdentity => (
             tr!("NFTs belong to an identity"),
-            tr!("Make an identity — Jembe gifts will come to it.").into(),
+            tr!("Make an identity — the NFTs it gets will show here.").into(),
         ),
         // The core asks again by itself (BUG-10): the reason and that, not an endless wait.
         NftsStatus::Failed(why) => (tr!("Could not load the NFTs"), failed_detail(why)),
         NftsStatus::Ready => (
             tr!("You have no NFTs yet"),
-            tr!("Jembe gifts appear here as soon as someone sends them to your identity.").into(),
+            tr!(
+                "NFTs of evolite collections show here when your identities make, get or buy them."
+            )
+            .into(),
         ),
     };
     let width = ui.available_width();
@@ -519,7 +538,7 @@ pub(crate) fn numbers(nfts: &[Nft], group: &[usize]) -> String {
     if let [one] = group {
         return edition(&nfts[*one]);
     }
-    let mut n: Vec<u32> = group.iter().map(|&i| nfts[i].edition.0).collect();
+    let mut n: Vec<u32> = group.iter().filter_map(|&i| nfts[i].edition.0).collect();
     n.sort_unstable();
     n.dedup();
     let run = n.windows(2).all(|w| w[1] == w[0] + 1);
@@ -600,14 +619,33 @@ fn nft_card(
         StrokeKind::Inside,
     );
     let art_rect = Rect::from_min_size(rect.min + vec2(8.0, 8.0), vec2(art, art));
+    // «×N» on the picture's top right corner (the frame mirrors it in Arabic).
+    let badge = (group.len() > 1).then(|| {
+        let galley = ui.painter().layout_no_wrap(
+            format!(tr!("×{}"), group.len()),
+            sans(12.0, Weight::SemiBold),
+            p.text,
+        );
+        let size = galley.size() + vec2(14.0, 6.0);
+        let rect = Rect::from_min_size(
+            pos2(art_rect.right() - 8.0 - size.x, art_rect.top() + 8.0),
+            size,
+        );
+        (rect, galley)
+    });
     let mut show = false;
     if ask {
-        // Nothing is drawn, not even in the sandbox, until the person asks.
+        // Nothing is drawn, not even in the sandbox, until the person asks. FEAT-0054 r1 Must 3:
+        // the words and «Show» under the «×N» badge, never drawn over it.
         ui.painter()
             .rect_filled(art_rect, CornerRadius::same(10), p.raised);
+        let mut room = art_rect.shrink(12.0);
+        if let Some((badge, _)) = &badge {
+            room.min.y = room.min.y.max(badge.bottom() + 6.0);
+        }
         let mut child = ui.new_child(
             egui::UiBuilder::new()
-                .max_rect(art_rect.shrink(12.0))
+                .max_rect(room)
                 .layout(Layout::top_down(Align::Center).with_main_align(Align::Center)),
         );
         child.spacing_mut().item_spacing.y = 10.0;
@@ -623,18 +661,7 @@ fn nft_card(
         art_cache.paint(ui, &p, &nft.art, art_rect, &mut |c| asked.push(c));
     }
     let painter = ui.painter();
-    if group.len() > 1 {
-        // «×N» on the picture's top right corner (the frame mirrors it in Arabic).
-        let galley = painter.layout_no_wrap(
-            format!(tr!("×{}"), group.len()),
-            sans(12.0, Weight::SemiBold),
-            p.text,
-        );
-        let size = galley.size() + vec2(14.0, 6.0);
-        let badge = Rect::from_min_size(
-            pos2(art_rect.right() - 8.0 - size.x, art_rect.top() + 8.0),
-            size,
-        );
+    if let Some((badge, galley)) = badge {
         painter.rect_filled(badge, CornerRadius::same(8), p.surface.gamma_multiply(0.92));
         painter.galley(badge.min + vec2(7.0, 3.0), galley, p.text);
     }
@@ -903,7 +930,7 @@ fn copy_row(
     (now, all_verified): (chrono::DateTime<chrono::Local>, bool),
     panel: bool,
 ) {
-    let number = format!("№ {}", nft.edition.0);
+    let number = nft.edition.0.map(|n| format!("№ {n}")).unwrap_or_default();
     let who = match &nft.origin {
         NftOrigin::Gift { from, .. } if !from.is_empty() => {
             if panel {
@@ -926,7 +953,11 @@ fn copy_row(
         NftOrigin::Received { at } => *at,
         NftOrigin::Release => None,
     };
-    let mut left = format!("{number} · {}", crate::i18n::t(&who));
+    let mut left = if number.is_empty() {
+        crate::i18n::t(&who).into_owned()
+    } else {
+        format!("{number} · {}", crate::i18n::t(&who))
+    };
     if let (false, Some(at)) = (panel, when) {
         left = format!("{left} · {}", text::date_short(at, now));
     }
@@ -1003,9 +1034,13 @@ fn detail(
                     NftOrigin::Release => format!(tr!("Issue {}"), nft.issuer),
                 };
                 ui.label(
-                    egui::RichText::new(crate::i18n::t(&format!("{kind} · {}", edition(nft))))
-                        .font(crate::theme::figures(12.0, Weight::Regular))
-                        .color(p.muted),
+                    egui::RichText::new(crate::i18n::t(&match edition(nft) {
+                        // r1: no number, no « · ».
+                        number if number.is_empty() => kind,
+                        number => format!("{kind} · {number}"),
+                    }))
+                    .font(crate::theme::figures(12.0, Weight::Regular))
+                    .color(p.muted),
                 );
             });
             ui.add(
@@ -1313,9 +1348,10 @@ mod tests {
             origin: NftOrigin::Release,
             issuer: "jembe".into(),
             contract: "jembe-nft".into(),
-            edition: (edition, 500),
+            edition: (Some(edition), 500),
             owner: "@me".into(),
             owner_id: "me".into(),
+            chosen: false,
             price,
         }
     }
@@ -1463,32 +1499,49 @@ mod tests {
             origin: NftOrigin::Release,
             issuer: issuer.into(),
             contract: String::new(),
-            edition: (1, 1),
+            edition: (Some(1), 1),
             owner: String::new(),
             owner_id: String::new(),
+            chosen: false,
             price: None,
         };
         let mut state = super::CollectionState {
             ask_unknown: true,
             ..Default::default()
         };
-        assert!(!state.waits_for_consent(&nft("jembe")));
+        // The demo's partner issuer is trusted by the demo core only (FEAT-0054 r1); the real
+        // core trusts no issuer out of the box.
+        assert_eq!(
+            state.waits_for_consent(&nft("jembe"), &[]),
+            !cfg!(demo_core)
+        );
         let stranger = nft("neon-forge");
-        assert!(state.waits_for_consent(&stranger));
+        assert!(state.waits_for_consent(&stranger, &[]));
         // "Show" on this one.
         state.shown.insert(stranger.id.clone());
-        assert!(!state.waits_for_consent(&stranger));
+        assert!(!state.waits_for_consent(&stranger, &[]));
         // "Always show from neon-forge".
         let other = Nft {
             id: "nft-other".into(),
             ..nft("neon-forge")
         };
-        assert!(state.waits_for_consent(&other));
+        assert!(state.waits_for_consent(&other, &[]));
         state.trusted.insert("neon-forge".into());
-        assert!(!state.waits_for_consent(&other));
+        assert!(!state.waits_for_consent(&other, &[]));
+        // FEAT-0054 r1: a source the person chose (own collection, added by id, a purchase) is
+        // drawn at once; a transfer from an issuer not chosen waits; an issuer the wallet keeps
+        // as trusted is drawn, after a restart too (it comes in the snapshot).
+        let mine = Nft {
+            chosen: true,
+            ..nft("my-own-collection")
+        };
+        assert!(!state.waits_for_consent(&mine, &[]));
+        let sent = nft("someone-else");
+        assert!(state.waits_for_consent(&sent, &[]));
+        assert!(!state.waits_for_consent(&sent, &["someone-else".to_string()]));
         // Settings: do not ask.
         state.ask_unknown = false;
-        assert!(!state.waits_for_consent(&nft("anyone")));
+        assert!(!state.waits_for_consent(&nft("anyone"), &[]));
     }
 
     #[test]
