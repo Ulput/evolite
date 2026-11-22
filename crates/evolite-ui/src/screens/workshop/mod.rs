@@ -294,34 +294,11 @@ fn home(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState) {
 
 /// The identity chips (when there are several) and the shown one's credits on the right.
 fn identity_row(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &evolite_api::Wallet) {
-    let p = a.p;
-    let shown = wallet.identity.as_ref().map(|i| i.id.clone());
-    let mut chosen = None;
-    ui.allocate_ui_with_layout(
-        vec2(ui.available_width(), 28.0),
-        Layout::left_to_right(Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            ui.label(txt(tr!("Identity"), 13.0, Weight::Regular, p.muted));
-            for c in &wallet.identities {
-                let name = c
-                    .name
-                    .as_ref()
-                    .map(|n| format!("@{n}"))
-                    .unwrap_or_else(|| super::tokens::state::short(&c.id));
-                let on = Some(&c.id) == shown.as_ref();
-                if super::tokens::identity_chip(ui, &p, &crate::i18n::own(&name), on).clicked()
-                    && !on
-                {
-                    chosen = Some(c.id.clone());
-                }
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(txt(&credits_line(wallet), 13.0, Weight::Regular, p.muted));
-            });
-        },
-    );
-    if let Some(id) = chosen {
+    // BUG-265: the one picker, wrapped within the page, so the buttons below stay in reach.
+    let credits = credits_line(wallet);
+    let picked =
+        crate::components::identity_picker(ui, a, wallet, tr!("Identity"), None, Some(&credits));
+    if let Some(id) = picked.chosen {
         cx.send(Command::ChooseIdentity { id });
     }
 }

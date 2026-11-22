@@ -319,6 +319,47 @@ fn identity_in_line(identity: &str) -> String {
     }
 }
 
+/// The fewest characters kept at the end of a shortened @name: names often differ only there
+/// (`-1108b`, `-1108c`), the designer's rule for BUG-114.
+pub const NAME_END: usize = 6;
+
+/// `name` with its middle replaced by «…» so that it fits: as much of both ends as fits, the
+/// two halves balanced, the end never shorter than [`NAME_END`] (BUG-114; the activity card, BUG-265's identity
+/// picker). Its own-words marks stay.
+pub fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool) -> String {
+    let (open, close) = (name.starts_with('\u{2068}'), name.ends_with('\u{2069}'));
+    let bare: Vec<char> = name
+        .chars()
+        .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
+        .collect();
+    let wrap = |s: String| {
+        let mut out = String::new();
+        if open {
+            out.push('\u{2068}');
+        }
+        out.push_str(&s);
+        if close {
+            out.push('\u{2069}');
+        }
+        out
+    };
+    let cut = |kept: usize| {
+        let tail = (kept / 2).max(NAME_END).min(kept);
+        let head = kept - tail;
+        let mut s: String = bare[..head].iter().collect();
+        s.push('…');
+        s.extend(&bare[bare.len() - tail..]);
+        s
+    };
+    for kept in (1..bare.len()).rev() {
+        let s = wrap(cut(kept));
+        if fits(&s) {
+            return s;
+        }
+    }
+    wrap(cut(NAME_END.min(bare.len())))
+}
+
 /// "8rd3Ux7pQf…kV2mJ38R" for an identity ID.
 pub fn short_id(id: &str) -> String {
     let chars: Vec<char> = id.chars().collect();

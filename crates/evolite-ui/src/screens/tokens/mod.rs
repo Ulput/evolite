@@ -186,7 +186,17 @@ pub(crate) fn shown_name(wallet: &Wallet) -> String {
             Some(n) => format!("@{}", n.label),
             None => state::short(&i.id),
         },
-        None => String::new(),
+        // BUG-265: no identity shown yet (the core still choosing one): the first of the list,
+        // never an empty name («No tokens found for »).
+        None => wallet
+            .identities
+            .first()
+            .map(|c| {
+                c.name
+                    .as_ref()
+                    .map_or_else(|| state::short(&c.id), |n| format!("@{n}"))
+            })
+            .unwrap_or_default(),
     }
 }
 
@@ -303,39 +313,6 @@ fn flag(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str) {
         p.muted,
     );
     crate::components::named(&resp, egui::WidgetType::Label, true, label);
-}
-
-/// An identity chip (FEAT-0019 review 4f): the chosen one `raised` with a `line` border and the
-/// text colour, the others outlined in `line` with `muted` text; 28 high.
-pub(crate) fn identity_chip(
-    ui: &mut Ui,
-    p: &crate::theme::Palette,
-    label: &str,
-    on: bool,
-) -> egui::Response {
-    let font = sans(13.0, Weight::Medium);
-    let width = 24.0 + crate::components::text_width(ui, label, font.clone());
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click());
-    if on {
-        ui.painter()
-            .rect_filled(rect, CornerRadius::same(14), p.raised);
-    }
-    ui.painter().rect_stroke(
-        rect,
-        CornerRadius::same(14),
-        Stroke::new(1.0, p.line),
-        StrokeKind::Inside,
-    );
-    crate::components::paint_text(
-        ui,
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        label,
-        font,
-        if on { p.text } else { p.muted },
-    );
-    crate::components::named_choice(&resp, egui::WidgetType::Button, on, label);
-    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState) {
@@ -550,51 +527,30 @@ fn mainnet(ui: &mut Ui, a: &mut Assets) {
 fn identity_row(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
     let p = a.p;
     let wallet = cx.wallet();
-    let shown = wallet.identity.as_ref().map(|i| i.id.clone());
     let checked = wallet
         .tokens
         .search
         .done
         .map(|(at, _)| format!(tr!("Checked {}"), text::when(at, cx.now)));
-    let choices: Vec<(String, String)> = wallet
-        .identities
-        .iter()
-        .map(|c| {
-            let name = c
-                .name
-                .as_ref()
-                .map(|n| format!("@{n}"))
-                .unwrap_or_else(|| state::short(&c.id));
-            (c.id.clone(), name)
-        })
-        .collect();
-    if choices.len() < 2 && checked.is_none() {
-        return;
-    }
-    let mut chosen = None;
-    ui.allocate_ui_with_layout(
-        vec2(ui.available_width(), 28.0),
-        Layout::left_to_right(Align::Center),
-        |ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            if choices.len() > 1 {
-                ui.label(txt(tr!("Identity"), 13.0, Weight::Regular, p.muted));
-                for (id, name) in &choices {
-                    let on = Some(id) == shown.as_ref();
-                    if identity_chip(ui, &p, &crate::i18n::own(name), on).clicked() && !on {
-                        chosen = Some(id.clone());
-                    }
-                }
-            }
-            if let Some(checked) = &checked {
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(txt(checked, 12.0, Weight::Regular, p.muted));
-                });
-            }
-        },
-    );
-    if let Some(id) = chosen {
-        cx.send(Command::ChooseIdentity { id });
+    if wallet.identities.len() > 1 {
+        // BUG-265: the one picker, wrapped within the page.
+        let picked = crate::components::identity_picker(
+            ui,
+            a,
+            wallet,
+            tr!("Identity"),
+            None,
+            checked.as_deref(),
+        );
+        if let Some(id) = picked.chosen {
+            cx.send(Command::ChooseIdentity { id });
+        }
+    } else if let Some(checked) = &checked {
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 28.0),
+            Layout::right_to_left(Align::Center),
+            |ui| ui.label(txt(checked, 12.0, Weight::Regular, p.muted)),
+        );
     }
 }
 

@@ -1620,7 +1620,7 @@ fn card_title(ui: &mut Ui, p: &crate::theme::Palette, title: &str, width: f32) {
 /// Splits `title` into at most two lines no wider than `width` by `measure` (BUG-114): words
 /// fill a line in order; an @name is never broken — it moves whole to the next line, and one
 /// that does not fit a line alone keeps its start and end around «…» (the end at least
-/// [`NAME_END`] characters). What is left after the second line ends it with «…».
+/// [`crate::text::NAME_END`] characters). What is left after the second line ends it with «…».
 fn fit_title(title: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<String> {
     let fits = |s: &str| measure(s) <= width;
     let mut lines: Vec<String> = Vec::new();
@@ -1652,7 +1652,7 @@ fn fit_title(title: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<Stri
         line = if fits(word) {
             word.to_owned()
         } else if is_name(word) {
-            middle_fit(word, &fits)
+            crate::text::middle_fit(word, &fits)
         } else {
             end_fit(word, "", &fits)
         };
@@ -1672,49 +1672,9 @@ fn fit_title(title: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<Stri
     lines
 }
 
-/// The fewest characters kept at the end of a shortened @name: names often differ only there
-/// (`-1108b`, `-1108c`), the designer's rule for BUG-114.
-const NAME_END: usize = 6;
-
 fn is_name(word: &str) -> bool {
     word.trim_start_matches(['\u{2068}', '\u{2069}'])
         .starts_with('@')
-}
-
-/// `name` with its middle replaced by «…» so that it fits: as much of both ends as fits, the
-/// two halves balanced, the end never shorter than [`NAME_END`]. Its own-words marks stay.
-fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool) -> String {
-    let (open, close) = (name.starts_with('\u{2068}'), name.ends_with('\u{2069}'));
-    let bare: Vec<char> = name
-        .chars()
-        .filter(|c| !matches!(c, '\u{2068}' | '\u{2069}'))
-        .collect();
-    let wrap = |s: String| {
-        let mut out = String::new();
-        if open {
-            out.push('\u{2068}');
-        }
-        out.push_str(&s);
-        if close {
-            out.push('\u{2069}');
-        }
-        out
-    };
-    let cut = |kept: usize| {
-        let tail = (kept / 2).max(NAME_END).min(kept);
-        let head = kept - tail;
-        let mut s: String = bare[..head].iter().collect();
-        s.push('…');
-        s.extend(&bare[bare.len() - tail..]);
-        s
-    };
-    for kept in (1..bare.len()).rev() {
-        let s = wrap(cut(kept));
-        if fits(&s) {
-            return s;
-        }
-    }
-    wrap(cut(NAME_END.min(bare.len())))
 }
 
 /// `line` followed by what does not fit (`rest`), ended with «…» where it is cut.

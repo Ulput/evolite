@@ -10,6 +10,33 @@ use evolite_api::{Command, VaultState};
 
 /// `--screen fund-address-recovered`: where «Continue» of a lock found after a restore goes —
 /// another of the wallet's Platform addresses than the one signed for (QA's C2, BUG-171).
+/// BUG-265: the presets of the 10 long-named identities, one per screen that shows them.
+pub(crate) const LONG_IDENTITIES: [&str; 4] = [
+    "identities-long",
+    "tokens-identities-long",
+    "collection-identities-long",
+    "workshop-identities-long",
+];
+
+/// 10 identities with long names, `first` (the shown one) first with its id, the last without a
+/// name: werner555's wallet (BUG-265).
+pub(crate) fn long_identities(
+    first: &evolite_api::IdentityChoice,
+) -> Vec<evolite_api::IdentityChoice> {
+    let mut all = vec![evolite_api::IdentityChoice {
+        name: Some("werner555-the-first-identity-with-a-very-long-name".into()),
+        ..first.clone()
+    }];
+    for i in 1..10u32 {
+        all.push(evolite_api::IdentityChoice {
+            id: format!("{i}Hk2Wm4nPq8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP"),
+            name: (i != 9).then(|| format!("werner555-identity-number-{i}-with-a-long-name")),
+            slot: i,
+        });
+    }
+    all
+}
+
 pub(super) fn recovered_to() -> String {
     on_this_network("kpmx2t8gs39wnd5v7n4k3l2qx9y8w6e5r4t3d2wd62z")
 }
@@ -59,6 +86,9 @@ pub(super) struct DevState {
     stuck_preset: bool,
     /// `--screen identity-created`: the identity shown is not the phrase's first (R-9).
     second_identity_preset: bool,
+    /// `--screen *-identities-long` (BUG-265, TEAM.md §8d: a hard preset): 10 identities with
+    /// long names, one without a name — werner555's wallet.
+    long_identities_preset: bool,
     /// `--screen top-up-stopped` / `top-up-awaiting`: Identity with a cut-short top-up, to
     /// continue or (Platform already took it) awaiting its ChainLock (BUG-7).
     top_up_preset: Option<bool>,
@@ -259,6 +289,7 @@ impl DevState {
                 None
             },
             second_identity_preset: dev.preset("identity-created"),
+            long_identities_preset: LONG_IDENTITIES.into_iter().any(|p| dev.preset(p)),
             top_up_preset: if dev.preset("top-up-stopped") {
                 Some(false)
             } else if dev.preset("top-up-awaiting") {
@@ -549,6 +580,13 @@ impl App {
                     w.balances.core_as_of = Some(evolite_api::CoreAsOf::Checked(at));
                 }
             }
+        }
+        if self.dev.long_identities_preset
+            && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
+            && let Some(first) = w.identities.first()
+            && w.identities.len() != 10
+        {
+            w.identities = long_identities(first);
         }
         if self.dev.second_identity_preset
             && let Some(id) = self
@@ -1532,6 +1570,7 @@ impl App {
         let workshop = [
             "advanced-workshop",
             "workshop",
+            "workshop-identities-long",
             "workshop-new",
             "workshop-review",
             "workshop-steps",

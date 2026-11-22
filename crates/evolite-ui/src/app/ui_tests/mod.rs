@@ -36,6 +36,7 @@ mod focus;
 mod fund_address;
 mod history;
 mod identity_keys;
+mod identity_picker;
 mod identity_pool;
 mod imgur;
 mod layout;

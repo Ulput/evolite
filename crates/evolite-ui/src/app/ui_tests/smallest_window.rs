@@ -431,3 +431,59 @@ fn the_workshop_wraps_at_1024_de() {
 fn the_workshop_wraps_at_1024_uk() {
     workshop_at_1024("uk");
 }
+
+/// BUG-265 (TEAM.md §8d, a hard preset): the 10 long-named identities on every screen that shows
+/// them — Identity, Tokens, Collection, the Workshop — at every width: no words cut or drawn over
+/// others (the chips over «Credits @…», QA 14), no page wider than the window.
+const LONG_IDENTITIES: [&str; 4] = crate::app::dev::LONG_IDENTITIES;
+
+fn long_identities_at_every_width(lang: &str) {
+    let mut wrong = Vec::new();
+    for preset in LONG_IDENTITIES {
+        for size in super::identity_picker::SIZES {
+            let (_turn, mut kit) = demo_app(preset, lang);
+            kit.set_size(size);
+            if preset != "collection-identities-long" {
+                wait_for(&mut kit, "10 identities", super::identity_picker::all_pills);
+            }
+            quiet(&mut kit, |_| {});
+            for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
+                wrong.push(format!("{preset} @{size:?}: {w}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{lang}:
+{}",
+        wrong.join(
+            "
+"
+        )
+    );
+}
+
+#[test]
+fn long_identities_fit_at_every_width_en() {
+    long_identities_at_every_width("en");
+}
+
+#[test]
+fn long_identities_fit_at_every_width_ru() {
+    long_identities_at_every_width("ru");
+}
+
+#[test]
+fn long_identities_fit_at_every_width_de() {
+    long_identities_at_every_width("de");
+}
+
+#[test]
+fn long_identities_fit_at_every_width_uk() {
+    long_identities_at_every_width("uk");
+}
+
+#[test]
+fn long_identities_fit_at_every_width_ar() {
+    long_identities_at_every_width("ar");
+}

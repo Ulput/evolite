@@ -586,37 +586,20 @@ fn identity_choice(
             state.claim_after = None;
         }
     }
-    let shown = Some(chosen.id.as_str());
     let blocked = new_identity_blocked(wallet, state);
-    let mut chose = false;
-    let mut new_one = false;
+    let mut picked = crate::components::Picked::default();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        // «Work as» in the middle of the first row of pills; many identities wrap onto more
-        // rows instead of pushing the page past the window, each row from under the first pill
-        // (design review №14).
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
-            let font = style(UI.weight(Weight::Medium));
-            let label_w = crate::components::text_width(ui, tr!("Work as"), font);
-            ui.allocate_ui_with_layout(
-                vec2(label_w, 33.0),
-                Layout::left_to_right(Align::Center),
-                |ui| ui.label(text(tr!("Work as"), UI.weight(Weight::Medium), p.muted)),
-            );
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                chose = pills(ui, &p, wallet, shown, asked);
-                new_one = crate::components::add_pill(
-                    ui,
-                    a,
-                    tr!("New identity"),
-                    tr!("Create a new identity"),
-                    blocked.is_none(),
-                )
-                .clicked();
-            });
-        });
+        // «Work as» and the identities, wrapped within the page (BUG-265: the one picker, also
+        // on Tokens and the Workshop); «+ New identity» only here.
+        picked = crate::components::identity_picker(
+            ui,
+            a,
+            wallet,
+            tr!("Work as"),
+            Some(blocked.is_none()),
+            None,
+        );
         // Why not, in words and without hovering (AC-D2), naming the identity to finish.
         if let Some(why) = &blocked {
             ui.add(
@@ -625,10 +608,11 @@ fn identity_choice(
             );
         }
     });
-    if chose {
+    if let Some(id) = picked.chosen {
+        asked.push(Command::ChooseIdentity { id });
         state.created = None;
     }
-    if new_one && blocked.is_none() {
+    if picked.new_one && blocked.is_none() {
         cx.go(Screen::CreateIdentity);
     }
 }
@@ -699,36 +683,6 @@ fn created_notice(
     if answer.action {
         state.adding_name = Some(NameForm::default());
     }
-}
-
-/// The pills of [`identity_choice`]: one per identity, the shown one on. True when another one
-/// was chosen.
-fn pills(
-    ui: &mut Ui,
-    p: &crate::theme::Palette,
-    wallet: &Wallet,
-    shown: Option<&str>,
-    asked: &mut Vec<Command>,
-) -> bool {
-    let mut chose = false;
-    for choice in &wallet.identities {
-        let label = choice
-            .name
-            .as_ref()
-            .map_or_else(|| short_id(&choice.id), |n| format!("@{n}"));
-        let on = shown == Some(choice.id.as_str());
-        if pill(ui, p, &label, on)
-            .on_hover_text(crate::i18n::t(&choice.id).into_owned())
-            .clicked()
-            && !on
-        {
-            asked.push(Command::ChooseIdentity {
-                id: choice.id.clone(),
-            });
-            chose = true;
-        }
-    }
-    chose
 }
 
 /// While identities are shown, a search still going on (BUG-9): more of them, or their
