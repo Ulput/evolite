@@ -526,11 +526,23 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
         .find(|o| o.role == OutputRole::Sent)
         .and_then(|o| o.address.as_ref())
         .map(|a| a.to_string());
-    // Our own receiving address the payment came to, and what came there.
+    // Our own receiving address the payment came to, and what came there. FEAT-0049 r1: a
+    // withdrawal evolite asked for comes to an address of the change chain, which key-wallet
+    // calls change: an asset unlock names that one.
     let received = record
         .output_details
         .iter()
         .find(|o| o.role == OutputRole::Received)
+        .or_else(|| {
+            (record.transaction_type == TransactionType::AssetUnlock)
+                .then(|| {
+                    record
+                        .output_details
+                        .iter()
+                        .find(|o| o.role == OutputRole::Change)
+                })
+                .flatten()
+        })
         .and_then(|o| Some((o.address.as_ref()?.to_string(), o.value)));
     let (mut kind, chain) = kind_of(record.direction, record.transaction_type, sent_to.clone());
     // Paid out: the payee's address; received — from someone else or from one of our own

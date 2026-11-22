@@ -454,3 +454,85 @@ async fn a_workshop_model_read_back_has_its_picture_to_draw() {
     assert_eq!(&*stored.bytes, jpeg.as_slice());
     assert_eq!(stored.packing, evolite_render::Packing::Plain);
 }
+
+/// FEAT-0049 r1 Must: a withdrawal from the pool to an address of this wallet is «to your Core
+/// balance», not «sent privately»; to someone else's it stays a payment out. The Core payment it
+/// became says «from the pool» only when its address matches; another payout stays as it was.
+#[test]
+fn a_withdrawal_to_own_core_is_its_own_line_and_its_arrival_is_matched() {
+    let line = |id: u64, kind: ActivityKind, chain, address: &str| {
+        let (layers, flow) = crate::layers::of(&kind, chain);
+        Activity {
+            id,
+            kind,
+            chain,
+            at: 1_000,
+            amount: -100,
+            proof: Proof::Proved,
+            txid: None,
+            fee: None,
+            block: None,
+            address: Some(address.into()),
+            layers,
+            flow,
+            key: String::new(),
+            detail: None,
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        }
+    };
+    let platform = evolite_api::Chain::Platform;
+    let mut ops = vec![
+        line(1, ActivityKind::PoolSent, platform, "yChange"),
+        line(2, ActivityKind::PoolSent, platform, "yTheirs"),
+    ];
+    own_pool_withdrawals(&mut ops, &["yReceive".into(), "yChange".into()]);
+    assert_eq!(ops[0].kind, ActivityKind::PoolToCore { arrived: false });
+    assert_eq!(
+        ops[0].layers,
+        evolite_api::layer::POOL | evolite_api::layer::CORE
+    );
+    assert_eq!(
+        ops[1].kind,
+        ActivityKind::PoolSent,
+        "someone else's address"
+    );
+    let payout = |id, address: &str| {
+        line(
+            id,
+            ActivityKind::Received {
+                from: Some(tr!("withdrawal from Platform").into()),
+            },
+            evolite_api::Chain::Core,
+            address,
+        )
+    };
+    let mut history = ops;
+    // r2: on its way, its address is held reserved; someone else's never.
+    assert_eq!(
+        withdrawals_on_their_way(&history),
+        vec!["yChange".to_string()]
+    );
+    history.push(payout(3, "yChange"));
+    history.push(payout(4, "yReceive"));
+    match_pool_arrivals(&mut history);
+    assert_eq!(history[0].kind, ActivityKind::PoolToCore { arrived: true });
+    assert_eq!(
+        history[2].kind,
+        ActivityKind::Received {
+            from: Some(tr!("withdrawal from the pool").into())
+        }
+    );
+    assert_eq!(
+        history[3].kind,
+        ActivityKind::Received {
+            from: Some(tr!("withdrawal from Platform").into())
+        },
+        "a credits withdrawal, not matched"
+    );
+    assert!(
+        withdrawals_on_their_way(&history).is_empty(),
+        "arrived: nothing to hold"
+    );
+}

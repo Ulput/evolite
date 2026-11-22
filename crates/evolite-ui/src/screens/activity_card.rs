@@ -713,6 +713,13 @@ fn platform_sides(act: &Activity, detail: &Detail) -> (Vec<Side>, Vec<Side>) {
         }
         ActivityKind::Withdrawal { to, .. } => (mine(), one(Side::payee(to, None))),
         ActivityKind::PoolSent => (one(pool()), Vec::new()),
+        // FEAT-0049 r1: to the wallet's own Core address the pool's line names.
+        ActivityKind::PoolToCore { .. } => (
+            one(pool()),
+            act.address
+                .as_deref()
+                .map_or_else(Vec::new, |a| one(Side::own(a))),
+        ),
         ActivityKind::PoolReceived => (Vec::new(), one(pool())),
         ActivityKind::Shielded { from } => {
             let source = if detail.identity.is_some() {

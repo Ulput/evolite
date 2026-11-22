@@ -927,6 +927,14 @@ mod imp {
         crate::spv::chain::addresses::address_signer(wallet, keys).await
     }
 
+    /// The Core address an output script pays, on this network.
+    fn core_address_of(script: &[u8]) -> Option<String> {
+        let script = key_wallet::dashcore::ScriptBuf::from_bytes(script.to_vec());
+        key_wallet::dashcore::Address::from_script(&script, crate::network::dash())
+            .ok()
+            .map(|a| a.to_string())
+    }
+
     /// The rows newest first, as platform-wallet orders them for display: notes found by the
     /// scan have no time (`created_at_ms` 0, "time unknown") and come after the dated rows, in
     /// chain order by `min_note_position` — the same on every device (BUG-58, R-33 p. 8). The
@@ -978,7 +986,14 @@ mod imp {
             txid: None,
             fee,
             block: entry.block_height.map(|h| h as u32),
-            address: None,
+            // FEAT-0049 r1: a withdrawal to Core names its address (the live entry keeps the
+            // output's script), so the core can tell one to the wallet's own Core balance.
+            address: match entry.kind {
+                ShieldedActivityKind::Withdrawal => {
+                    entry.counterparty.as_deref().and_then(core_address_of)
+                }
+                _ => None,
+            },
             layers,
             flow,
             key: format!("pool:{:016x}", u64::from_le_bytes(id)),

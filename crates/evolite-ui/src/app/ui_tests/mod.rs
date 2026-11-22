@@ -58,6 +58,7 @@ mod password_reveal;
 mod pause;
 mod phrase_tree;
 mod phrase_words;
+mod pool_levels;
 mod pool_moves;
 mod qr;
 mod resend;

@@ -651,6 +651,9 @@ struct Real {
     outgoing: Arc<std::sync::Mutex<outgoing::Outgoing>>,
     /// Sends on Platform of this run (credits, the pool) until the history has their lines.
     platform_sending: Arc<std::sync::Mutex<platform_sending::PlatformSending>>,
+    /// FEAT-0049 r2: the change addresses of withdrawals from the pool still on their way, last
+    /// reserved for this wallet at this time ([`evolite_chain::change_reserve`]).
+    held_change: Option<(WalletId, Vec<String>, Timestamp)>,
     /// What the wallet did on Platform, for the history.
     journal: Arc<journal::Journal>,
     /// What each spend was said to cost, until its answer comes (TECH-price-check).

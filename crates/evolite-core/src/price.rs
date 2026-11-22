@@ -249,6 +249,11 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
             fees.unshield,
             covers(seen.pool, *amount, fees.unshield),
         ),
+        Spend::UnshieldToCore { amount } => of(
+            "unshield_to_core",
+            fees.pool_withdrawal,
+            covers(seen.pool, *amount, fees.pool_withdrawal),
+        ),
         Spend::TopUpFromPool { amount } => of(
             "top_up_from_pool",
             fees.pool_top_up,

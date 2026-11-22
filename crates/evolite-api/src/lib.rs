@@ -252,6 +252,12 @@ pub enum ActivityKind {
     },
     PoolReceived,
     PoolSent,
+    /// FEAT-0049 r1: out of the pool to one of this wallet's own Core addresses — «Unshield» to
+    /// Core, or «Send» from «Pool» to an address of ours. Platform pays it out later; `arrived`
+    /// once the Core payment it became is in the history (matched by its address).
+    PoolToCore {
+        arrived: bool,
+    },
     /// Credits withdrawn to a Core address (paid out by Platform later). `status`: how far its
     /// document on Platform got, once read from there (BUG-58); `None` before.
     Withdrawal {
@@ -2808,6 +2814,11 @@ pub enum Spend {
     /// visible on the network. Answered with `Done { what: DoneWhat::Unshield }`, [`Event::Progress`]
     /// while the proof is built.
     Unshield { amount: Duffs },
+    /// FEAT-0049 r1: take `amount` out of the pool to the wallet's own Core balance — to the next
+    /// unused address of its BIP44 change chain, not the one «Receive» shows; Platform pays it
+    /// out in a few minutes, the fee comes from the pool on top. Answered with
+    /// `Done { what: DoneWhat::Unshield }`, [`Event::Progress`] while the proof is built.
+    UnshieldToCore { amount: Duffs },
     /// Take `amount` out of the pool into the credits of the identity the interface shows; the
     /// identity gets `amount`, the fee comes from the pool on top. Answered with
     /// `Done { what: DoneWhat::PoolTopUp }`, [`Event::Progress`] while the proof is built.
@@ -2964,6 +2975,7 @@ impl Spend {
             | Spend::Shield { .. }
             | Spend::ShieldRefund
             | Spend::Unshield { .. }
+            | Spend::UnshieldToCore { .. }
             | Spend::TopUpFromPool { .. }
             | Spend::AddContact { .. }
             | Spend::AcceptContact { .. }
@@ -2987,7 +2999,7 @@ impl Spend {
             | Spend::ResumeIdentity => DoneWhat::Identity,
             Spend::AddName { .. } | Spend::SetNameLink { .. } => DoneWhat::Name,
             Spend::Shield { .. } | Spend::ShieldRefund => DoneWhat::Shield,
-            Spend::Unshield { .. } => DoneWhat::Unshield,
+            Spend::Unshield { .. } | Spend::UnshieldToCore { .. } => DoneWhat::Unshield,
             Spend::TopUpFromPool { .. } => DoneWhat::PoolTopUp,
             Spend::AddContact { .. } | Spend::AcceptContact { .. } => DoneWhat::Contact,
             Spend::SaveProfile { .. } => DoneWhat::Profile,

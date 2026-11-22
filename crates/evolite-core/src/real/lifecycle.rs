@@ -186,6 +186,7 @@ impl Real {
             rescan_owed: None,
             outgoing: Default::default(),
             platform_sending: Default::default(),
+            held_change: None,
             previews: Default::default(),
             apps: Arc::new(connected_apps::ConnectedApps::new(paths_apps)),
             this_keys: Default::default(),

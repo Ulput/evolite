@@ -1314,6 +1314,7 @@ impl Mock {
         let bad_amount = match &op {
             Spend::Shield { amount, .. }
             | Spend::Unshield { amount }
+            | Spend::UnshieldToCore { amount }
             | Spend::TopUpFromPool { amount } => *amount <= 0,
             _ => false,
         };
@@ -1358,7 +1359,7 @@ impl Mock {
                     fraction: 0.0,
                 };
             }
-            Spend::Unshield { .. } => {
+            Spend::Unshield { .. } | Spend::UnshieldToCore { .. } => {
                 tr!("This is the mockup's example: there is nothing to unshield")
             }
             Spend::ShieldRefund => tr!("Nothing was returned to put back into the pool"),

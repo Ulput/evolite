@@ -755,6 +755,8 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::Shielded { from: None } => tr!("Shielded into the private pool").into(),
         ActivityKind::PoolReceived => tr!("Received privately").into(),
         ActivityKind::PoolSent => tr!("Sent privately").into(),
+        // FEAT-0049 r1 Must: out of the pool to one of the wallet's own Core addresses.
+        ActivityKind::PoolToCore { .. } => tr!("From the pool to your Core balance").into(),
         ActivityKind::Withdrawal { to, .. } => {
             format!(tr!("Credit withdrawal to {}"), short_address(to))
         }
@@ -832,6 +834,8 @@ pub fn activity_status(a: &Activity) -> Option<&'static str> {
             WithdrawalState::Expired => tr!("Retrying the payout"),
             WithdrawalState::Failed => tr!("Not paid out"),
         },
+        // FEAT-0049 r1: Platform pays a withdrawal out later; until its Core payment is here.
+        ActivityKind::PoolToCore { arrived: false } => tr!("Arrives on Core in a few minutes"),
         ActivityKind::ContactRequestIn { state, .. } => match state {
             RequestState::Waiting => tr!("Waiting for an answer"),
             RequestState::Accepted => tr!("Accepted"),
@@ -987,7 +991,9 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",
-        ActivityKind::SelfTransfer { .. } | ActivityKind::IdentityTransfer { .. } => "transfer",
+        ActivityKind::SelfTransfer { .. }
+        | ActivityKind::IdentityTransfer { .. }
+        | ActivityKind::PoolToCore { .. } => "transfer",
         ActivityKind::Mixing { .. } | ActivityKind::IntoMixing => "mixed",
         ActivityKind::AppSignIn { .. } => "app-connect",
         ActivityKind::AppRenewed { .. }

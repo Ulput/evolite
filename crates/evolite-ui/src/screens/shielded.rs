@@ -38,6 +38,30 @@ const ACTIONS: [(&str, &str, &str); 4] = [
     ("unshield", tr!("Unshield"), tr!("back to Platform")),
 ];
 
+/// FEAT-0049: where «Unshield» takes the money. Core first and by default, on both levels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum UnshieldTo {
+    /// The wallet's own Core balance: a withdrawal Platform pays out in a few minutes
+    /// (`Spend::Send` from the pool to the wallet's Core address).
+    #[default]
+    Core,
+    /// The shown identity's credits (`Spend::TopUpFromPool`).
+    Identity,
+    /// The wallet's Platform address (`Spend::Unshield`): the advanced level only.
+    PlatformAddress,
+}
+
+/// FEAT-0049 (the customer's Q15): the lines that name the Platform address are the advanced
+/// level's; at the simple one the pool shields from Core or credits and unshields to Core.
+fn action_line(icon: &str, sub: &'static str, advanced: bool) -> &'static str {
+    match (icon, advanced) {
+        ("shield", false) => tr!("from Core or identity credits"),
+        ("unshield", false) => tr!("to your Core balance"),
+        ("unshield", true) => tr!("to Core, an identity or a Platform address"),
+        _ => sub,
+    }
+}
+
 /// The hint on the pool's actions while the pool is not connected yet.
 const POOL_CONNECTING: &str =
     tr!("The pool connects after syncing with Platform — usually a minute");
@@ -106,8 +130,8 @@ pub struct PoolState {
     pub unshield_suggested: Option<i64>,
     /// "Private address" is open.
     pub address_open: bool,
-    /// "Unshield" goes into the identity's credits instead of the Platform address.
-    pub unshield_to_identity: bool,
+    /// Where «Unshield» takes the money (FEAT-0049).
+    pub unshield_to: UnshieldTo,
     /// "Shield" and "Unshield" (one move at a time; BUG-42): the password for every payment, sent
     /// once, its own answer only (TECH-spend-flow).
     pub flow: crate::components::spend_flow::SpendFlow<PoolMove>,
@@ -161,12 +185,12 @@ fn result_of(
 }
 
 /// Where funds can be shielded from: the identity's credits, the Platform address or Core.
-fn shield_sources(w: &Wallet) -> Vec<(ShieldSource, &'static str, String, i64)> {
+fn shield_sources(w: &Wallet, advanced: bool) -> Vec<(ShieldSource, &'static str, String, i64)> {
     let name = w.identity.as_ref().and_then(|i| i.name()).map_or_else(
         || tr!("Identity · credits").to_string(),
         |n| format!(tr!("@{n} · credits"), n = n),
     );
-    vec![
+    let mut sources = vec![
         (ShieldSource::Credits, "identity", name, w.balances.credits),
         (
             ShieldSource::PlatformAddress,
@@ -180,7 +204,12 @@ fn shield_sources(w: &Wallet) -> Vec<(ShieldSource, &'static str, String, i64)> 
             "Core".to_string(),
             w.balances.core,
         ),
-    ]
+    ];
+    // FEAT-0049: the Platform address is the advanced level's.
+    if !advanced {
+        sources.retain(|s| s.0 != ShieldSource::PlatformAddress);
+    }
+    sources
 }
 
 pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
@@ -238,9 +267,9 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             crate::components::two_columns(ui, wide, |ui, first, cell| {
                 if first {
                     let pool = (wallet.balances.shielded, &wallet.pool);
-                    balance(ui, a, pool, now, half, cell);
+                    balance(ui, a, pool, now, half, cell, cx.advanced());
                 } else {
-                    how(ui, a, half, cell);
+                    how(ui, a, half, cell, cx.advanced());
                 }
             });
 
@@ -255,12 +284,16 @@ pub fn shielded(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState
             };
             let (_, w) = grid_layout(total, ACTIONS.len(), spec);
             // One height for all: the tallest line under a title decides (one or two lines).
+            let advanced = cx.advanced();
             let h = ACTIONS
                 .iter()
-                .map(|(_, title, sub)| action_height(ui, title, sub, w))
+                .map(|(icon, title, sub)| {
+                    action_height(ui, title, action_line(icon, sub, advanced), w)
+                })
                 .fold(62.0, f32::max);
             grid(ui, ACTIONS.len(), spec, |ui, i, w, _| {
                 let (icon, title, sub) = ACTIONS[i];
+                let sub = action_line(icon, sub, advanced);
                 let resp = action(ui, a, icon, title, sub, vec2(w, h), connected);
                 if !connected {
                     resp.on_hover_text(crate::i18n::t(POOL_CONNECTING).into_owned());
@@ -364,6 +397,7 @@ fn balance(
     now: chrono::DateTime<chrono::Local>,
     width: f32,
     cell: &mut RowCell,
+    advanced: bool,
 ) {
     let p = a.p;
     cell.card(ui, card(&p, Margin::same(24)), |ui| {
@@ -399,7 +433,7 @@ fn balance(
         }
         // Mono sets Arabic letters apart («3 سجلات · آخر تحقق…», BUG-118): sans in Arabic.
         ui.label(
-            egui::RichText::new(crate::i18n::t(&pool_line(pool, now)))
+            egui::RichText::new(crate::i18n::t(&pool_line(pool, now, advanced)))
                 .font(crate::theme::figures(12.0, Weight::Regular))
                 .color(p.muted),
         );
@@ -415,13 +449,21 @@ fn balance(
     });
 }
 
-fn how(ui: &mut Ui, a: &mut Assets, width: f32, cell: &mut RowCell) {
+fn how(ui: &mut Ui, a: &mut Assets, width: f32, cell: &mut RowCell, advanced: bool) {
     let p = a.p;
     cell.card(ui, card(&p, Margin::same(24)), |ui| {
         ui.set_width(inner(width, 24));
         ui.spacing_mut().item_spacing.y = 12.0;
         ui.label(txt(tr!("How it works"), 15.0, Weight::SemiBold, p.text));
         for (icon, text) in HOW {
+            // FEAT-0049: at the simple level the pool unshields to Core; no Platform address.
+            let text = match (icon, advanced) {
+                ("unshield", false) => tr!("Unshield — return the money to your Core balance."),
+                ("unshield", true) => tr!(
+                    "Unshield — return to your Core balance, an identity or a Platform address."
+                ),
+                _ => text,
+            };
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
                 ui.add(a.icons.icon(icon, p.text, &p, 18.0));
@@ -472,7 +514,10 @@ impl ActionText {
 /// The quick actions of the pool with their titles and lines, for a test.
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 pub(crate) fn actions() -> impl Iterator<Item = (&'static str, &'static str)> {
-    ACTIONS.iter().map(|(_, title, sub)| (*title, *sub))
+    // As the simple level draws them (FEAT-0049), the default.
+    ACTIONS
+        .iter()
+        .map(|(icon, title, sub)| (*title, action_line(icon, sub, false)))
 }
 
 /// A quick action: surface, radius 14, icon in a raised 34 px box, title and a line under it.
@@ -544,7 +589,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
     crate::format::fill_suggested(&mut state.amount, &mut state.suggested);
     let sync = cx.snap.sync.clone();
     let wallet = cx.wallet();
-    let sources = shield_sources(wallet);
+    let sources = shield_sources(wallet, cx.advanced());
     let fees = &wallet.fees;
     // Core as sure as it is (BUG-80): «Not known yet» instead of a 0, and no «From … to …» to
     // measure an amount against a balance not known.
@@ -907,9 +952,15 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
         i.name()
             .map_or_else(|| "identity".to_string(), |n| format!("@{n}"))
     });
-    // Without an identity only the Platform address is there.
-    let to_identity = state.unshield_to_identity && identity.is_some();
-    let fee = unshield_fee(&wallet.fees, to_identity);
+    // FEAT-0049: Core first and by default; the Platform address only at the advanced level;
+    // the identity's credits when there is an identity.
+    let advanced = cx.advanced();
+    let to = match state.unshield_to {
+        UnshieldTo::PlatformAddress if !advanced => UnshieldTo::Core,
+        UnshieldTo::Identity if identity.is_none() => UnshieldTo::Core,
+        to => to,
+    };
+    let fee = unshield_fee(&wallet.fees, to);
     // What the middle reckoned, for the footer's button: whether the amount fits, and which.
     let mut planned = None;
     // BUG-249: what is left in the pool after, as the middle reckoned it, for the summary.
@@ -970,10 +1021,12 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                         || (entered && ready))
                         && let Some(amount) = amount
                     {
-                        let op = if to_identity {
-                            Spend::TopUpFromPool { amount }
-                        } else {
-                            Spend::Unshield { amount }
+                        let op = match to {
+                            UnshieldTo::Identity => Spend::TopUpFromPool { amount },
+                            UnshieldTo::PlatformAddress => Spend::Unshield { amount },
+                            // FEAT-0049 r1: the core takes an unused address of the wallet's
+                            // change chain, not the one «Receive» shows.
+                            UnshieldTo::Core => Spend::UnshieldToCore { amount },
                         };
                         if let Some(command) = state.flow.command(op, ask, PoolMove::Unshield) {
                             cx.send(command);
@@ -987,33 +1040,58 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 field_label(ui, &p, tr!("Where to"));
-                let mut choice = usize::from(to_identity);
-                segmented_with_off(
-                    ui,
-                    &p,
-                    &[tr!("Platform address"), tr!("Identity credits")],
-                    &mut choice,
-                    true,
-                    &[
-                        None,
-                        identity
-                            .is_none()
-                            .then_some(tr!("The wallet has no identity yet")),
-                    ],
-                );
-                if !busy && (choice == 1) != state.unshield_to_identity {
-                    state.unshield_to_identity = choice == 1;
+                let mut places = vec![UnshieldTo::Core, UnshieldTo::Identity];
+                if advanced {
+                    places.push(UnshieldTo::PlatformAddress);
+                }
+                let names: Vec<&str> = places
+                    .iter()
+                    .map(|place| match place {
+                        UnshieldTo::Core => tr!("To your Core balance"),
+                        UnshieldTo::Identity => tr!("Identity credits"),
+                        UnshieldTo::PlatformAddress => tr!("Platform address"),
+                    })
+                    .collect();
+                let off: Vec<Option<&str>> = places
+                    .iter()
+                    .map(|place| {
+                        (*place == UnshieldTo::Identity && identity.is_none())
+                            .then_some(tr!("The wallet has no identity yet"))
+                    })
+                    .collect();
+                let mut choice = places.iter().position(|place| *place == to).unwrap_or(0);
+                segmented_with_off(ui, &p, &names, &mut choice, true, &off);
+                if !busy && places[choice] != state.unshield_to {
+                    state.unshield_to = places[choice];
                     state.forget_result(PoolMove::Unshield);
                 }
-                let target = match &identity {
-                    Some(name) if to_identity => format!(tr!("{name} · credits"), name = name),
-                    _ => format!(tr!("Your Platform address · {}"), wallet.platform_address),
+                // To Core no address is named: the core takes a new one of this wallet's (r1).
+                let target = match (&identity, to) {
+                    (Some(name), UnshieldTo::Identity) => {
+                        Some(format!(tr!("{name} · credits"), name = name))
+                    }
+                    (_, UnshieldTo::PlatformAddress) => Some(format!(
+                        tr!("Your Platform address · {}"),
+                        wallet.platform_address
+                    )),
+                    _ => None,
                 };
-                ui.label(crate::components::fig_txt(
-                    &crate::i18n::t(&target),
-                    mono(12.0, Weight::Regular),
-                    p.text,
-                ));
+                if let Some(target) = target {
+                    ui.label(crate::components::fig_txt(
+                        &crate::i18n::t(&target),
+                        mono(12.0, Weight::Regular),
+                        p.text,
+                    ));
+                }
+                // The customer's Q16: a withdrawal Platform pays out later.
+                if to == UnshieldTo::Core {
+                    ui.label(txt(
+                        tr!("Arrives on Core in a few minutes"),
+                        12.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                }
             });
             let amount = crate::format::parse_amount(&state.unshield_amount).filter(|d| *d > 0);
             let left = amount.map(|d| crate::format::left_after(balance, d, fee));
@@ -1045,14 +1123,16 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                 a,
                 "eye",
                 p.muted,
-                if to_identity {
-                    tr!(
+                match to {
+                    UnshieldTo::Identity => tr!(
                         "The unshielded amount becomes visible on the network: the identity gets all of it, the fee comes from the pool on top."
-                    )
-                } else {
-                    tr!(
+                    ),
+                    UnshieldTo::PlatformAddress => tr!(
                         "The unshielded amount becomes visible on the network, like any transfer to a Platform address."
-                    )
+                    ),
+                    UnshieldTo::Core => tr!(
+                        "The unshielded amount becomes visible on the network, like any withdrawal to Core."
+                    ),
                 },
             );
             if let Some(fraction) = state.progress {
@@ -1080,10 +1160,16 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     a,
                     "confirmed",
                     p.accent,
-                    if to_identity {
-                        tr!("Unshielded: the amount is in the identity's credits.")
-                    } else {
-                        tr!("Unshielded: the amount is on your Platform address.")
+                    match to {
+                        UnshieldTo::Identity => {
+                            tr!("Unshielded: the amount is in the identity's credits.")
+                        }
+                        UnshieldTo::PlatformAddress => {
+                            tr!("Unshielded: the amount is on your Platform address.")
+                        }
+                        UnshieldTo::Core => {
+                            tr!("Unshielded: the amount arrives on Core in a few minutes.")
+                        }
                     },
                 ),
                 None => {}
@@ -1117,13 +1203,13 @@ fn forget_success(
     }
 }
 
-/// What "Unshield" costs: into the identity's credits a top-up from the pool, else an unshield
-/// to the Platform address.
-fn unshield_fee(fees: &Fees, to_identity: bool) -> Duffs {
-    if to_identity {
-        fees.pool_top_up
-    } else {
-        fees.unshield
+/// What "Unshield" costs: into the identity's credits a top-up from the pool, to the Platform
+/// address an unshield, to Core a withdrawal (FEAT-0049).
+fn unshield_fee(fees: &Fees, to: UnshieldTo) -> Duffs {
+    match to {
+        UnshieldTo::Identity => fees.pool_top_up,
+        UnshieldTo::PlatformAddress => fees.unshield,
+        UnshieldTo::Core => fees.pool_withdrawal,
     }
 }
 
@@ -1403,8 +1489,11 @@ pub(crate) mod tests {
     #[test]
     fn out_of_the_pool_to_the_identity_costs_the_top_up_fee() {
         let f = fees();
-        assert_eq!(unshield_fee(&f, false), f.unshield);
-        assert_eq!(unshield_fee(&f, true), f.pool_top_up);
+        assert_eq!(
+            unshield_fee(&f, super::UnshieldTo::PlatformAddress),
+            f.unshield
+        );
+        assert_eq!(unshield_fee(&f, super::UnshieldTo::Identity), f.pool_top_up);
     }
 
     #[test]
@@ -1446,13 +1535,19 @@ fn stale_line(pool: &evolite_api::Pool) -> Option<String> {
 }
 
 /// Where the pool stands, under its balance.
-fn pool_line(pool: &evolite_api::Pool, now: chrono::DateTime<chrono::Local>) -> String {
+fn pool_line(
+    pool: &evolite_api::Pool,
+    now: chrono::DateTime<chrono::Local>,
+    advanced: bool,
+) -> String {
     match pool.checked_at {
-        Some(at) => format!(
+        // FEAT-0049: the notes count (an Orchard term) is the advanced level's.
+        Some(at) if advanced => format!(
             tr!("{} · last checked {}"),
             notes(pool.notes),
             text::when(at, now)
         ),
+        Some(at) => format!(tr!("Last checked {}"), text::when(at, now)),
         // BUG-240 r2 (3): not «reading» for ever when the reads keep failing.
         None if pool.failing.is_some() => {
             could_not_read(pool.failing.as_deref().unwrap_or_default())
@@ -1487,7 +1582,7 @@ mod pool_line_tests {
             connecting: false,
             failing: Some("timeout".into()),
         };
-        let line = pool_line(&pool, chrono::Local::now());
+        let line = pool_line(&pool, chrono::Local::now(), true);
         assert!(line.starts_with("Could not read the pool: "), "{line}");
         assert!(line.contains("Platform did not answer in time"), "{line}");
         assert_eq!(stale_line(&pool), None, "said once, in the line itself");
@@ -1509,7 +1604,7 @@ mod pool_line_tests {
         };
         let now = chrono::Local::now();
         assert!(
-            pool_line(&pool, now).contains("last checked"),
+            pool_line(&pool, now, true).contains("last checked"),
             "the stale time stays"
         );
         let stale = stale_line(&pool).expect("said under it");
@@ -1531,11 +1626,11 @@ mod pool_line_tests {
             failing: None,
         };
         let now = chrono::Local::now();
-        assert_eq!(pool_line(&pool, now), POOL_CONNECTING);
+        assert_eq!(pool_line(&pool, now, true), POOL_CONNECTING);
         pool.connecting = true;
-        assert!(pool_line(&pool, now).starts_with("Connecting the pool"));
+        assert!(pool_line(&pool, now, true).starts_with("Connecting the pool"));
         pool.address = Some("tdash1…".into());
-        assert!(pool_line(&pool, now).starts_with("Reading the pool"));
+        assert!(pool_line(&pool, now, true).starts_with("Reading the pool"));
     }
 
     /// TECH-price-check AC-T2: what the journal records as promised is what this screen shows.
@@ -1572,11 +1667,11 @@ mod pool_line_tests {
         }
         assert_eq!(
             declared(&Spend::Unshield { amount: 5 }, &seen, 0).declared,
-            unshield_fee(&f, false)
+            unshield_fee(&f, super::UnshieldTo::PlatformAddress)
         );
         assert_eq!(
             declared(&Spend::TopUpFromPool { amount: 5 }, &seen, 0).declared,
-            unshield_fee(&f, true)
+            unshield_fee(&f, super::UnshieldTo::Identity)
         );
     }
 }

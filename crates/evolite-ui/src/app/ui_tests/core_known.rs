@@ -362,6 +362,8 @@ fn the_pool_list_is_still_reading_until_checked() {
 #[test]
 fn shield_sources_are_dashes_until_read_and_cannot_be_chosen() {
     let (_turn, mut kit) = demo_app("shield", "en");
+    // FEAT-0049: the Platform address is a source at the advanced level.
+    kit.state_mut().settings.set("advanced", true);
     let unread = |s: &mut Snapshot| {
         let b = &mut wallet(s).balances;
         b.credits = 0;

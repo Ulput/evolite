@@ -38,7 +38,7 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
             Some(fees.identity_lock_for(*top_up, name.is_some()))
         }
         Spend::Shield { amount, .. } => Some(*amount),
-        Spend::Unshield { amount } => Some(*amount),
+        Spend::Unshield { amount } | Spend::UnshieldToCore { amount } => Some(*amount),
         Spend::TopUpFromPool { amount } => Some(*amount),
         // FEAT-0048: the whole exit leaves the pool.
         Spend::CreateIdentityFromPool { exit, .. } => Some(*exit),

@@ -117,6 +117,7 @@ fn spend(op: &Spend) -> &'static str {
         Spend::SetNameLink { .. } => "set_name_link",
         Spend::Shield { .. } => "shield",
         Spend::Unshield { .. } => "unshield",
+        Spend::UnshieldToCore { .. } => "unshield_to_core",
         Spend::TopUpFromPool { .. } => "top_up_from_pool",
         Spend::AddContact { .. } => "add_contact",
         Spend::AcceptContact { .. } => "accept_contact",

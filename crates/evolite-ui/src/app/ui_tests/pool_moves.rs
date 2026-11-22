@@ -156,6 +156,8 @@ fn another_moves_success_leaves_a_stopped_shield_offered() {
     use evolite_api::Spend;
     for op in [
         Spend::Unshield { amount: 1_000 },
+        // FEAT-0049 r1: «Unshield» to Core is answered as an unshield, not as a payment.
+        Spend::UnshieldToCore { amount: 1_000 },
         Spend::TopUpFromPool { amount: 1_000 },
     ] {
         let (_turn, mut kit) = demo_app("shielded", "en");

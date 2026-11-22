@@ -48,6 +48,39 @@ fn says(kit: &Kit, part: &str) -> bool {
     .is_some()
 }
 
+/// FEAT-0049 r1 Must: a withdrawal from the pool to the wallet's own Core is its own line —
+/// «From the pool to your Core balance», with «Arrives on Core in a few minutes» until the
+/// Core payment it became is here — and never «Sent privately».
+#[test]
+fn a_withdrawal_to_own_core_is_not_sent_privately() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    // The pool's operations only.
+    kit.state_mut().history.filters.layer = 4;
+    let to_core = |id, arrived, amount| Activity {
+        layers: evolite_api::layer::POOL | evolite_api::layer::CORE,
+        flow: evolite_api::Flow::Between,
+        ..platform_op(id, ActivityKind::PoolToCore { arrived }, amount)
+    };
+    with_ops(
+        &mut kit,
+        &[
+            to_core(0x4949_0001, false, -150_000),
+            to_core(0x4949_0002, true, -90_000),
+        ],
+    );
+    let lines = kit
+        .query_all_by(|n| {
+            n.label()
+                .is_some_and(|l| l.contains("From the pool to your Core balance"))
+        })
+        .count();
+    assert!(lines >= 2, "both lines say where it went: {lines}");
+    assert!(
+        says(&kit, " · Arrives on Core in a few minutes"),
+        "the one on its way says when"
+    );
+}
+
 /// BUG-47: a note found in the pool has no time. History puts it under «No date» with
 /// «Platform · time unknown», its card says «time unknown» — 1970 is nowhere.
 #[test]

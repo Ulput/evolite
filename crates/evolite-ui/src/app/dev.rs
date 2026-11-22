@@ -1330,7 +1330,11 @@ impl App {
                 },
                 suggested: (preset("shield-core") && !real_shot).then_some(50_000_000),
                 unshielding: unshield,
-                unshield_to_identity: preset("unshield-identity"),
+                unshield_to: if preset("unshield-identity") {
+                    screens::shielded::UnshieldTo::Identity
+                } else {
+                    screens::shielded::UnshieldTo::Core
+                },
                 unshield_amount: if bad {
                     "1,234.56".into()
                 } else if unshield && !real_shot {

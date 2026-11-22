@@ -249,6 +249,55 @@ impl Real {
         Ok(())
     }
 
+    /// FEAT-0049 r1: «Unshield» to the wallet's own Core balance — out of the pool to the next
+    /// unused address of the BIP44 change chain (not the one «Receive» shows), which Platform pays
+    /// out in a few minutes. Shown at once as «From the pool to your Core balance», being sent;
+    /// the pool's line, matched by that address, takes its place.
+    pub(in crate::real) fn unshield_to_core(&self, amount: Duffs) -> Result<(), CoreError> {
+        let credits = positive_credits(amount)?;
+        let (id, _, seed) = self.pool_move()?;
+        let chain = self.chain.clone();
+        let sending = self.platform_sending.clone();
+        let key = sending.lock().unwrap_or_else(|e| e.into_inner()).start(
+            ActivityKind::PoolToCore { arrived: false },
+            amount,
+            now(),
+        );
+        self.pool_job(
+            "unshield",
+            async move {
+                let wallet = loaded(&chain, &id).await?;
+                // Reserved until the payout (r2): no other withdrawal and no Core payment's
+                // change takes it meanwhile.
+                let to = chain
+                    .own_change_address(&wallet)
+                    .await
+                    .map_err(CoreError::Failed)?;
+                let sent = chain
+                    .pool_withdraw(&wallet, super::super::seed_bytes(&seed), &to, credits)
+                    .await;
+                // Refused: the address is free again. Maybe gone: kept, its line holds it.
+                if matches!(sent, Err(pool::PoolError::Failed(_))) {
+                    chain.release_change_address(&wallet, &to).await;
+                }
+                sent.map_err(pool_error)
+            },
+            move |result| {
+                sending.lock().unwrap_or_else(|e| e.into_inner()).answered(
+                    key,
+                    result.is_ok(),
+                    now(),
+                );
+                Event::Done {
+                    what: DoneWhat::Unshield,
+                    result,
+                    ask: None,
+                }
+            },
+        );
+        Ok(())
+    }
+
     /// "Unshield" into the identity's credits: out of the pool into the identity the interface
     /// shows, which gets `amount`; Platform's fee comes from the notes on top.
     pub(in crate::real) fn top_up_from_pool(&self, amount: Duffs) -> Result<(), CoreError> {

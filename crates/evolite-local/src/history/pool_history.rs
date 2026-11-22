@@ -30,6 +30,12 @@ enum Kind {
     },
     Received,
     Sent,
+    /// FEAT-0049 r1: out of the pool to one of the wallet's own Core addresses, which the
+    /// Core payment it becomes is matched by. Kept: after a restart the scan no longer knows
+    /// where a withdrawal went.
+    ToCore {
+        address: Option<String>,
+    },
     /// Between the pool's own addresses (BUG-109).
     SelfTransfer {
         moved: Duffs,
@@ -66,12 +72,19 @@ impl PoolHistory {
                 // The scan lost what the operation moved, or took the wallet's own shield for a
                 // note that came in (after a restart it cannot tell them apart, and gives no
                 // time): the kept line, with the scan's proof.
-                Some(kept) if poor(&op) || own_shield(kept, &op) => Activity {
-                    proof: op.proof,
-                    block: op.block.or(kept.block),
-                    layers: op.layers,
-                    ..kept.to_activity()
-                },
+                Some(kept) if poor(&op) || own_shield(kept, &op) || own_withdrawal(kept, &op) => {
+                    Activity {
+                        proof: op.proof,
+                        block: op.block.or(kept.block),
+                        // The scan's layers; a withdrawal to Core is the pool's and Core's.
+                        layers: if own_withdrawal(kept, &op) {
+                            kept.to_activity().layers
+                        } else {
+                            op.layers
+                        },
+                        ..kept.to_activity()
+                    }
+                }
                 _ => {
                     if op.proof == Proof::Proved
                         && let Some(new) = Saved::of(&op)
@@ -151,6 +164,12 @@ fn own_shield(kept: &Saved, op: &Activity) -> bool {
     matches!(kept.kind, Kind::Shielded { .. }) && op.kind == ActivityKind::PoolReceived
 }
 
+/// FEAT-0049 r1: the wallet's own withdrawal to Core, kept as made, that the scan now gives as
+/// a payment out with no address (after a restart). The kept kind and address stay.
+fn own_withdrawal(kept: &Saved, op: &Activity) -> bool {
+    matches!(kept.kind, Kind::ToCore { .. }) && op.kind == ActivityKind::PoolSent
+}
+
 /// A line the scan could not fill: nothing moved and no fee known.
 fn poor(op: &Activity) -> bool {
     op.amount == 0 && op.fee.is_none()
@@ -162,6 +181,9 @@ impl Saved {
             ActivityKind::Shielded { from } => Kind::Shielded { from: from.clone() },
             ActivityKind::PoolReceived => Kind::Received,
             ActivityKind::PoolSent => Kind::Sent,
+            ActivityKind::PoolToCore { .. } => Kind::ToCore {
+                address: op.address.clone(),
+            },
             ActivityKind::SelfTransfer { moved } => Kind::SelfTransfer { moved: *moved },
             _ => return None,
         };
@@ -182,6 +204,8 @@ impl Saved {
                 Kind::Shielded { from } => ActivityKind::Shielded { from: from.clone() },
                 Kind::Received => ActivityKind::PoolReceived,
                 Kind::Sent => ActivityKind::PoolSent,
+                // Whether it arrived the core finds again, from the Core payments.
+                Kind::ToCore { .. } => ActivityKind::PoolToCore { arrived: false },
                 Kind::SelfTransfer { moved } => ActivityKind::SelfTransfer { moved: *moved },
             },
             chain: Chain::Platform,
@@ -192,12 +216,19 @@ impl Saved {
             txid: None,
             fee: self.fee,
             block: self.block,
-            address: None,
-            layers: evolite_api::layer::POOL,
+            address: match &self.kind {
+                Kind::ToCore { address } => address.clone(),
+                _ => None,
+            },
+            layers: match self.kind {
+                Kind::ToCore { .. } => evolite_api::layer::POOL | evolite_api::layer::CORE,
+                _ => evolite_api::layer::POOL,
+            },
             flow: match self.kind {
                 Kind::Shielded { .. } => evolite_api::Flow::Between,
                 Kind::Received => evolite_api::Flow::In,
                 Kind::Sent => evolite_api::Flow::Out,
+                Kind::ToCore { .. } => evolite_api::Flow::Between,
                 Kind::SelfTransfer { .. } => evolite_api::Flow::Between,
             },
             key: format!("pool:{:016x}", self.id),
@@ -302,6 +333,37 @@ mod tests {
         assert_eq!(again.merge(vec![scanned.clone()]), vec![expected.clone()]);
         // And the file was not overwritten: the next start still knows it.
         assert_eq!(PoolHistory::new(path).merge(vec![scanned]), vec![expected]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// FEAT-0049 r1 Must: a withdrawal to the wallet's own Core stays one over a restart — the
+    /// scan then gives it as a payment out with no address; the kept kind and address come back,
+    /// so the Core payment it became can still be matched.
+    #[test]
+    fn an_own_withdrawal_to_core_stays_one_over_a_restart() {
+        let dir =
+            std::env::temp_dir().join(format!("evolite-pool-history-core-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("pool-history.json");
+        let made = Activity {
+            address: Some("yChange".into()),
+            ..op(
+                11,
+                ActivityKind::PoolToCore { arrived: false },
+                -150_000,
+                Some(50_000),
+            )
+        };
+        assert_eq!(
+            PoolHistory::new(path.clone()).merge(vec![made.clone()]),
+            vec![made.clone()]
+        );
+        let scanned = op(11, ActivityKind::PoolSent, -150_000, Some(50_000));
+        let again = PoolHistory::new(path.clone()).merge(vec![scanned.clone()]);
+        assert_eq!(again, vec![made.clone()]);
+        assert_eq!(again[0].layers, made.layers, "pool and Core");
+        // Before any scan, from the file alone.
+        assert_eq!(PoolHistory::new(path).kept(), vec![made]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

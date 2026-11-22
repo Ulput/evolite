@@ -136,7 +136,9 @@ pub fn credits_line(what: &What) -> ActivityKind {
 fn same_kind(sent: &ActivityKind, line: &ActivityKind) -> bool {
     use ActivityKind as K;
     match (sent, line) {
-        (K::PoolSent, K::PoolSent | K::SelfTransfer { .. }) => true,
+        // FEAT-0049 r1: a payment to an address of ours becomes «to your Core balance».
+        (K::PoolSent, K::PoolSent | K::SelfTransfer { .. } | K::PoolToCore { .. }) => true,
+        (K::PoolToCore { .. }, K::PoolToCore { .. } | K::PoolSent) => true,
         (K::CreditTransfer { to: a, .. }, K::CreditTransfer { to: b, .. }) => a == b,
         (K::Withdrawal { to: a, .. }, K::Withdrawal { to: b, .. }) => a == b,
         (K::AddressSent { to: a }, K::AddressSent { to: b }) => a == b,

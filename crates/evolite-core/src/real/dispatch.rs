@@ -293,6 +293,17 @@ impl Real {
                     ask: None,
                 },
             },
+            Spend::UnshieldToCore { amount } => match self.unshield_to_core(amount) {
+                Ok(()) => Event::Progress {
+                    what: "unshield",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: DoneWhat::Unshield,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
             Spend::TopUpFromPool { amount } => match self.top_up_from_pool(amount) {
                 Ok(()) => Event::Progress {
                     what: "pool-top-up",

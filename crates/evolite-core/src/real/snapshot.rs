@@ -146,13 +146,75 @@ pub(in crate::real) async fn wallet_identity_ids(wallet: &PlatformWallet) -> Vec
         .collect()
 }
 
+/// FEAT-0049 r1 Must: a payment out of the pool to one of this wallet's own Core addresses
+/// (`own_core`) is «to your Core balance», not «sent privately»: the pool names a withdrawal's
+/// address, the wallet knows its own.
+pub(super) fn own_pool_withdrawals(operations: &mut [Activity], own_core: &[String]) {
+    for op in operations.iter_mut() {
+        if op.kind == ActivityKind::PoolSent
+            && op
+                .address
+                .as_ref()
+                .is_some_and(|a| own_core.iter().any(|o| o == a))
+        {
+            op.kind = ActivityKind::PoolToCore { arrived: false };
+            (op.layers, op.flow) = crate::layers::of(&op.kind, op.chain);
+        }
+    }
+}
+
+/// FEAT-0049 r2: how often a withdrawal still on its way has its address reserved again.
+const HOLD_AGAIN: Timestamp = 10 * 60;
+
+/// FEAT-0049 r2: the addresses of withdrawals to the wallet's own Core not paid out yet.
+pub(super) fn withdrawals_on_their_way(history: &[Activity]) -> Vec<String> {
+    history
+        .iter()
+        .filter(|a| a.kind == ActivityKind::PoolToCore { arrived: false })
+        .filter_map(|a| a.address.clone())
+        .collect()
+}
+
+/// FEAT-0049 r1 Must: the Core payment a withdrawal from the pool became — an asset unlock
+/// to the address the pool's line names — says it came from the pool, and that line says it
+/// arrived. Only when matched: any other payout stays «withdrawal from Platform».
+pub(super) fn match_pool_arrivals(history: &mut [Activity]) {
+    let to: std::collections::HashSet<String> = history
+        .iter()
+        .filter(|a| matches!(a.kind, ActivityKind::PoolToCore { .. }))
+        .filter_map(|a| a.address.clone())
+        .collect();
+    if to.is_empty() {
+        return;
+    }
+    let mut arrived = std::collections::HashSet::new();
+    for act in history.iter_mut() {
+        if let ActivityKind::Received { from } = &mut act.kind
+            && from.as_deref() == Some(tr!("withdrawal from Platform"))
+            && let Some(address) = act.address.as_ref().filter(|a| to.contains(*a))
+        {
+            *from = Some(tr!("withdrawal from the pool").into());
+            arrived.insert(address.clone());
+        }
+    }
+    for act in history.iter_mut() {
+        if let ActivityKind::PoolToCore { arrived: done } = &mut act.kind
+            && act.address.as_ref().is_some_and(|a| arrived.contains(a))
+        {
+            *done = true;
+        }
+    }
+}
+
 /// The private pool's own lines get a card of their own (FR-3, frame 7): their direction is
 /// their kind. A payment out of the pool does not keep its recipient, and says so once (FR-6).
 fn describe_pool_lines(history: &mut [Activity]) {
     for act in history.iter_mut().filter(|a| a.detail.is_none()) {
         let incomplete = match act.kind {
             ActivityKind::PoolSent => true,
-            ActivityKind::PoolReceived | ActivityKind::Shielded { .. } => false,
+            ActivityKind::PoolReceived
+            | ActivityKind::Shielded { .. }
+            | ActivityKind::PoolToCore { .. } => false,
             _ => continue,
         };
         if act.chain == evolite_api::Chain::Platform {
@@ -510,7 +572,7 @@ impl Real {
         // The height its coins were read at: the «after» of [`count_checked`] sees it.
         self.chain.note_wallet_synced(Some(synced));
         let (platform_address, platform_credits) = platform.unwrap_or_default();
-        let (pool, unfinished_shield, connecting_pool) = self.read_pool(id).await;
+        let (pool, unfinished_shield, connecting_pool) = self.read_pool(id, &own_core).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
         fees.core_coins = convert::core_coins(coin_values);
         fees.lock_coins = convert::core_coins(lock_values);
@@ -536,6 +598,8 @@ impl Real {
             history.extend(self.pool_history.kept());
         }
         describe_pool_lines(&mut history);
+        match_pool_arrivals(&mut history);
+        self.hold_change(id, &history).await;
         // Sends on Platform shown from "Sign" until their own lines are here (BUG-12).
         let mut history = self
             .platform_sending
@@ -1159,7 +1223,11 @@ impl Real {
 
     /// The shielded pool, once connected (local reads, no network): the view, the shield left
     /// unfinished, and whether it was asked to connect for this wallet and is not ready yet.
-    async fn read_pool(&self, id: WalletId) -> (Option<pool::PoolView>, Option<Duffs>, bool) {
+    async fn read_pool(
+        &self,
+        id: WalletId,
+        own_core: &[String],
+    ) -> (Option<pool::PoolView>, Option<Duffs>, bool) {
         let found = turn::timed("wallet_lookup_pool", self.chain.wallet(&id)).await;
         let (pool, unfinished_shield) = match found {
             Some(wallet) => (
@@ -1178,10 +1246,35 @@ impl Real {
             && *self.pool_wallet.lock().unwrap_or_else(|e| e.into_inner()) == Some(id);
         // What the scan lost after a restart (a top-up from the pool as 0), put back.
         let pool = pool.map(|mut p| {
+            own_pool_withdrawals(&mut p.operations, own_core);
             p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
             p
         });
         (pool, unfinished_shield, connecting_pool)
+    }
+
+    /// FEAT-0049 r2: the change addresses of withdrawals from the pool still on their way stay
+    /// reserved — again after a restart (the reservation lives in memory; the pool's store keeps
+    /// the address), and once more every [`HOLD_AGAIN`] while one is waiting.
+    async fn hold_change(&mut self, id: WalletId, history: &[Activity]) {
+        let on_its_way = withdrawals_on_their_way(history);
+        if on_its_way.is_empty() {
+            self.held_change = None;
+            return;
+        }
+        let fresh = self
+            .held_change
+            .as_ref()
+            .is_some_and(|(held, addresses, at)| {
+                *held == id && *addresses == on_its_way && now() < at + HOLD_AGAIN
+            });
+        if fresh {
+            return;
+        }
+        if let Some(wallet) = self.chain.wallet(&id).await {
+            self.chain.hold_change_addresses(&wallet, &on_its_way).await;
+            self.held_change = Some((id, on_its_way, now()));
+        }
     }
 
     /// Asset locks in the history say what they were for: the pool's as a shield, the others

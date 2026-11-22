@@ -1190,6 +1190,50 @@ impl Chain {
         ))
     }
 
+    /// FEAT-0049 r1, r2: where a withdrawal to the wallet's own Core balance goes — the next
+    /// unused address of the BIP44 account's change chain, not the one «Receive» shows,
+    /// reserved until the payout so no other withdrawal and no payment's change takes it
+    /// ([`crate::change_reserve`]).
+    pub async fn own_change_address(&self, wallet: &PlatformWallet) -> Result<String, String> {
+        let mut manager = wallet.wallet_manager().write().await;
+        let (held, info) = manager
+            .get_wallet_and_info_mut(&wallet.wallet_id())
+            .ok_or("The wallet is not open")?;
+        let xpub = held
+            .accounts
+            .standard_bip44_accounts
+            .get(&0)
+            .map(|a| a.account_xpub)
+            .ok_or("No BIP44 account")?;
+        crate::change_reserve::reserve(&mut info.core_wallet, xpub, crate::change_reserve::now())
+    }
+
+    /// FEAT-0049 r2: the change addresses of withdrawals still on their way, reserved again
+    /// (after a restart, and kept fresh). How many are reserved.
+    pub async fn hold_change_addresses(
+        &self,
+        wallet: &PlatformWallet,
+        addresses: &[String],
+    ) -> usize {
+        let mut manager = wallet.wallet_manager().write().await;
+        match manager.get_wallet_and_info_mut(&wallet.wallet_id()) {
+            Some((_, info)) => crate::change_reserve::hold(
+                &mut info.core_wallet,
+                addresses,
+                crate::change_reserve::now(),
+            ),
+            None => 0,
+        }
+    }
+
+    /// FEAT-0049 r2: a withdrawal refused for sure gives its change address back.
+    pub async fn release_change_address(&self, wallet: &PlatformWallet, address: &str) {
+        let mut manager = wallet.wallet_manager().write().await;
+        if let Some((_, info)) = manager.get_wallet_and_info_mut(&wallet.wallet_id()) {
+            crate::change_reserve::release(&mut info.core_wallet, address);
+        }
+    }
+
     /// Sends `credits` from the wallet's first identity (the one the interface shows), signed
     /// with its TRANSFER key, then reads its balance back.
     pub async fn send_credits(

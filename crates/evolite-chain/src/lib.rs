@@ -7,6 +7,7 @@
 extern crate evolite_common;
 
 mod apps;
+pub mod change_reserve;
 pub mod coins;
 pub mod convert;
 pub mod kept_locks;
