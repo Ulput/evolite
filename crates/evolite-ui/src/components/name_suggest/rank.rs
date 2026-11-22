@@ -39,6 +39,9 @@ pub struct Row {
     /// How many leading characters of `label` matched what was typed (drawn SemiBold); 0 when
     /// only the profile's name matched.
     pub matched: usize,
+    /// BUG-268: where the profile's name matched, when it did and the @name did not: the first
+    /// character of the word and how many characters, drawn SemiBold.
+    pub display_matched: Option<(usize, usize)>,
     /// The contact's picture, from the avatars' cache.
     pub picture: Option<String>,
 }
@@ -50,12 +53,34 @@ enum Group {
     Exact,
     /// A contact whose @name starts with it.
     ContactByName,
-    /// A contact whose profile's name has it.
+    /// A contact whose profile's name has a word that starts with it (BUG-268).
     ContactByProfile,
     /// One's own identity (Send only).
     Own,
     /// A name from the network.
     Network,
+}
+
+/// BUG-268 (the customer): where a word of `text` starts with `typed`, case aside — the first
+/// character of that word and the length of `typed`, in characters. Never a letter in the middle
+/// of a word: «l» is not found in «evolite probe», «pro» is.
+pub fn word_start(text: &str, typed: &str) -> Option<(usize, usize)> {
+    let typed: Vec<char> = typed.chars().flat_map(char::to_lowercase).collect();
+    if typed.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len())
+        .filter(|&i| i == 0 || !chars[i - 1].is_alphanumeric())
+        .find(|&i| {
+            let rest: Vec<char> = chars[i..]
+                .iter()
+                .take(typed.len())
+                .flat_map(|c| c.to_lowercase())
+                .collect();
+            rest.starts_with(&typed)
+        })
+        .map(|i| (i, typed.len()))
 }
 
 /// The rows for `typed`, at most [`ROWS`]: the exact name first, then contacts (by @name, then by
@@ -101,6 +126,10 @@ pub fn rank(
         let by_name = form.starts_with(&key);
         let group = if form == key { Group::Exact } else { group };
         let contact = contact_of(id);
+        let display: Option<String> = contact.and_then(|c| c.profile.display.clone()).or(display);
+        let display_matched = (group == Group::ContactByProfile && !by_name)
+            .then(|| display.as_deref().and_then(|d| word_start(d, &words)))
+            .flatten();
         all.push((
             group,
             paid,
@@ -108,9 +137,10 @@ pub fn rank(
             Row {
                 label: label.to_owned(),
                 identity_id: id.to_owned(),
-                display: contact.and_then(|c| c.profile.display.clone()).or(display),
+                display,
                 tag: tag_of(id),
                 matched: if by_name { key.chars().count() } else { 0 },
+                display_matched,
                 // A contact's from the snapshot; a stranger's only as the core brought it
                 // (the switch on, the hash checked).
                 picture: contact.and_then(|c| c.profile.avatar.clone()).or(picture),
@@ -120,11 +150,12 @@ pub fn rank(
     for c in established() {
         let label = c.name.as_deref().unwrap_or_default();
         let by_name = search_key(label).is_some_and(|f| f.starts_with(&key));
+        // BUG-268: the profile's name from the start of one of its words, never a letter inside.
         let by_profile = c
             .profile
             .display
             .as_deref()
-            .is_some_and(|d| d.to_lowercase().contains(&words));
+            .is_some_and(|d| word_start(d, &words).is_some());
         if by_name || by_profile {
             let group = if by_name {
                 Group::ContactByName
@@ -336,5 +367,49 @@ mod tests {
             rows.is_empty(),
             "not established: not offered from the snapshot"
         );
+    }
+
+    /// BUG-268 (the customer): matching from the start, never a letter inside a word. The
+    /// contact @werner555 «evolite probe»: «@l» offers nothing (neither the name nor a word of the
+    /// profile's name starts with it); «@w» offers it by its name; «@pro» by a word of its
+    /// profile's name, that word's start marked; «l» and «obe» not at all.
+    #[test]
+    fn contacts_match_from_the_start_of_a_name_or_a_word() {
+        let werner = contact("werner555", Some("evolite probe"), None);
+        let ids = |typed: &str| {
+            rank(typed, Place::Send, std::slice::from_ref(&werner), &[], &[])
+                .into_iter()
+                .map(|r| (r.label, r.matched, r.display_matched))
+                .collect::<Vec<_>>()
+        };
+        assert!(ids("@l").is_empty(), "«@l»");
+        assert!(ids("l").is_empty(), "«l»: inside «evolite»");
+        assert!(ids("obe").is_empty(), "«obe»: inside «probe»");
+        assert_eq!(ids("@w"), [("werner555".to_owned(), 1, None)]);
+        assert_eq!(
+            ids("@WER"),
+            [("werner555".to_owned(), 3, None)],
+            "case aside"
+        );
+        assert_eq!(
+            ids("pro"),
+            [("werner555".to_owned(), 0, Some((8, 3)))],
+            "«pro»: the start of «probe», marked"
+        );
+        assert_eq!(
+            ids("@pro"),
+            [("werner555".to_owned(), 0, Some((8, 3)))],
+            "«@pro» in «To»: the same"
+        );
+        assert_eq!(ids("evo"), [("werner555".to_owned(), 0, Some((0, 3)))]);
+    }
+
+    /// The word's start in characters, whatever the letters' bytes.
+    #[test]
+    fn a_words_start_is_counted_in_characters() {
+        assert_eq!(word_start("Анна Петрова", "пет"), Some((5, 3)));
+        assert_eq!(word_start("Анна Петрова", "етр"), None);
+        assert_eq!(word_start("Jean-Luc", "luc"), Some((5, 3)));
+        assert_eq!(word_start("anything", ""), None);
     }
 }

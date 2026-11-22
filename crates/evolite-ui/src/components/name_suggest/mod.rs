@@ -9,7 +9,7 @@
 
 mod rank;
 
-pub use rank::{Place, Row, Tag, rank};
+pub use rank::{Place, Row, Tag, rank, word_start};
 
 use std::time::{Duration, Instant};
 
@@ -458,12 +458,9 @@ impl NameSuggest {
         };
         ui.painter().galley(pos2(left, name_y), name, p.text);
         if let Some(display) = display {
-            let galley = ui.painter().layout(
-                display.to_owned(),
-                sans(12.0, Weight::Regular),
-                p.muted,
-                right - left,
-            );
+            // BUG-268: the word that matched SemiBold, so it is seen why the row is here.
+            let job = display_job(display, row.display_matched, p.muted, right - left);
+            let galley = ui.painter().layout_job(job);
             ui.painter()
                 .galley(pos2(left, rect.center().y + 2.0), galley, p.muted);
         }
@@ -489,6 +486,39 @@ impl NameSuggest {
 /// The row's widget id: the list's own, under its field.
 fn row_id(field: egui::Id, i: usize) -> egui::Id {
     field.with(("suggestion", i))
+}
+
+/// The profile's name under the @name, its `matched` characters (from, how many) SemiBold: the
+/// start of the word that matched (BUG-268). One line, cut with «…» at `width`.
+fn display_job(
+    display: &str,
+    matched: Option<(usize, usize)>,
+    color: Color32,
+    width: f32,
+) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let format = |weight| egui::TextFormat {
+        font_id: sans(12.0, weight),
+        color,
+        ..Default::default()
+    };
+    let at = |n: usize| {
+        display
+            .char_indices()
+            .nth(n)
+            .map_or(display.len(), |(i, _)| i)
+    };
+    match matched {
+        Some((from, len)) => {
+            let (a, b) = (at(from), at(from + len));
+            job.append(&display[..a], 0.0, format(Weight::Regular));
+            job.append(&display[a..b], 0.0, format(Weight::SemiBold));
+            job.append(&display[b..], 0.0, format(Weight::Regular));
+        }
+        None => job.append(display, 0.0, format(Weight::Regular)),
+    }
+    job.wrap = egui::text::TextWrapping::truncate_at_width(width.max(40.0));
+    job
 }
 
 /// «@alice» with its first `matched` characters SemiBold, one line, cut with «…» at `width`.

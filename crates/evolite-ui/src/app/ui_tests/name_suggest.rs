@@ -251,3 +251,20 @@ fn the_strangers_pictures_switch_is_under_hide_amounts_and_reaches_the_core() {
         "off at once"
     );
 }
+
+/// BUG-268 (the customer): «To» matches a contact from the start — of its @name, or of a word of
+/// its profile's name — never a letter inside a word. The demo's @alice «Alice Chen»: «@li» does
+/// not offer her (inside «alice» and «Alice»), «@che» does (the start of «Chen»), «@al» does.
+#[test]
+fn to_matches_a_contact_from_the_start_never_inside_a_word() {
+    let offers_alice = |typed: &str| {
+        let (_turn, mut kit) = demo_app("send-book", "en");
+        click_field(&mut kit, None);
+        type_slowly(&mut kit, typed);
+        kit.run_steps(4);
+        options(&kit).iter().any(|o| o.starts_with("@alice,"))
+    };
+    assert!(!offers_alice("@li"), "«@li»: inside «alice» and «Alice»");
+    assert!(offers_alice("@che"), "«@che»: the start of «Chen»");
+    assert!(offers_alice("@al"), "«@al»: the start of «alice»");
+}

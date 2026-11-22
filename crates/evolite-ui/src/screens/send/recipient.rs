@@ -107,7 +107,9 @@ pub(super) fn book_matches<'a>(book: &'a [SavedAddress], typed: &str) -> Vec<&'a
     book.iter()
         .filter(|e| {
             typed.is_empty()
-                || e.label.to_lowercase().contains(&typed)
+                // BUG-268: a label from the start of a word, as a contact's name; an address
+                // by any part of it (people match addresses by a piece they remember).
+                || crate::components::name_suggest::word_start(&e.label, &typed).is_some()
                 || e.address.to_lowercase().contains(&typed)
         })
         .collect()
@@ -323,4 +325,27 @@ pub(super) fn resolved(
                 });
             });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::book_matches;
+    use evolite_api::SavedAddress;
+
+    /// BUG-268 r1 (the architect's Should): the address book's labels are matched as contacts'
+    /// names are — from the start of a word, never by letters inside one; an address by any part.
+    #[test]
+    fn a_label_is_matched_from_the_start_of_a_word() {
+        let book = vec![SavedAddress {
+            address: "yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh".into(),
+            label: "Home rent".into(),
+        }];
+        let found = |typed: &str| !book_matches(&book, typed).is_empty();
+        assert!(found("re"), "«re»: the start of «rent»");
+        assert!(found("ho"), "«ho»: the start of «Home»");
+        assert!(found("HOME r"), "case aside, across the words");
+        assert!(!found("nt"), "«nt»: inside «rent»");
+        assert!(!found("ome"), "«ome»: inside «Home»");
+        assert!(found("Wq4mR"), "an address by any part of it");
+    }
 }
