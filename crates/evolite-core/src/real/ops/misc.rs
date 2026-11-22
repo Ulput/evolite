@@ -3,32 +3,29 @@
 use crate::real::*;
 
 impl Real {
-    /// The NFTs of the shown identity as last found, and an ask for them in the background
-    /// when it is due (proofs must be checkable first).
+    /// The NFTs of all the wallet's `identities` together as last found (FEAT-0055), and an ask
+    /// in the background for each identity's list when it is due (proofs must be checkable
+    /// first).
     pub(in crate::real) fn shown_nfts(
         &self,
-        identity: Option<&Identity>,
-    ) -> (Vec<Nft>, NftsStatus) {
-        let owner = identity.map(|i| i.id.clone());
+        identities: &[IdentityChoice],
+    ) -> (Vec<Nft>, NftsStatus, Vec<(String, NftsStatus)>) {
+        let owners: Vec<String> = identities.iter().map(|i| i.id.clone()).collect();
         // The collection's contract is on testnet only: nothing is asked where the network
         // matrix leaves it off (FEAT-0037).
         let here = evolite_api::features::on(
             evolite_api::features::Feature::Collection,
             crate::network::current(),
         );
-        if let Some(owner) = &owner
-            && here
-            && self.chain.platform_ready()
-            && self.nfts.due(owner)
-        {
+        for identity in identities {
+            if !(here && self.chain.platform_ready() && self.nfts.due(&identity.id)) {
+                continue;
+            }
+            let owner = &identity.id;
             let name = identity
-                .and_then(|i| {
-                    i.names
-                        .iter()
-                        .find(|n| n.primary)
-                        .or(i.names.iter().find(|n| n.state.owned()))
-                })
-                .map(|n| format!("@{}", n.label))
+                .name
+                .as_ref()
+                .map(|n| format!("@{n}"))
                 .unwrap_or_else(|| owner.chars().take(8).collect());
             let (chain, nfts, refresh) = (self.chain.clone(), self.nfts.clone(), self.refresher());
             let known = nfts.known_models();
@@ -57,7 +54,7 @@ impl Real {
                 refresh();
             });
         }
-        self.nfts.shown(owner.as_deref())
+        self.nfts.shown(&owners)
     }
 
     /// "Fiat rate": fetch the price of DASH in `currency` now and every [`rates::EVERY`];

@@ -113,12 +113,20 @@ fn copies_of_one_model_are_one_tile_and_open_their_card() {
 }
 
 /// BUG-188 §5: one row — the tab «Collection», then the filters «Jembe · gifts» and «For sale»,
-/// each on and off again; no «All». «For sale» groups only the copies for sale.
+/// each on and off again; no «All» among them (FEAT-0055's «All» is the identities', in its own
+/// row above). «For sale» groups only the copies for sale.
 #[test]
 fn the_filters_follow_the_collection_tab_and_turn_off_again() {
     let (_turn, mut kit) = demo_app("collection", "en");
     wait_for(&mut kit, "the tiles", |kit| tiles(kit).len() > 5);
-    assert!(kit.query_by_label("All").is_none(), "no «All» any more");
+    let filters = kit.get_by_label("For sale").rect();
+    for all in kit.query_all_by_label("All") {
+        assert!(
+            all.rect().bottom() <= filters.top(),
+            "no «All» in the filters' row: {:?} beside {filters:?}",
+            all.rect()
+        );
+    }
     let all = tiles(&kit).len();
 
     kit.get_by_label("For sale").click();

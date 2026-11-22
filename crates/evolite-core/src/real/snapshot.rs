@@ -666,7 +666,8 @@ impl Real {
         };
         self.ask_names(unnamed);
         self.contacts = contacts.clone();
-        let (nfts, nfts_status) = self.shown_nfts(shown.as_ref().map(|(identity, _, _)| identity));
+        // FEAT-0055: every identity's NFTs, together.
+        let (nfts, nfts_status, nfts_statuses) = self.shown_nfts(&identities);
         let apps = app_jobs::shown_apps(
             &self.apps.all(),
             shown.as_ref().map(|(identity, _, _)| identity.id.as_str()),
@@ -764,6 +765,7 @@ impl Real {
             apps,
             nfts,
             nfts_status,
+            nfts_statuses,
             contacts,
             resend,
             unfinished_identity: unfinished,

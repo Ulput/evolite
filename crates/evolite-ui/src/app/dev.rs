@@ -587,6 +587,13 @@ impl App {
             && w.identities.len() != 10
         {
             w.identities = long_identities(first);
+            // FEAT-0055: the NFTs spread over them, so the Collection's filter has something
+            // in each identity's.
+            for (k, nft) in w.nfts.iter_mut().enumerate() {
+                let owner = &w.identities[k % w.identities.len()];
+                nft.owner_id = owner.id.clone();
+                nft.owner = crate::components::identity_full_name(owner);
+            }
         }
         if self.dev.second_identity_preset
             && let Some(id) = self

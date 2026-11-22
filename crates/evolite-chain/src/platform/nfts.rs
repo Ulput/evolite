@@ -109,25 +109,33 @@ pub fn to_nft(gift: &GiftDoc, model: &ModelDoc, art: String, verified: bool, own
         contract: CONTRACT_NAME.into(),
         edition: (gift.serial, model.supply.unwrap_or(0)),
         owner: owner.into(),
+        // Set by the list it is found in (`Nfts::found`).
+        owner_id: String::new(),
         // 1 duff = 1 000 credits.
         price: gift.price.map(|credits| (credits / 1000) as Duffs),
     }
 }
 
+/// One identity's list and its asks.
 #[derive(Default)]
-struct State {
-    /// Whose list this is (base58).
-    owner: Option<String>,
+struct List {
     nfts: Vec<Nft>,
     status: NftsStatus,
     asked: Option<Instant>,
     running: bool,
+}
+
+#[derive(Default)]
+struct State {
+    /// FEAT-0055: every identity's own list, by its id (base58).
+    lists: HashMap<String, List>,
     /// Models never change: read once each.
     models: HashMap<String, ModelDoc>,
     pictures: HashMap<String, Stored>,
 }
 
-/// The NFTs of the shown identity, kept between snapshots.
+/// The NFTs of the wallet's identities, each identity's list kept between snapshots
+/// (FEAT-0055: the Collection shows them all together).
 #[derive(Clone, Default)]
 pub struct Nfts(Arc<Mutex<State>>);
 
@@ -139,58 +147,79 @@ impl Nfts {
         self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The list and where it stands, for `owner` (base58); `None`: no identity.
-    pub fn shown(&self, owner: Option<&str>) -> (Vec<Nft>, NftsStatus) {
-        let state = self.state();
-        match owner {
-            None => (Vec::new(), NftsStatus::NoIdentity),
-            Some(o) if state.owner.as_deref() == Some(o) => {
-                (state.nfts.clone(), state.status.clone())
-            }
-            Some(_) => (Vec::new(), NftsStatus::Loading),
+    /// The lists of `owners` (base58, in this order) together, where they stand as one, and each
+    /// one's own state (FEAT-0055 r1). As one: a failed list says so (what it found before
+    /// stays), else one still on its way is «Loading» (what the others found is shown
+    /// meanwhile), else «Ready». No owners: no identity. An owner never asked for is on its way.
+    /// The lists of identities not in `owners` are dropped (r1: another or a deleted wallet's
+    /// NFTs do not stay in memory); their late answers are dropped too ([`Self::found`]).
+    pub fn shown(&self, owners: &[String]) -> (Vec<Nft>, NftsStatus, Vec<(String, NftsStatus)>) {
+        let mut state = self.state();
+        state.lists.retain(|owner, _| owners.contains(owner));
+        if owners.is_empty() {
+            return (Vec::new(), NftsStatus::NoIdentity, Vec::new());
         }
+        let mut nfts = Vec::new();
+        let mut each = Vec::new();
+        for owner in owners {
+            let status = match state.lists.get(owner) {
+                Some(list) => {
+                    nfts.extend(list.nfts.iter().cloned());
+                    list.status.clone()
+                }
+                None => NftsStatus::Loading,
+            };
+            each.push((owner.clone(), status));
+        }
+        let failed = each.iter().find_map(|(_, s)| match s {
+            NftsStatus::Failed(why) => Some(why.clone()),
+            _ => None,
+        });
+        let status = match failed {
+            Some(why) => NftsStatus::Failed(why),
+            None if each.iter().any(|(_, s)| *s == NftsStatus::Loading) => NftsStatus::Loading,
+            None => NftsStatus::Ready,
+        };
+        (nfts, status, each)
     }
 
     /// Should the list of `owner` be asked for now? Marks the ask as running when so.
     pub fn due(&self, owner: &str) -> bool {
         let mut state = self.state();
-        if state.owner.as_deref() != Some(owner) {
-            *state = State {
-                owner: Some(owner.into()),
-                status: NftsStatus::Loading,
-                models: std::mem::take(&mut state.models),
-                pictures: std::mem::take(&mut state.pictures),
-                ..State::default()
-            };
-        }
-        let due = match state.asked {
+        let list = state.lists.entry(owner.into()).or_insert_with(|| List {
+            status: NftsStatus::Loading,
+            ..List::default()
+        });
+        let due = match list.asked {
             None => true,
-            Some(at) if state.running => {
+            Some(at) if list.running => {
                 let lost = at.elapsed() >= ASK_LOST;
-                if lost && matches!(state.status, NftsStatus::Loading) {
-                    state.status = NftsStatus::Failed(no_answer().into());
+                if lost && matches!(list.status, NftsStatus::Loading) {
+                    list.status = NftsStatus::Failed(no_answer().into());
                 }
                 lost
             }
             Some(at) => at.elapsed() >= REFRESH,
         };
         if due {
-            state.running = true;
-            state.asked = Some(Instant::now());
+            list.running = true;
+            list.asked = Some(Instant::now());
         }
         due
     }
 
-    /// «Try again»: the next [`Self::due`] asks at once, unless an ask runs now. A list that
-    /// failed and has nothing saved shows as loading again until the answer.
+    /// «Try again»: the next [`Self::due`] of every list asks at once, unless its ask runs now.
+    /// A list that failed and has nothing saved shows as loading again until the answer.
     pub fn ask_now(&self) {
         let mut state = self.state();
-        if state.running {
-            return;
-        }
-        state.asked = None;
-        if state.nfts.is_empty() && matches!(state.status, NftsStatus::Failed(_)) {
-            state.status = NftsStatus::Loading;
+        for list in state.lists.values_mut() {
+            if list.running {
+                continue;
+            }
+            list.asked = None;
+            if list.nfts.is_empty() && matches!(list.status, NftsStatus::Failed(_)) {
+                list.status = NftsStatus::Loading;
+            }
         }
     }
 
@@ -202,15 +231,17 @@ impl Nfts {
     /// The answer to an ask for `owner`, shown by `owner_name`.
     pub fn found(&self, owner: &str, owner_name: &str, result: Result<Found, String>) {
         let mut state = self.state();
-        // An answer for an identity no longer shown: the ask running now is the new one's.
-        if state.owner.as_deref() != Some(owner) {
+        // An answer for a list never asked for (or dropped): nothing to put it in.
+        if !state.lists.contains_key(owner) {
             return;
         }
-        state.running = false;
         let (gifts, models) = match result {
             Ok(found) => found,
             Err(e) => {
-                state.status = NftsStatus::Failed(e);
+                if let Some(list) = state.lists.get_mut(owner) {
+                    list.running = false;
+                    list.status = NftsStatus::Failed(e);
+                }
                 return;
             }
         };
@@ -225,10 +256,15 @@ impl Nfts {
             };
             let (art, stored, verified) = picture(&model);
             state.pictures.insert(art.clone(), stored);
-            nfts.push(to_nft(gift, &model, art, verified, owner_name));
+            let mut nft = to_nft(gift, &model, art, verified, owner_name);
+            nft.owner_id = owner.into();
+            nfts.push(nft);
         }
-        state.nfts = nfts;
-        state.status = NftsStatus::Ready;
+        if let Some(list) = state.lists.get_mut(owner) {
+            list.running = false;
+            list.nfts = nfts;
+            list.status = NftsStatus::Ready;
+        }
     }
 
     /// The picture with this key, for the renderer.
@@ -248,28 +284,29 @@ mod tests {
         let owner = "owner";
         assert!(nfts.due(owner), "the first ask");
         assert!(!nfts.due(owner), "not twice while it runs");
-        assert_eq!(nfts.shown(Some(owner)).1, NftsStatus::Loading);
+        assert_eq!(nfts.shown(&[owner.to_string()]).1, NftsStatus::Loading);
         // Its task ended without an answer, long enough ago.
         let past = |d: Duration| Instant::now().checked_sub(d).unwrap();
-        nfts.state().asked = Some(past(ASK_LOST - Duration::from_secs(1)));
+        nfts.state().lists.get_mut(owner).unwrap().asked =
+            Some(past(ASK_LOST - Duration::from_secs(1)));
         assert!(!nfts.due(owner), "still within its time");
-        nfts.state().asked = Some(past(ASK_LOST));
+        nfts.state().lists.get_mut(owner).unwrap().asked = Some(past(ASK_LOST));
         assert!(nfts.due(owner), "lost: asked again");
         assert_eq!(
-            nfts.shown(Some(owner)).1,
+            nfts.shown(&[owner.to_string()]).1,
             NftsStatus::Failed(no_answer().into()),
             "and said so"
         );
         // The new ask answers: an empty list is "no NFTs yet", not loading.
         nfts.found(owner, "@o", Ok((Vec::new(), Vec::new())));
-        assert_eq!(nfts.shown(Some(owner)), (Vec::new(), NftsStatus::Ready));
+        assert_eq!(nfts.shown(&[owner.to_string()]).1, NftsStatus::Ready);
         assert!(!nfts.due(owner), "the next ask after REFRESH");
         // A timed-out ask is a failure with its reason, asked again after REFRESH.
-        nfts.state().asked = Some(past(REFRESH));
+        nfts.state().lists.get_mut(owner).unwrap().asked = Some(past(REFRESH));
         assert!(nfts.due(owner));
         nfts.found(owner, "@o", Err(no_answer().into()));
         assert_eq!(
-            nfts.shown(Some(owner)).1,
+            nfts.shown(&[owner.to_string()]).1,
             NftsStatus::Failed(no_answer().into())
         );
         assert!(!nfts.due(owner));
@@ -287,17 +324,17 @@ mod tests {
         nfts.found(owner, "@o", Err(no_answer().into()));
         assert!(!nfts.due(owner), "the next one after REFRESH");
         nfts.ask_now();
-        assert_eq!(nfts.shown(Some(owner)).1, NftsStatus::Loading);
+        assert_eq!(nfts.shown(&[owner.to_string()]).1, NftsStatus::Loading);
         assert!(nfts.due(owner), "asked again now");
         assert!(!nfts.due(owner), "once");
         // A saved list stays and says it failed until the answer.
         nfts.found(owner, "@o", Ok((vec![gift(None)], vec![model(b"<svg/>")])));
-        assert_eq!(nfts.shown(Some(owner)).0.len(), 1);
-        nfts.state().running = false;
-        nfts.state().status = NftsStatus::Failed("timeout".into());
+        assert_eq!(nfts.shown(&[owner.to_string()]).0.len(), 1);
+        nfts.state().lists.get_mut(owner).unwrap().running = false;
+        nfts.state().lists.get_mut(owner).unwrap().status = NftsStatus::Failed("timeout".into());
         nfts.ask_now();
         assert_eq!(
-            nfts.shown(Some(owner)).1,
+            nfts.shown(&[owner.to_string()]).1,
             NftsStatus::Failed("timeout".into())
         );
         assert!(nfts.due(owner));
@@ -404,23 +441,23 @@ mod tests {
     #[test]
     fn the_list_is_kept_per_identity_and_asked_for_again_later() {
         let nfts = Nfts::default();
-        assert_eq!(nfts.shown(None).1, NftsStatus::NoIdentity);
+        assert_eq!(nfts.shown(&[]).1, NftsStatus::NoIdentity);
         assert!(nfts.due("alice"));
         // Running: not asked twice.
         assert!(!nfts.due("alice"));
-        assert_eq!(nfts.shown(Some("alice")).1, NftsStatus::Loading);
+        assert_eq!(nfts.shown(&["alice".to_string()]).1, NftsStatus::Loading);
         let m = model(SVG);
         nfts.found("alice", "@alice", Ok((vec![gift(None)], vec![m.clone()])));
-        let (list, status) = nfts.shown(Some("alice"));
+        let (list, status, _) = nfts.shown(&["alice".to_string()]);
         assert_eq!((list.len(), status), (1, NftsStatus::Ready));
         assert!(nfts.picture(&list[0].art).is_some());
         // Not due again before the refresh time.
         assert!(!nfts.due("alice"));
         // A failure keeps the last list.
-        nfts.state().asked = None;
+        nfts.state().lists.get_mut("alice").unwrap().asked = None;
         assert!(nfts.due("alice"));
         nfts.found("alice", "@alice", Err("network".into()));
-        let (list, status) = nfts.shown(Some("alice"));
+        let (list, status, _) = nfts.shown(&["alice".to_string()]);
         assert_eq!(
             (list.len(), status),
             (1, NftsStatus::Failed("network".into()))
@@ -428,18 +465,76 @@ mod tests {
         // Another identity: its own list, models remembered.
         assert!(nfts.due("bob"));
         assert_eq!(nfts.known_models(), vec!["model".to_string()]);
-        assert_eq!(nfts.shown(Some("bob")).0.len(), 0);
+        assert_eq!(nfts.shown(&["bob".to_string()]).0.len(), 0);
     }
 
+    /// FEAT-0055: two identities' asks run side by side; each answer goes into its own list,
+    /// and the Collection shows both lists together.
     #[test]
-    fn a_late_answer_for_another_identity_leaves_the_running_ask_alone() {
+    fn each_identity_has_its_own_list_and_the_collection_shows_them_together() {
         let nfts = Nfts::default();
+        let both = ["alice".to_string(), "bob".to_string()];
         assert!(nfts.due("alice"));
-        // The person switches identity while alice's list is on its way.
-        assert!(nfts.due("bob"));
-        nfts.found("alice", "@alice", Ok((Vec::new(), Vec::new())));
-        // Bob's ask is still running: not asked a second time.
+        assert!(nfts.due("bob"), "bob's ask beside alice's");
+        nfts.found("alice", "@alice", Ok((vec![gift(None)], vec![model(SVG)])));
+        // Bob's ask still runs: not asked a second time, and the two together are loading,
+        // with alice's shown meanwhile.
         assert!(!nfts.due("bob"));
-        assert_eq!(nfts.shown(Some("bob")).1, NftsStatus::Loading);
+        let (list, status, _) = nfts.shown(&both);
+        assert_eq!((list.len(), status), (1, NftsStatus::Loading));
+        assert_eq!(list[0].owner_id, "alice");
+        nfts.found("bob", "@bob", Ok((vec![gift(None)], Vec::new())));
+        let (list, status, _) = nfts.shown(&both);
+        assert_eq!((list.len(), status), (2, NftsStatus::Ready));
+        assert_eq!(list[1].owner_id, "bob");
+        assert_eq!(list[1].owner, "@bob");
+        // A failed list says so for the whole, what it found before stays.
+        nfts.state().lists.get_mut("bob").unwrap().asked = None;
+        assert!(nfts.due("bob"));
+        nfts.found("bob", "@bob", Err("network".into()));
+        let (list, status, each) = nfts.shown(&both);
+        assert_eq!(
+            (list.len(), status),
+            (2, NftsStatus::Failed("network".into()))
+        );
+        // r1: under alice's chip alice's own state — ready, not bob's failure.
+        assert_eq!(
+            each,
+            vec![
+                ("alice".to_string(), NftsStatus::Ready),
+                ("bob".to_string(), NftsStatus::Failed("network".into())),
+            ]
+        );
+        // An identity never asked for is on its way, not «no NFTs».
+        let three = ["alice".to_string(), "carol".to_string()];
+        assert_eq!(nfts.shown(&three).1, NftsStatus::Loading);
+        // An answer for a list never asked for is dropped.
+        nfts.found("dave", "@dave", Ok((vec![gift(None)], Vec::new())));
+        assert!(nfts.shown(&["dave".to_string()]).0.is_empty());
+    }
+
+    /// FEAT-0055 r1 (TEAM.md §8d В1): another wallet opens — its identities are other ones; the
+    /// first wallet's lists are dropped from memory, and a late answer for them is too.
+    #[test]
+    fn another_wallets_identities_drop_the_first_ones_lists() {
+        let nfts = Nfts::default();
+        let first = ["alice".to_string(), "bob".to_string()];
+        assert!(nfts.due("alice"));
+        assert!(nfts.due("bob"));
+        nfts.found("alice", "@alice", Ok((vec![gift(None)], vec![model(SVG)])));
+        assert_eq!(nfts.shown(&first).0.len(), 1);
+        // The other wallet: one identity of its own.
+        let other = ["carol".to_string()];
+        let (list, status, each) = nfts.shown(&other);
+        assert!(list.is_empty(), "none of the first wallet's NFTs");
+        assert_eq!(status, NftsStatus::Loading);
+        assert_eq!(each, vec![("carol".to_string(), NftsStatus::Loading)]);
+        assert!(!nfts.state().lists.contains_key("alice"));
+        // Bob's ask answers late: dropped, not kept for later.
+        nfts.found("bob", "@bob", Ok((vec![gift(None)], Vec::new())));
+        assert!(!nfts.state().lists.contains_key("bob"));
+        // Locked or no identity: nothing kept at all.
+        nfts.shown(&[]);
+        assert!(nfts.state().lists.is_empty());
     }
 }

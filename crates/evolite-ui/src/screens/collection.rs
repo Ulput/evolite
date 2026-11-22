@@ -56,6 +56,8 @@ fn matches(filter: usize, nft: &Nft) -> bool {
 #[derive(Default)]
 pub struct CollectionState {
     pub filter: usize,
+    /// FEAT-0055: only this identity's NFTs (its id); `None`: every identity's.
+    pub only: Option<String>,
     pub selected: usize,
     /// BUG-188: the card is open as a window (content narrower than [`SIDE_FROM`]).
     pub open: bool,
@@ -101,6 +103,7 @@ impl CollectionState {
     }
 
     pub fn forget_wallet(&mut self) {
+        self.only = None;
         self.selected = 0;
         self.open = false;
         self.page = 0;
@@ -163,8 +166,44 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
             crate::art::pictures_off_text(why),
         );
     }
-    if nfts.is_empty() {
-        if empty(ui, a, &wallet.nfts_status) {
+    // FEAT-0055: every identity's NFTs together; with several identities, «All» and each one
+    // to show only its own (the one picker, BUG-265). An identity gone shows all again. No
+    // filter while the wallet has no NFT at all: nothing to tell apart.
+    if state
+        .only
+        .as_ref()
+        .is_some_and(|only| !wallet.identities.iter().any(|i| &i.id == only))
+    {
+        state.only = None;
+    }
+    if wallet.identities.len() > 1
+        && (!nfts.is_empty() || state.only.is_some())
+        && let Some(only) = crate::components::identity_filter(
+            ui,
+            a,
+            wallet,
+            tr!("Identity"),
+            state.only.as_deref(),
+        )
+    {
+        state.only = only;
+    }
+    // r1: under one identity's chip its own list's state — another identity's failed read is
+    // not this one's; under «All» every list's together.
+    let status = state
+        .only
+        .as_ref()
+        .and_then(|only| {
+            wallet
+                .nfts_statuses
+                .iter()
+                .find(|(id, _)| id == only)
+                .map(|(_, s)| s)
+        })
+        .unwrap_or(&wallet.nfts_status);
+    let owned = |n: &Nft| state.only.as_ref().is_none_or(|only| &n.owner_id == only);
+    if !nfts.iter().any(owned) {
+        if empty(ui, a, status) {
             cx.send(Command::RefreshNfts);
         }
         return;
@@ -188,7 +227,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     });
     // The saved list is still here and the core asks again by itself: not an error (calm
     // states CS-1); «Try again» asks now (CS-1a).
-    if let NftsStatus::Failed(why) = &wallet.nfts_status {
+    if let NftsStatus::Failed(why) = status {
         crate::components::notice(
             ui,
             a,
@@ -208,6 +247,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
 
     let shown: Vec<usize> = (0..nfts.len())
         .filter(|i| matches(state.filter, &nfts[*i]))
+        .filter(|i| owned(&nfts[*i]))
         .collect();
     // The panel follows the filter: a hidden NFT gives way to the first one shown.
     if !shown.contains(&state.selected)
@@ -1275,6 +1315,7 @@ mod tests {
             contract: "jembe-nft".into(),
             edition: (edition, 500),
             owner: "@me".into(),
+            owner_id: "me".into(),
             price,
         }
     }
@@ -1424,6 +1465,7 @@ mod tests {
             contract: String::new(),
             edition: (1, 1),
             owner: String::new(),
+            owner_id: String::new(),
             price: None,
         };
         let mut state = super::CollectionState {

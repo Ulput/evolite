@@ -17,6 +17,10 @@ pub const DEMO_PHRASE: [&str; 24] = [
 
 pub const TIP: u32 = 1_284_112;
 
+/// The demo's second identity, @satoshi-lab: two NFTs are its own, so the Collection's filter by
+/// identity (FEAT-0055) has something to tell apart.
+pub const LAB_IDENTITY: &str = "5Kx2LabQ7pWmR9sTzV4nB8cYd1Je3HuF6gNqA2oX7wE";
+
 /// The demo's Platform or private address on the network the app runs on (BUG-211): `rest` after
 /// that network's prefix, so that a mainnet demo has `dash1…` addresses of its own.
 pub fn platform(rest: &str) -> String {
@@ -1115,7 +1119,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 slot: 0,
             },
             IdentityChoice {
-                id: "5Kx2LabQ7pWmR9sTzV4nB8cYd1Je3HuF6gNqA2oX7wE".into(),
+                id: LAB_IDENTITY.into(),
                 name: Some("satoshi-lab".into()),
                 slot: 1,
             },
@@ -1136,6 +1140,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (12, 500),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             // BUG-188: more copies of one model, shown as one tile «×3».
@@ -1154,6 +1159,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (40, 500),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: Some(50_000_000),
             },
             Nft {
@@ -1168,6 +1174,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (77, 500),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1187,6 +1194,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (3, 100),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: Some(50_000_000),
             },
             Nft {
@@ -1203,6 +1211,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (1, 21),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1220,6 +1229,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (7, 300),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1236,6 +1246,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (2, 300),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1249,6 +1260,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (40, 1000),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: Some(10_000_000),
             },
             // BUG-188: a run of copies, «№ 40–43», two of them for sale.
@@ -1263,6 +1275,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (41, 1000),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: Some(10_000_000),
             },
             Nft {
@@ -1276,6 +1289,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (42, 1000),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1289,6 +1303,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (43, 1000),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1308,6 +1323,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "jembe-nft".into(),
                 edition: (5, 50),
                 owner: "@satoshi".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
             Nft {
@@ -1324,7 +1340,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 issuer: "jembe".into(),
                 contract: "jembe-nft".into(),
                 edition: (3, 100),
-                owner: "@satoshi".into(),
+                owner: "@satoshi-lab".into(),
+                owner_id: LAB_IDENTITY.into(),
                 price: None,
             },
             Nft {
@@ -1337,7 +1354,8 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 issuer: "jembe".into(),
                 contract: "jembe-nft".into(),
                 edition: (19, 200),
-                owner: "@satoshi".into(),
+                owner: "@satoshi-lab".into(),
+                owner_id: LAB_IDENTITY.into(),
                 price: None,
             },
             Nft {
@@ -1357,10 +1375,12 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 contract: "neon-forge-drops".into(),
                 edition: (1, 10_000),
                 owner: "".into(),
+                owner_id: PEOPLE[0].id.into(),
                 price: None,
             },
         ],
         nfts_status: NftsStatus::Ready,
+        nfts_statuses: Vec::new(),
         fees: Fees {
             core_payment: 522,
             // The Core balance in three coins (BUG-55): a payment costs the coins it takes.

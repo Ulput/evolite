@@ -2,7 +2,8 @@
 //! Workshop. Built from the Identity screen's (design review №14): the label in the middle of
 //! the first row of pills; many identities wrap onto more rows, each from under the first pill,
 //! never past the page. A name too long for a whole row is shortened in its middle (FEAT-0051
-//! R-5); the full one is on hover and in the pill's name for a screen reader.
+//! R-5); the full one is on hover and in the pill's name for a screen reader. The Collection
+//! uses it as a filter (FEAT-0055, [`identity_filter`]): «All» first, then the identities.
 
 use super::prelude::*;
 use crate::theme::type_scale::UI;
@@ -15,6 +16,8 @@ pub struct Picked {
     pub chosen: Option<String>,
     /// «+ New identity» was clicked.
     pub new_one: bool,
+    /// «All» was clicked (only [`identity_filter`] has it).
+    pub all: bool,
 }
 
 /// The identities of `wallet` as pills after `label`, the shown one on. `new`: `Some(enabled)`
@@ -28,8 +31,51 @@ pub fn identity_picker(
     new: Option<bool>,
     aside: Option<&str>,
 ) -> Picked {
-    let p = a.p;
     let shown = wallet.identity.as_ref().map(|i| i.id.as_str());
+    picker_row(ui, a, &wallet.identities, label, shown, None, new, aside)
+}
+
+/// FEAT-0055: the Collection's filter by identity — «All» (on while `only` is `None`), then
+/// every identity of `wallet`, `only` on. Clicking the one on changes nothing. `Some(None)`:
+/// all now; `Some(Some(id))`: that identity's only.
+#[allow(clippy::option_option)]
+pub fn identity_filter(
+    ui: &mut Ui,
+    a: &mut Assets,
+    wallet: &Wallet,
+    label: &str,
+    only: Option<&str>,
+) -> Option<Option<String>> {
+    let picked = picker_row(
+        ui,
+        a,
+        &wallet.identities,
+        label,
+        only,
+        Some(only.is_none()),
+        None,
+        None,
+    );
+    if picked.all {
+        Some(None)
+    } else {
+        picked.chosen.map(Some)
+    }
+}
+
+/// The row both share: `on` the identity on, `all: Some(on)` an «All» pill first.
+#[allow(clippy::too_many_arguments)]
+fn picker_row(
+    ui: &mut Ui,
+    a: &mut Assets,
+    identities: &[IdentityChoice],
+    label: &str,
+    shown: Option<&str>,
+    all: Option<bool>,
+    new: Option<bool>,
+    aside: Option<&str>,
+) -> Picked {
+    let p = a.p;
     let mut picked = Picked::default();
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
@@ -49,7 +95,13 @@ pub fn identity_picker(
             |ui| {
                 ui.set_max_width(room);
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
-                for choice in &wallet.identities {
+                if let Some(on) = all
+                    && pill(ui, &p, tr!("All"), on).clicked()
+                    && !on
+                {
+                    picked.all = true;
+                }
+                for choice in identities {
                     let on = shown == Some(choice.id.as_str());
                     if identity_pill(ui, &p, choice, on, room).clicked() && !on {
                         picked.chosen = Some(choice.id.clone());

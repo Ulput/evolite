@@ -1323,6 +1323,9 @@ pub struct Nft {
     /// Number and edition size; the size is 0 when the issuer set none.
     pub edition: (u32, u32),
     pub owner: String,
+    /// FEAT-0055: the id (base58) of the wallet's identity that holds it — the Collection shows
+    /// every identity's NFTs together and filters by this.
+    pub owner_id: String,
     pub price: Option<Duffs>,
 }
 
@@ -1691,7 +1694,13 @@ pub struct Wallet {
     pub pool: Pool,
     pub apps: Vec<ConnectedApp>,
     pub nfts: Vec<Nft>,
+    /// Where every identity's lists stand together (FEAT-0055): failed, else loading, else
+    /// ready.
     pub nfts_status: NftsStatus,
+    /// FEAT-0055 r1: each identity's own list's state, by its id — what the Collection says
+    /// under one identity's chip (another one's failed read is not this one's). Empty: only
+    /// [`Self::nfts_status`] is known (the demo).
+    pub nfts_statuses: Vec<(String, NftsStatus)>,
     /// DashPay contacts of the identity, requests both ways included.
     pub contacts: Vec<Contact>,
     /// FEAT-0020-resend: the contact requests the shown identity sends again after its DashPay
