@@ -826,6 +826,48 @@ mod imp {
             Ok(())
         }
 
+        /// FEAT-0048 step 2 (UC-8): shields the mixed-coin lock `out_point` ([`Self::mixed_lock`]
+        /// made it for the pool) into the wallet's pool: everything it credits, less Platform's
+        /// fee. A shield cut short is finished from the same lock (`unfinished_pool_shield`).
+        pub async fn shield_from_lock(
+            &self,
+            wallet: &PlatformWallet,
+            keys: &key_wallet::Wallet,
+            out_point: key_wallet::dashcore::OutPoint,
+        ) -> Result<(), PoolError> {
+            let coordinator = self.coordinator().await?;
+            let raw = wallet
+                .shielded_default_address(ACCOUNT)
+                .await
+                .ok_or(tr!("The private pool is not connected yet"))?;
+            let address = dpp::address_funds::OrchardAddress::from_raw_bytes(&raw)
+                .map_err(|e| e.to_string())?;
+            let funding = platform_wallet::AssetLockFunding::FromExistingAssetLock {
+                out_point,
+                consume_invitation_voucher: false,
+            };
+            let signer = crate::identity::AssetLockSigner(keys.clone());
+            prove(async move {
+                wallet
+                    .shielded_fund_from_asset_lock(
+                        &coordinator,
+                        funding,
+                        vec![(address, None)],
+                        &signer,
+                        &CachedOrchardProver::new(),
+                        None,
+                        0,
+                        None,
+                        None,
+                    )
+                    .await
+                    .map_err(PoolError::of)
+            })
+            .await?;
+            self.read_pool_now().await;
+            Ok(())
+        }
+
         /// Takes `credits` out of the pool into the credits of `identity`: the identity gets
         /// `credits`, Platform's fee comes from the notes on top.
         pub async fn top_up_from_pool(
@@ -1297,6 +1339,15 @@ impl Chain {
         _: &PlatformWallet,
         _: &key_wallet::Wallet,
     ) -> Result<u64, PoolError> {
+        Err(NO_POOL.into())
+    }
+
+    pub async fn shield_from_lock(
+        &self,
+        _: &PlatformWallet,
+        _: &key_wallet::Wallet,
+        _: key_wallet::dashcore::OutPoint,
+    ) -> Result<(), PoolError> {
         Err(NO_POOL.into())
     }
 

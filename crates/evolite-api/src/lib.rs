@@ -529,6 +529,39 @@ pub struct MixedQuote {
     pub suggested: Option<Duffs>,
 }
 
+/// FEAT-0048 step 2: where a payment from fully mixed coins to Platform goes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MixedTo {
+    /// A new identity (path M).
+    Identity,
+    /// The shown identity's credits (UC-7).
+    TopUp,
+    /// The private pool (UC-8).
+    Pool,
+}
+
+/// FEAT-0048 step 2 (R-M1): the asset lock of fully mixed denominations an amount would take.
+#[derive(Clone, PartialEq, Debug)]
+pub struct MixedLockQuote {
+    pub amount: Duffs,
+    /// The denominations' nominal sum (0.0100001 counts as 0.01).
+    pub nominal: Duffs,
+    /// The nominal sum is the amount itself: nothing over it but the denominations' tails,
+    /// which go with the Core fee.
+    pub exact: bool,
+    /// What goes over the amount — into the identity's credits, or into the pool — when no
+    /// exact set exists: `nominal - amount`.
+    pub excess: Duffs,
+    /// That excess needs the person's yes: above 0.01 DASH (И7).
+    pub confirm: bool,
+    pub coins: u32,
+    /// The Core fee, estimated.
+    pub fee: Duffs,
+    /// «Exactly from denominations: {}»: the largest amount, not above `amount`, the coins make
+    /// exactly — when `amount` is not one.
+    pub exactly: Option<Duffs>,
+}
+
 /// АРХ-9а's thresholds, as the screens and the demo use them: an excess up to this (0.001 DASH)
 /// is paid with the fee without asking. `evolite_coinjoin` holds the core's own; a test of
 /// `evolite-core` keeps the two the same.
@@ -2478,6 +2511,13 @@ pub enum Command {
         to: String,
         amount: Duffs,
     },
+    /// FEAT-0048 step 2: what an asset lock of fully mixed denominations for `amount` would be,
+    /// for `to`. Nothing reserved. The answer is [`Event::MixedLockPreview`].
+    PreviewMixedLock {
+        ask: u64,
+        to: MixedTo,
+        amount: Duffs,
+    },
     /// Look for the phrase's identities on Platform again, now. The answer is in
     /// [`Wallet::identity_search`].
     FindIdentities,
@@ -2798,6 +2838,22 @@ pub enum Spend {
     /// moves on Core. Progress as [`Event::Progress`] `"shield-refund"`;
     /// `Done { what: DoneWhat::Shield }`.
     ShieldRefund,
+    /// FEAT-0048 step 2 (path M): a new identity paid with fully mixed denominations only, no
+    /// change, no other coin (R-M3): the exact set for `amount` when one exists, else the least
+    /// excess, which goes into its credits; an excess over 0.01 DASH only when `accept_excess`
+    /// is that very excess (И7, [`CoreError::MixedExcess`] otherwise). `name` as
+    /// [`Spend::CreateIdentity`]. `Done { what: Identity }`; cut short, «Continue» finishes it.
+    CreateIdentityFromMixed {
+        name: Option<String>,
+        amount: Duffs,
+        accept_excess: Duffs,
+    },
+    /// FEAT-0048 step 2 (UC-7): the shown identity topped up the same way.
+    /// `Done { what: TopUp }`.
+    TopUpFromMixed { amount: Duffs, accept_excess: Duffs },
+    /// FEAT-0048 step 2 (UC-8): fully mixed denominations into the pool the same way; the
+    /// excess goes into the pool. `Done { what: Shield }`.
+    ShieldFromMixed { amount: Duffs, accept_excess: Duffs },
     /// Finish [`Wallet::unfinished_identity`] from where it stopped, without locking more.
     /// `Done { what: DoneWhat::Identity }`.
     ResumeIdentity,
@@ -2964,6 +3020,8 @@ impl Spend {
         match self {
             Spend::CreateIdentity { .. }
             | Spend::CreateIdentityFromPool { .. }
+            | Spend::CreateIdentityFromMixed { .. }
+            | Spend::TopUpFromMixed { .. }
             | Spend::ResumeIdentity
             | Spend::TopUpIdentity { .. }
             | Spend::ResumeTopUp
@@ -2984,6 +3042,7 @@ impl Spend {
             | Spend::SendMixed { .. }
             | Spend::Shield { .. }
             | Spend::ShieldRefund
+            | Spend::ShieldFromMixed { .. }
             | Spend::Unshield { .. }
             | Spend::UnshieldToCore { .. }
             | Spend::TopUpFromPool { .. }
@@ -3002,13 +3061,18 @@ impl Spend {
     pub fn what(&self) -> DoneWhat {
         match self {
             Spend::Send { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
-            Spend::TopUpIdentity { .. } | Spend::ResumeTopUp => DoneWhat::TopUp,
+            Spend::TopUpIdentity { .. } | Spend::TopUpFromMixed { .. } | Spend::ResumeTopUp => {
+                DoneWhat::TopUp
+            }
             Spend::FundAddress { .. } | Spend::ResumeFundAddress => DoneWhat::FundAddress,
             Spend::CreateIdentity { .. }
             | Spend::CreateIdentityFromPool { .. }
+            | Spend::CreateIdentityFromMixed { .. }
             | Spend::ResumeIdentity => DoneWhat::Identity,
             Spend::AddName { .. } | Spend::SetNameLink { .. } => DoneWhat::Name,
-            Spend::Shield { .. } | Spend::ShieldRefund => DoneWhat::Shield,
+            Spend::Shield { .. } | Spend::ShieldRefund | Spend::ShieldFromMixed { .. } => {
+                DoneWhat::Shield
+            }
             Spend::Unshield { .. } | Spend::UnshieldToCore { .. } => DoneWhat::Unshield,
             Spend::TopUpFromPool { .. } => DoneWhat::PoolTopUp,
             Spend::AddContact { .. } | Spend::AcceptContact { .. } => DoneWhat::Contact,
@@ -3360,6 +3424,11 @@ pub enum Event {
     MixedPreview {
         ask: u64,
         result: Result<MixedQuote, CoreError>,
+    },
+    /// The answer to `PreviewMixedLock` (FEAT-0048 step 2).
+    MixedLockPreview {
+        ask: u64,
+        result: Result<MixedLockQuote, CoreError>,
     },
     /// The answer to `AskPhraseCheck`: the words to pick, or why not (a wrong password).
     PhraseCheck(Result<PhraseQuiz, CoreError>),

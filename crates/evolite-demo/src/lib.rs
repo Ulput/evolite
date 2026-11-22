@@ -295,6 +295,10 @@ impl Mock {
                 },
             },
             // FEAT-0030: the example's mixed coins, as the real core plans them.
+            Command::PreviewMixedLock { ask, .. } => Event::MixedLockPreview {
+                ask,
+                result: Err(CoreError::NotEnough),
+            },
             Command::PreviewMixed { ask, amount, .. } => Event::MixedPreview {
                 ask,
                 result: match &self.snapshot.wallet {
@@ -1363,6 +1367,12 @@ impl Mock {
                 tr!("This is the mockup's example: there is nothing to unshield")
             }
             Spend::ShieldRefund => tr!("Nothing was returned to put back into the pool"),
+            // FEAT-0048 step 2: the demo has no fully mixed coins to lock.
+            Spend::CreateIdentityFromMixed { .. }
+            | Spend::TopUpFromMixed { .. }
+            | Spend::ShieldFromMixed { .. } => {
+                tr!("This is the mockup's example: there are no fully mixed coins")
+            }
             Spend::TopUpFromPool { .. } => {
                 tr!("This is the mockup's example: there is nothing to top up with")
             }

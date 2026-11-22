@@ -7,6 +7,9 @@
 //! [`History`]: its own transactions and which scripts are its own.
 
 use dashcore::{OutPoint, Script, Transaction, Txid};
+
+pub mod pick;
+pub use pick::{Pick, largest_exact_at_most, nominal, pick_denominations};
 use std::collections::HashMap;
 
 /// The amounts a mixing session works in, largest first: 10.0001, 1.00001, 0.100001, 0.0100001 and

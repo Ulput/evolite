@@ -1100,7 +1100,7 @@ impl Real {
 /// The steps of an identity's creation for "What happens": read once a second from the
 /// lock platform-wallet tracks for slot `index`, sent as `Progress { what: "identity" }` (the
 /// step out of four) whenever it changes, until the creation ends (`busy` goes down).
-fn watch_creation(
+pub(in crate::real) fn watch_creation(
     chain: Arc<Chain>,
     wallet: Arc<platform_wallet::PlatformWallet>,
     index: u32,

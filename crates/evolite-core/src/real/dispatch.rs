@@ -9,10 +9,12 @@ fn busy_refusal(op: &Spend) -> CoreError {
     match op {
         Spend::CreateIdentity { .. }
         | Spend::CreateIdentityFromPool { .. }
+        | Spend::CreateIdentityFromMixed { .. }
         | Spend::ResumeIdentity => {
             CoreError::NotAvailable(tr!("An identity is already being made").into())
         }
         Spend::TopUpIdentity { .. }
+        | Spend::TopUpFromMixed { .. }
         | Spend::ResumeTopUp
         | Spend::AddName { .. }
         | Spend::FundAddress { .. }
@@ -97,6 +99,47 @@ impl Real {
                 }
             }
             // FEAT-0048 UC-4: a refused creation's money back into the pool.
+            // FEAT-0048 step 2: fully mixed coins to Platform.
+            Spend::CreateIdentityFromMixed {
+                name,
+                amount,
+                accept_excess,
+            } => match self
+                .create_identity_from_mixed(name.as_deref(), amount, accept_excess)
+                .await
+            {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::Identity,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
+            Spend::TopUpFromMixed {
+                amount,
+                accept_excess,
+            } => match self.top_up_from_mixed(amount, accept_excess).await {
+                Ok(()) => return (None, true),
+                Err(e) => Event::Done {
+                    what: DoneWhat::TopUp,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
+            Spend::ShieldFromMixed {
+                amount,
+                accept_excess,
+            } => match self.shield_from_mixed(amount, accept_excess).await {
+                Ok(()) => Event::Progress {
+                    what: "shield-from-mixed",
+                    fraction: 0.0,
+                },
+                Err(e) => Event::Done {
+                    what: DoneWhat::Shield,
+                    result: Err(e),
+                    ask: None,
+                },
+            },
             Spend::ShieldRefund => match self.shield_refund() {
                 Ok(()) => Event::Progress {
                     what: "shield-refund",
@@ -601,6 +644,11 @@ impl Real {
             Command::PreviewMixed { ask, to, amount } => Event::MixedPreview {
                 ask,
                 result: self.preview_mixed(&to, amount).await,
+            },
+            // FEAT-0048 step 2: the same coins whatever they go to; `to` is for the screens.
+            Command::PreviewMixedLock { ask, amount, .. } => Event::MixedLockPreview {
+                ask,
+                result: self.preview_mixed_lock(amount).await,
             },
             Command::PreviewPayment { to } => match self.preview_payment(to.clone()) {
                 Ok(()) => return (None, false),

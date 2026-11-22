@@ -328,5 +328,19 @@ fn every_spend() -> Vec<Spend> {
             exit: 3_000_000,
         },
         Spend::ShieldRefund,
+        // FEAT-0048 step 2.
+        Spend::CreateIdentityFromMixed {
+            name: None,
+            amount: 3_000_000,
+            accept_excess: 0,
+        },
+        Spend::TopUpFromMixed {
+            amount: 1_000_000,
+            accept_excess: 0,
+        },
+        Spend::ShieldFromMixed {
+            amount: 1_000_000,
+            accept_excess: 0,
+        },
     ]
 }

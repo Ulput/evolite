@@ -19,6 +19,7 @@ mod local_files;
 pub(super) mod lock_coins;
 mod misc;
 pub(super) mod mixed;
+mod mixed_lock;
 mod name_contests;
 pub(super) mod name_search;
 mod names;

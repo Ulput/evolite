@@ -261,6 +261,10 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
         ),
         // FEAT-0048: the fee is taken out of what was returned.
         Spend::ShieldRefund => of("shield_refund", fees.shield_from_address, true),
+        // FEAT-0048 step 2: a Core fee; the coins and the excess are checked by the core.
+        Spend::CreateIdentityFromMixed { .. } => of("identity_from_mixed", fees.core_payment, true),
+        Spend::TopUpFromMixed { .. } => of("top_up_from_mixed", fees.core_payment, true),
+        Spend::ShieldFromMixed { .. } => of("shield_from_mixed", fees.core_payment, true),
         // FEAT-0048: the fee is taken out of the exit, so the pool must hold the exit itself.
         Spend::CreateIdentityFromPool { exit, .. } => of(
             "identity_from_pool",

@@ -521,7 +521,7 @@ fn balance_of(balances: &[(PlatformAddress, u64)], address: &PlatformAddress) ->
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use dpp::state_transition::state_transitions::address_funds::address_credit_withdrawal_transition::AddressCreditWithdrawalTransition;
     use dpp::state_transition::state_transitions::address_funds::address_funds_transfer_transition::AddressFundsTransferTransition;
@@ -610,10 +610,10 @@ mod tests {
         assert_ne!(id, withdrawal_document_id(&a, 5, &[0x76]));
     }
 
-    const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    pub(in crate::spv::chain) const PHRASE: &str = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
 
     /// The store's paths in the folder `name` (emptied first when `fresh`).
-    fn store_paths(name: &str, fresh: bool) -> ChainPaths {
+    pub(in crate::spv::chain) fn store_paths(name: &str, fresh: bool) -> ChainPaths {
         let dir = std::env::temp_dir().join(format!("evolite-{name}-{}", std::process::id()));
         if fresh {
             let _ = std::fs::remove_dir_all(&dir);
@@ -630,7 +630,9 @@ mod tests {
 
     /// A chain on the store only (no SPV client, no network, so no sync), with the public test
     /// phrase's wallet open, and its keys.
-    async fn open_on(paths: &ChainPaths) -> (Chain, Arc<PlatformWallet>, key_wallet::Wallet) {
+    pub(in crate::spv::chain) async fn open_on(
+        paths: &ChainPaths,
+    ) -> (Chain, Arc<PlatformWallet>, key_wallet::Wallet) {
         let chain = Chain::default();
         chain.open_store_only(paths).await.expect("the store opens");
         let (_, wallet) = chain

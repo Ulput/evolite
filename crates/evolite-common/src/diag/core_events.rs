@@ -47,6 +47,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::ListCoins { .. } => "list_coins",
         // Amount and address stay out (FEAT-0030 AC-T11).
         Command::PreviewMixed { .. } => "preview_mixed",
+        Command::PreviewMixedLock { .. } => "preview_mixed_lock",
         Command::FindIdentities => "find_identities",
         Command::RefreshNfts => "refresh_nfts",
         Command::ReadIdentityKeys { .. } => "read_identity_keys",
@@ -112,6 +113,9 @@ fn spend(op: &Spend) -> &'static str {
         Spend::CreateIdentity { .. } => "create_identity",
         Spend::CreateIdentityFromPool { .. } => "create_identity_from_pool",
         Spend::ShieldRefund => "shield_refund",
+        Spend::CreateIdentityFromMixed { .. } => "create_identity_from_mixed",
+        Spend::TopUpFromMixed { .. } => "top_up_from_mixed",
+        Spend::ShieldFromMixed { .. } => "shield_from_mixed",
         Spend::ResumeIdentity => "resume_identity",
         Spend::AddName { .. } => "add_name",
         Spend::SetNameLink { .. } => "set_name_link",
@@ -253,6 +257,7 @@ pub fn answer(event: &Event) -> Option<Record> {
         Event::Coins { result, .. } => ("coins", outcome(result)),
         // Neither the fee nor the excess nor the coins: only how it ended (FEAT-0030 AC-T11).
         Event::MixedPreview { result, .. } => ("mixed_preview", outcome(result)),
+        Event::MixedLockPreview { result, .. } => ("mixed_lock_preview", outcome(result)),
         Event::PhraseCheck(r) => ("phrase_check", outcome(r)),
         // FEAT-0041 R-14: a wrong passphrase is «wrong» as a wrong word is, so the journal does
         // not tell that the wallet has one.

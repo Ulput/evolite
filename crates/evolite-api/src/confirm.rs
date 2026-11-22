@@ -44,6 +44,20 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
         Spend::CreateIdentityFromPool { exit, .. } => Some(*exit),
         // FEAT-0048: the wallet's own money goes back into its pool; nothing leaves it.
         Spend::ShieldRefund => None,
+        // FEAT-0048 step 2: the coins leave Core whole, the excess with them.
+        Spend::CreateIdentityFromMixed {
+            amount,
+            accept_excess,
+            ..
+        }
+        | Spend::TopUpFromMixed {
+            amount,
+            accept_excess,
+        }
+        | Spend::ShieldFromMixed {
+            amount,
+            accept_excess,
+        } => Some(amount.saturating_add(*accept_excess)),
         // The total agreed, in credits (a thousand to a duff).
         Spend::BuyToken { agreed, .. } => {
             Some(Duffs::try_from(agreed / 1_000).unwrap_or(Duffs::MAX))

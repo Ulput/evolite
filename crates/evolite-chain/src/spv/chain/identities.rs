@@ -408,6 +408,59 @@ impl Chain {
         Ok(id.to_string(Encoding::Base58))
     }
 
+    /// FEAT-0048 step 2 (path M): the identity in slot `index` from the mixed-coin lock
+    /// `out_point` ([`Self::mixed_lock`] made it for this slot, tracked and broadcast), then
+    /// `label` as [`Self::create_identity`] does. platform-wallet waits for the lock's proof
+    /// (InstantSend, else ChainLock) and resumes it after a cut: «Continue» finds it as any
+    /// unfinished identity's lock.
+    pub async fn create_identity_from_lock(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        index: u32,
+        label: Option<&str>,
+        out_point: key_wallet::dashcore::OutPoint,
+        needed: evolite_api::Duffs,
+    ) -> Result<String, String> {
+        let id = self
+            .register_identity(
+                wallet,
+                keys,
+                index,
+                AssetLockFunding::FromExistingAssetLock {
+                    out_point,
+                    consume_invitation_voucher: false,
+                },
+            )
+            .await?;
+        if let Some(label) = label {
+            self.register_name(wallet, keys, index, &id, label, (needed, true))
+                .await?;
+        }
+        Ok(id.to_string(Encoding::Base58))
+    }
+
+    /// FEAT-0048 step 2 (UC-7): tops up `me` from the mixed-coin lock `out_point`
+    /// ([`Self::mixed_lock`] made it for `me`'s slot). The credits added.
+    pub async fn top_up_from_lock(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        me: &Identifier,
+        out_point: key_wallet::dashcore::OutPoint,
+    ) -> Result<u64, String> {
+        self.top_up(
+            wallet,
+            keys,
+            me,
+            AssetLockFunding::FromExistingAssetLock {
+                out_point,
+                consume_invitation_voucher: false,
+            },
+        )
+        .await
+    }
+
     /// Which of the four steps of an identity's creation slot `index` is on, from the lock
     /// platform-wallet tracks for it: see [`creation_step_of`].
     pub async fn creation_step(&self, wallet: &PlatformWallet, index: u32) -> usize {

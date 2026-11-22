@@ -15,6 +15,7 @@ mod contract_write;
 mod contracts;
 mod funding_keys;
 mod identities;
+pub mod mixed_lock;
 mod nft_series;
 pub mod rebroadcast;
 pub mod sign_message;

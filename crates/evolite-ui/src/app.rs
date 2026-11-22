@@ -861,6 +861,9 @@ impl App {
                 }
                 // FEAT-0030: the plan of a payment from «Mixed».
                 Event::MixedPreview { ask, result } => self.send.on_mixed_preview(*ask, result),
+                // FEAT-0048 step 2: no screen asks for it yet (the creation, top-up and shield
+                // screens are developer 2's).
+                Event::MixedLockPreview { .. } => {}
                 Event::Done {
                     what: DoneWhat::Gift,
                     result,
