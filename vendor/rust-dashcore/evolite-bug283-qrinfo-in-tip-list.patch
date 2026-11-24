@@ -1,0 +1,410 @@
+diff --git a/dash-spv/src/sml_engine.rs b/dash-spv/src/sml_engine.rs
+index c7ef376b..78b0e4e4 100644
+--- a/dash-spv/src/sml_engine.rs
++++ b/dash-spv/src/sml_engine.rs
+@@ -904,6 +904,7 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+ 
+         let can_verify_previous = quorum_snapshot_and_mn_list_diff_at_h_minus_4c.is_some();
+         let h_block_hash = mn_list_diff_h.block_hash;
++        let tip_block_hash = mn_list_diff_tip.block_hash;
+         let rotation_quorum_type = self.rotation_quorum_type(&last_commitment_per_index);
+         let rotated_quorum_count = last_commitment_per_index.len();
+ 
+@@ -923,6 +924,11 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+         }
+         self.apply_and_prune(mn_list_diff_h).await?;
+         self.apply_and_prune(mn_list_diff_tip).await?;
++        // evolite (BUG-283): the cycle's quorums are the ones InstantLocks are checked against,
++        // and the peer serves them apart from any list. Each must be, as a whole, a quorum of the
++        // tip list, which its coinbase's `merkleRootQuorums` commits to (checked above, as every
++        // list is). Then a quorum's key is the chain's, however the members were rebuilt.
++        self.require_in_tip_list(&tip_block_hash, &last_commitment_per_index)?;
+ 
+         // Only the h-4c share brings the oldest quarters of the list at h.
+         if can_verify_previous {
+@@ -1007,6 +1013,31 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+         })
+     }
+ 
++    /// evolite (BUG-283): every one of `commitments` is, entry for entry (type, quorum hash and
++    /// index, key, signatures, bits), a quorum of the list at `tip`. Dash Core builds a QRInfo's
++    /// `last_commitment_per_index` from the quorums active at its tip, and the tip list holds
++    /// them all. A tip list the engine does not hold refuses all of them.
++    fn require_in_tip_list(
++        &self,
++        tip: &BlockHash,
++        commitments: &[QuorumEntry],
++    ) -> Result<(), QuorumValidationError> {
++        let list = self.masternode_lists.values().rev().find(|list| list.block_hash == *tip);
++        for commitment in commitments {
++            let in_list = list
++                .and_then(|list| list.quorums.get(&commitment.llmq_type))
++                .and_then(|quorums| quorums.get(&commitment.quorum_hash))
++                .is_some_and(|quorum| quorum.quorum_entry == *commitment);
++            if !in_list {
++                return Err(QuorumValidationError::CommitmentNotInTipList {
++                    llmq_type: commitment.llmq_type,
++                    quorum_hash: commitment.quorum_hash,
++                });
++            }
++        }
++        Ok(())
++    }
++
+     /// Applies a diff, then verifies the newest list's non-rotating quorums: the
+     /// diff may have brought one, or the work-block list one needs.
+     pub async fn apply_diff(
+@@ -1797,6 +1828,42 @@ mod tests {
+         );
+     }
+ 
++    /// evolite (BUG-283): on the real mainnet QRInfo and a validating engine, a rotated
++    /// commitment that is not, as a whole, a quorum of the coinbase-checked tip list is refused,
++    /// and the engine stays as it was: another key under the commitment's own quorum hash (what
++    /// would let a peer sign InstantLocks with a key of its own), or a quorum the tip list does
++    /// not hold.
++    #[test_case(0; "another key under the same quorum hash")]
++    #[test_case(1; "a quorum the tip list does not hold")]
++    #[tokio::test]
++    async fn a_rotated_commitment_off_the_tip_list_is_refused(forgery: u8) {
++        let (mut engine, mut qr_info) = load_qrinfo_2518986_fixture();
++        let other_key = qr_info.last_commitment_per_index[2].quorum_public_key;
++        let commitment = &mut qr_info.last_commitment_per_index[1];
++        match forgery {
++            0 => commitment.quorum_public_key = other_key,
++            _ => commitment.quorum_hash = QuorumHash::from_byte_array([0x44; 32]),
++        }
++        let (llmq_type, quorum_hash) = (commitment.llmq_type, commitment.quorum_hash);
++        let lists = engine.masternode_lists.clone();
++        let cycles = engine.rotated_quorums_per_cycle.clone();
++
++        let result = engine.feed_qr_info(qr_info).await;
++
++        assert!(
++            matches!(
++                &result,
++                Err(FeedError::Refused(QuorumValidationError::CommitmentNotInTipList {
++                    llmq_type: t,
++                    quorum_hash: h,
++                })) if *t == llmq_type && *h == quorum_hash
++            ),
++            "got {result:?}"
++        );
++        assert!(engine.masternode_lists == lists, "no list kept");
++        assert!(engine.rotated_quorums_per_cycle == cycles, "no cycle stored");
++    }
++
+     #[test_case(true; "matching its commitments")]
+     #[test_case(false; "off its masternode list root")]
+     #[tokio::test]
+@@ -1988,7 +2055,8 @@ mod tests {
+             diff.new_quorums.clear();
+             diff.quorums_chainlock_signatures.clear();
+         };
+-        strip(&mut qr_info.mn_list_diff_tip);
++        // The tip keeps its quorums: they are the cycle's commitments (BUG-283), and its
++        // signatures are not the quarters'.
+         strip(&mut qr_info.mn_list_diff_h);
+         strip(&mut qr_info.mn_list_diff_at_h_minus_c);
+         strip(&mut qr_info.mn_list_diff_at_h_minus_2c);
+@@ -2050,6 +2118,23 @@ mod tests {
+             .all_commitment_aggregated_signature
+     }
+ 
++    /// The rotated commitment `quorum_hash` with another one's aggregate signature, in
++    /// `last_commitment_per_index` and in the tip diff alike: the tip list then holds the same
++    /// forged entry, so the QRInfo passes the tip check (BUG-283) and the forgery reaches the
++    /// checks after it. A peer could only serve that with a tip list its coinbase does not commit
++    /// to, which a validating engine refuses; these test engines check no coinbase.
++    fn forge_aggregate_signature(qr_info: &mut QRInfo, quorum_hash: QuorumHash) {
++        let forged = foreign_aggregate_signature(&qr_info.last_commitment_per_index, quorum_hash);
++        for quorum in qr_info
++            .last_commitment_per_index
++            .iter_mut()
++            .chain(qr_info.mn_list_diff_tip.new_quorums.iter_mut())
++            .filter(|q| q.quorum_hash == quorum_hash)
++        {
++            quorum.all_commitment_aggregated_signature = forged;
++        }
++    }
++
+     /// A QRInfo whose rotated quorum carries a corrupt
+     /// `all_commitment_aggregated_signature` must be rejected rather than
+     /// stored: a fully-Verified entry with an invalid aggregate signature
+@@ -2065,8 +2150,7 @@ mod tests {
+ 
+         let cycle_key = served_cycle_key(&engine, &qr_info).await;
+ 
+-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
+-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
++        forge_aggregate_signature(&mut qr_info, target);
+ 
+         let err = engine.feed_qr_info(qr_info).await.expect_err("corrupt signature must reject");
+         assert!(
+@@ -2093,8 +2177,7 @@ mod tests {
+     async fn a_qr_info_refused_after_its_diffs_applied_leaves_the_engine_as_it_was() {
+         let (mut engine, mut qr_info) = load_qrinfo_2240504_fixture().await;
+         let target = qr_info.last_commitment_per_index[0].quorum_hash;
+-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
+-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
++        forge_aggregate_signature(&mut qr_info, target);
+         let lists = engine.masternode_lists.clone();
+         let cycles = engine.rotated_quorums_per_cycle.clone();
+ 
+@@ -2135,8 +2218,7 @@ mod tests {
+ 
+         let target = qr_info.last_commitment_per_index[0].quorum_hash;
+         let llmq_type = qr_info.last_commitment_per_index[0].llmq_type;
+-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
+-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
++        forge_aggregate_signature(&mut qr_info, target);
+ 
+         let feed_result = engine
+             .feed_qr_info(qr_info)
+@@ -2303,8 +2385,7 @@ mod tests {
+             }
+         }
+         let target = qr_info.last_commitment_per_index[0].quorum_hash;
+-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
+-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
++        forge_aggregate_signature(&mut qr_info, target);
+         let blocks = [
+             BlockHash::from_byte_array(target.to_byte_array()),
+             qr_info.mn_list_diff_h.block_hash,
+diff --git a/dash-spv/src/sml_engine/validation.rs b/dash-spv/src/sml_engine/validation.rs
+index 677511de..d5e36779 100644
+--- a/dash-spv/src/sml_engine/validation.rs
++++ b/dash-spv/src/sml_engine/validation.rs
+@@ -89,12 +89,17 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
+ ///
+ /// As in Dash Core's `CFinalCommitment::Verify`, a bit past the members names
+ /// no masternode and must be clear: a signer bit there would count toward the
+-/// threshold while no key of it enters the aggregate check.
++/// threshold while no key of it enters the aggregate check. The threshold is
++/// counted over the members only.
+ ///
+-/// A masternode, keyed by its ProRegTx hash as Dash Core keys quorum members,
+-/// signs at most once: rebuilt from a peer's snapshots, the members can name
+-/// one masternode in many slots, and each of its signer bits would count
+-/// toward the threshold on that one operator key.
++/// evolite (BUG-283, review r1 of the audit): one masternode at several indexes is not
++/// refused. Dash Core does not refuse it either: it takes every signing index's
++/// key, repeats included, into the aggregate. Repeats are normal in a rotated
++/// quorum when there are fewer masternodes than places (LLMQ_60_75 has 1920 on
++/// testnet's few hundred), so refusing them would refuse genuine quorums. Repeats
++/// in swapped snapshots forge nothing: a QRInfo's rotated commitments are the
++/// tip list's own, whose coinbase commits to them, so the key checked is the
++/// chain's (`MasternodeListEngine::require_in_tip_list`).
+ fn validate_signed_by(
+     quorum: &QualifiedQuorumEntry,
+     members: &[&QualifiedMasternodeListEntry],
+@@ -113,19 +118,6 @@ fn validate_signed_by(
+             members_count,
+         });
+     }
+-    let mut signed_at = BTreeMap::new();
+-    for (index, member) in members.iter().enumerate() {
+-        if entry.signers.get(index) != Some(&true) {
+-            continue;
+-        }
+-        let pro_tx_hash = member.masternode_list_entry.pro_reg_tx_hash;
+-        if let Some(first_index) = signed_at.insert(pro_tx_hash, index) {
+-            return Err(QuorumValidationError::DuplicateSigner {
+-                index,
+-                first_index,
+-            });
+-        }
+-    }
+     let required = entry.llmq_type.threshold() as u64;
+     let found = entry.signers.iter().take(members_count).filter(|&&signed| signed).count() as u64;
+     if found < required {
+@@ -241,28 +233,6 @@ mod tests {
+         );
+     }
+ 
+-    /// Snapshots that name one masternode in every slot of the three older
+-    /// quarters rebuild it 45 times. Its signer bits there reach the threshold
+-    /// with no bit past the members, all on its one operator key.
+-    #[test]
+-    fn a_masternode_signing_at_more_than_one_index_is_refused() {
+-        let repeated = member(1);
+-        let others: Vec<QualifiedMasternodeListEntry> = (2..=16).map(member).collect();
+-        let members: Vec<&QualifiedMasternodeListEntry> =
+-            std::iter::repeat_n(&repeated, 45).chain(&others).collect();
+-        let signers: Vec<usize> = (0..45).collect();
+-        let quorum = commitment(&signers, &signers);
+-        assert!(quorum.quorum_entry.validate_structure().is_ok(), "it counts every set bit");
+-
+-        assert_eq!(
+-            validate_signed_by(&quorum, &members),
+-            Err(QuorumValidationError::DuplicateSigner {
+-                index: 1,
+-                first_index: 0,
+-            }),
+-        );
+-    }
+-
+     /// A list too small to fill the quorum leaves fewer members than the
+     /// type's size, as Dash Core allows. With the bits past them clear, the
+     /// commitment goes on to the signature check, here failing on dummy bytes.
+diff --git a/dash-spv/src/storage/masternode.rs b/dash-spv/src/storage/masternode.rs
+index 7d96346a..d7a6aeb9 100644
+--- a/dash-spv/src/storage/masternode.rs
++++ b/dash-spv/src/storage/masternode.rs
+@@ -1081,6 +1081,57 @@ mod tests {
+         );
+     }
+ 
++    /// evolite (BUG-283): a real testnet sync's stored lists and QRInfo, replayed through the
++    /// validating engine as at a start (the coinbase checks and the tip check included), keep
++    /// every stored cycle's quorums Verified: the tip list holds each served commitment. Ignored:
++    /// it reads a copy of a testnet SPV folder (`block_headers` and `masternodes`) named by
++    /// `EVOLITE_TESTNET_SPV`; the folder itself is not touched.
++    #[tokio::test]
++    #[ignore]
++    async fn a_testnet_sync_replays_with_its_cycles_verified() {
++        use crate::storage::block_headers::PersistentBlockHeaderStorage;
++        use crate::storage::PersistentStorage;
++        use dashcore::sml::llmq_entry_verification::LLMQEntryVerificationStatus;
++        fn copy(from: &std::path::Path, to: &std::path::Path) {
++            std::fs::create_dir_all(to).unwrap();
++            for entry in std::fs::read_dir(from).unwrap().flatten() {
++                let target = to.join(entry.file_name());
++                if entry.path().is_dir() {
++                    copy(&entry.path(), &target);
++                } else {
++                    std::fs::copy(entry.path(), target).unwrap();
++                }
++            }
++        }
++        let source = std::env::var_os("EVOLITE_TESTNET_SPV").expect("EVOLITE_TESTNET_SPV");
++        let source = std::path::Path::new(&source);
++        let dir = TempDir::new().unwrap();
++        for folder in ["block_headers", "masternodes"] {
++            copy(&source.join(folder), &dir.path().join(folder));
++        }
++        let headers = PersistentBlockHeaderStorage::open(dir.path()).await.unwrap();
++        let storage = PersistentMasternodeStorage::open(
++            dir.path(),
++            Arc::new(RwLock::new(headers)),
++            Network::Testnet,
++        )
++        .await
++        .unwrap();
++        let stored = storage.qr_info_count();
++        assert!(stored > 0, "the folder holds a QRInfo");
++
++        let engine = storage.load_engine().await;
++
++        let cycles = engine.rotated_quorums_per_cycle();
++        let quorums: Vec<_> = cycles.values().flat_map(|cycle| cycle.values()).collect();
++        println!("{stored} QRInfo stored, {} cycles, {} quorums kept", cycles.len(), quorums.len());
++        assert!(!quorums.is_empty(), "a cycle is kept");
++        assert!(
++            quorums.iter().all(|q| q.verified == LLMQEntryVerificationStatus::Verified),
++            "every kept quorum Verified"
++        );
++    }
++
+     // evolite (TECH-spv-prune).
+ 
+     /// The lists at or above `floor`, as (height, block hash).
+diff --git a/dash-spv/src/sync/masternodes/sync_manager.rs b/dash-spv/src/sync/masternodes/sync_manager.rs
+index 4206b78e..fb74a0d7 100644
+--- a/dash-spv/src/sync/masternodes/sync_manager.rs
++++ b/dash-spv/src/sync/masternodes/sync_manager.rs
+@@ -123,6 +123,12 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
+                     Err(e) => {
+                         tracing::error!("QRInfo feed into engine failed: {}", e);
+                         drop(engine);
++                        // evolite (BUG-283): a rotated commitment its own coinbase-checked tip
++                        // list does not hold is served by no honest peer: banned, as invalid
++                        // headers are. The retry below goes to another peer.
++                        if bans_its_peer(&e) {
++                            let _ = requests.ban_peer(msg.peer_address(), &format!("QRInfo: {e}"));
++                        }
+                         // The response is unusable, but the request slot has to stay
+                         // occupied. It is the only thing arming `tick`'s retry
+                         // ladder, so releasing it here - as this handler used to,
+@@ -590,6 +596,22 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
+     }
+ }
+ 
++/// evolite (BUG-283): whether a refused QRInfo bans the peer that sent it: only a rotated
++/// commitment its own coinbase-checked tip list does not hold, which no honest peer serves. Any
++/// other refusal may be a gap of ours (a block or a base list not held yet): retried elsewhere.
++fn bans_its_peer(
++    error: &crate::sml_engine::FeedError<
++        dashcore::sml::quorum_validation_error::QuorumValidationError,
++    >,
++) -> bool {
++    matches!(
++        error,
++        crate::sml_engine::FeedError::Refused(
++            dashcore::sml::quorum_validation_error::QuorumValidationError::CommitmentNotInTipList { .. }
++        )
++    )
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::super::manager::{MasternodeSyncState, QRInfoInFlight};
+@@ -1090,6 +1112,24 @@ mod tests {
+         );
+     }
+ 
++    /// evolite (BUG-283): a commitment off the tip list bans its peer; a refusal that may be a
++    /// gap of ours does not.
++    #[test]
++    fn only_a_commitment_off_the_tip_list_bans_the_peer() {
++        use crate::sml_engine::FeedError;
++        use dashcore::hashes::Hash;
++        use dashcore::sml::error::SmlError;
++        use dashcore::sml::llmq_type::LLMQType;
++        use dashcore::sml::quorum_validation_error::QuorumValidationError as E;
++        let off = E::CommitmentNotInTipList {
++            llmq_type: LLMQType::Llmqtype60_75,
++            quorum_hash: dashcore::QuorumHash::from_byte_array([1; 32]),
++        };
++        assert!(super::bans_its_peer(&FeedError::Refused(off)));
++        let gap = E::SMLError(SmlError::MissingStartMasternodeList(BlockHash::all_zeros()));
++        assert!(!super::bans_its_peer(&FeedError::Refused(gap)));
++    }
++
+     /// A QRInfo the engine rejects must not release the request slot.
+     ///
+     /// `qrinfo_in_flight` is the only thing that arms `tick`'s retry ladder, so
+diff --git a/dash/src/sml/quorum_validation_error.rs b/dash/src/sml/quorum_validation_error.rs
+index 6df628cb..4855e3c9 100644
+--- a/dash/src/sml/quorum_validation_error.rs
++++ b/dash/src/sml/quorum_validation_error.rs
+@@ -87,6 +87,16 @@ pub enum QuorumValidationError {
+     #[error("Expected only rotated quorums, but got quorum {0} of type {1}")]
+     ExpectedOnlyRotatedQuorums(QuorumHash, LLMQType),
+ 
++    /// evolite (BUG-283): a rotated commitment of a QRInfo that is not, as a whole, a quorum of
++    /// the QRInfo's own tip list, the list checked against its block's coinbase.
++    #[error(
++        "Rotated commitment {quorum_hash} of type {llmq_type} is not a quorum of the tip list checked against its coinbase"
++    )]
++    CommitmentNotInTipList {
++        llmq_type: LLMQType,
++        quorum_hash: QuorumHash,
++    },
++
+     #[error("Signers bit {index} is set, but the quorum has only {members_count} members")]
+     SignerBeyondMembers {
+         index: usize,
+@@ -98,12 +108,6 @@ pub enum QuorumValidationError {
+         index: usize,
+         members_count: usize,
+     },
+-
+-    #[error("Signers bit {index} names the masternode already signing at bit {first_index}")]
+-    DuplicateSigner {
+-        index: usize,
+-        first_index: usize,
+-    },
+ }
+ 
+ impl From<SmlError> for QuorumValidationError {

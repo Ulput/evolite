@@ -904,6 +904,7 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
 
         let can_verify_previous = quorum_snapshot_and_mn_list_diff_at_h_minus_4c.is_some();
         let h_block_hash = mn_list_diff_h.block_hash;
+        let tip_block_hash = mn_list_diff_tip.block_hash;
         let rotation_quorum_type = self.rotation_quorum_type(&last_commitment_per_index);
         let rotated_quorum_count = last_commitment_per_index.len();
 
@@ -923,6 +924,11 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
         }
         self.apply_and_prune(mn_list_diff_h).await?;
         self.apply_and_prune(mn_list_diff_tip).await?;
+        // evolite (BUG-283): the cycle's quorums are the ones InstantLocks are checked against,
+        // and the peer serves them apart from any list. Each must be, as a whole, a quorum of the
+        // tip list, which its coinbase's `merkleRootQuorums` commits to (checked above, as every
+        // list is). Then a quorum's key is the chain's, however the members were rebuilt.
+        self.require_in_tip_list(&tip_block_hash, &last_commitment_per_index)?;
 
         // Only the h-4c share brings the oldest quarters of the list at h.
         if can_verify_previous {
@@ -1005,6 +1011,31 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
             fully_verified_count,
             stored_cycle_height,
         })
+    }
+
+    /// evolite (BUG-283): every one of `commitments` is, entry for entry (type, quorum hash and
+    /// index, key, signatures, bits), a quorum of the list at `tip`. Dash Core builds a QRInfo's
+    /// `last_commitment_per_index` from the quorums active at its tip, and the tip list holds
+    /// them all. A tip list the engine does not hold refuses all of them.
+    fn require_in_tip_list(
+        &self,
+        tip: &BlockHash,
+        commitments: &[QuorumEntry],
+    ) -> Result<(), QuorumValidationError> {
+        let list = self.masternode_lists.values().rev().find(|list| list.block_hash == *tip);
+        for commitment in commitments {
+            let in_list = list
+                .and_then(|list| list.quorums.get(&commitment.llmq_type))
+                .and_then(|quorums| quorums.get(&commitment.quorum_hash))
+                .is_some_and(|quorum| quorum.quorum_entry == *commitment);
+            if !in_list {
+                return Err(QuorumValidationError::CommitmentNotInTipList {
+                    llmq_type: commitment.llmq_type,
+                    quorum_hash: commitment.quorum_hash,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Applies a diff, then verifies the newest list's non-rotating quorums: the
@@ -1797,6 +1828,42 @@ mod tests {
         );
     }
 
+    /// evolite (BUG-283): on the real mainnet QRInfo and a validating engine, a rotated
+    /// commitment that is not, as a whole, a quorum of the coinbase-checked tip list is refused,
+    /// and the engine stays as it was: another key under the commitment's own quorum hash (what
+    /// would let a peer sign InstantLocks with a key of its own), or a quorum the tip list does
+    /// not hold.
+    #[test_case(0; "another key under the same quorum hash")]
+    #[test_case(1; "a quorum the tip list does not hold")]
+    #[tokio::test]
+    async fn a_rotated_commitment_off_the_tip_list_is_refused(forgery: u8) {
+        let (mut engine, mut qr_info) = load_qrinfo_2518986_fixture();
+        let other_key = qr_info.last_commitment_per_index[2].quorum_public_key;
+        let commitment = &mut qr_info.last_commitment_per_index[1];
+        match forgery {
+            0 => commitment.quorum_public_key = other_key,
+            _ => commitment.quorum_hash = QuorumHash::from_byte_array([0x44; 32]),
+        }
+        let (llmq_type, quorum_hash) = (commitment.llmq_type, commitment.quorum_hash);
+        let lists = engine.masternode_lists.clone();
+        let cycles = engine.rotated_quorums_per_cycle.clone();
+
+        let result = engine.feed_qr_info(qr_info).await;
+
+        assert!(
+            matches!(
+                &result,
+                Err(FeedError::Refused(QuorumValidationError::CommitmentNotInTipList {
+                    llmq_type: t,
+                    quorum_hash: h,
+                })) if *t == llmq_type && *h == quorum_hash
+            ),
+            "got {result:?}"
+        );
+        assert!(engine.masternode_lists == lists, "no list kept");
+        assert!(engine.rotated_quorums_per_cycle == cycles, "no cycle stored");
+    }
+
     #[test_case(true; "matching its commitments")]
     #[test_case(false; "off its masternode list root")]
     #[tokio::test]
@@ -1988,7 +2055,8 @@ mod tests {
             diff.new_quorums.clear();
             diff.quorums_chainlock_signatures.clear();
         };
-        strip(&mut qr_info.mn_list_diff_tip);
+        // The tip keeps its quorums: they are the cycle's commitments (BUG-283), and its
+        // signatures are not the quarters'.
         strip(&mut qr_info.mn_list_diff_h);
         strip(&mut qr_info.mn_list_diff_at_h_minus_c);
         strip(&mut qr_info.mn_list_diff_at_h_minus_2c);
@@ -2050,6 +2118,23 @@ mod tests {
             .all_commitment_aggregated_signature
     }
 
+    /// The rotated commitment `quorum_hash` with another one's aggregate signature, in
+    /// `last_commitment_per_index` and in the tip diff alike: the tip list then holds the same
+    /// forged entry, so the QRInfo passes the tip check (BUG-283) and the forgery reaches the
+    /// checks after it. A peer could only serve that with a tip list its coinbase does not commit
+    /// to, which a validating engine refuses; these test engines check no coinbase.
+    fn forge_aggregate_signature(qr_info: &mut QRInfo, quorum_hash: QuorumHash) {
+        let forged = foreign_aggregate_signature(&qr_info.last_commitment_per_index, quorum_hash);
+        for quorum in qr_info
+            .last_commitment_per_index
+            .iter_mut()
+            .chain(qr_info.mn_list_diff_tip.new_quorums.iter_mut())
+            .filter(|q| q.quorum_hash == quorum_hash)
+        {
+            quorum.all_commitment_aggregated_signature = forged;
+        }
+    }
+
     /// A QRInfo whose rotated quorum carries a corrupt
     /// `all_commitment_aggregated_signature` must be rejected rather than
     /// stored: a fully-Verified entry with an invalid aggregate signature
@@ -2065,8 +2150,7 @@ mod tests {
 
         let cycle_key = served_cycle_key(&engine, &qr_info).await;
 
-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
+        forge_aggregate_signature(&mut qr_info, target);
 
         let err = engine.feed_qr_info(qr_info).await.expect_err("corrupt signature must reject");
         assert!(
@@ -2093,8 +2177,7 @@ mod tests {
     async fn a_qr_info_refused_after_its_diffs_applied_leaves_the_engine_as_it_was() {
         let (mut engine, mut qr_info) = load_qrinfo_2240504_fixture().await;
         let target = qr_info.last_commitment_per_index[0].quorum_hash;
-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
+        forge_aggregate_signature(&mut qr_info, target);
         let lists = engine.masternode_lists.clone();
         let cycles = engine.rotated_quorums_per_cycle.clone();
 
@@ -2135,8 +2218,7 @@ mod tests {
 
         let target = qr_info.last_commitment_per_index[0].quorum_hash;
         let llmq_type = qr_info.last_commitment_per_index[0].llmq_type;
-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
+        forge_aggregate_signature(&mut qr_info, target);
 
         let feed_result = engine
             .feed_qr_info(qr_info)
@@ -2303,8 +2385,7 @@ mod tests {
             }
         }
         let target = qr_info.last_commitment_per_index[0].quorum_hash;
-        qr_info.last_commitment_per_index[0].all_commitment_aggregated_signature =
-            foreign_aggregate_signature(&qr_info.last_commitment_per_index, target);
+        forge_aggregate_signature(&mut qr_info, target);
         let blocks = [
             BlockHash::from_byte_array(target.to_byte_array()),
             qr_info.mn_list_diff_h.block_hash,

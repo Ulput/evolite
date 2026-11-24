@@ -89,12 +89,17 @@ impl<H: BlockHeaderStorage> MasternodeListEngine<H> {
 ///
 /// As in Dash Core's `CFinalCommitment::Verify`, a bit past the members names
 /// no masternode and must be clear: a signer bit there would count toward the
-/// threshold while no key of it enters the aggregate check.
+/// threshold while no key of it enters the aggregate check. The threshold is
+/// counted over the members only.
 ///
-/// A masternode, keyed by its ProRegTx hash as Dash Core keys quorum members,
-/// signs at most once: rebuilt from a peer's snapshots, the members can name
-/// one masternode in many slots, and each of its signer bits would count
-/// toward the threshold on that one operator key.
+/// evolite (BUG-283, review r1 of the audit): one masternode at several indexes is not
+/// refused. Dash Core does not refuse it either: it takes every signing index's
+/// key, repeats included, into the aggregate. Repeats are normal in a rotated
+/// quorum when there are fewer masternodes than places (LLMQ_60_75 has 1920 on
+/// testnet's few hundred), so refusing them would refuse genuine quorums. Repeats
+/// in swapped snapshots forge nothing: a QRInfo's rotated commitments are the
+/// tip list's own, whose coinbase commits to them, so the key checked is the
+/// chain's (`MasternodeListEngine::require_in_tip_list`).
 fn validate_signed_by(
     quorum: &QualifiedQuorumEntry,
     members: &[&QualifiedMasternodeListEntry],
@@ -112,19 +117,6 @@ fn validate_signed_by(
             index: members_count + index,
             members_count,
         });
-    }
-    let mut signed_at = BTreeMap::new();
-    for (index, member) in members.iter().enumerate() {
-        if entry.signers.get(index) != Some(&true) {
-            continue;
-        }
-        let pro_tx_hash = member.masternode_list_entry.pro_reg_tx_hash;
-        if let Some(first_index) = signed_at.insert(pro_tx_hash, index) {
-            return Err(QuorumValidationError::DuplicateSigner {
-                index,
-                first_index,
-            });
-        }
     }
     let required = entry.llmq_type.threshold() as u64;
     let found = entry.signers.iter().take(members_count).filter(|&&signed| signed).count() as u64;
@@ -237,28 +229,6 @@ mod tests {
             Err(QuorumValidationError::InsufficientSigners {
                 required: 45,
                 found: 44,
-            }),
-        );
-    }
-
-    /// Snapshots that name one masternode in every slot of the three older
-    /// quarters rebuild it 45 times. Its signer bits there reach the threshold
-    /// with no bit past the members, all on its one operator key.
-    #[test]
-    fn a_masternode_signing_at_more_than_one_index_is_refused() {
-        let repeated = member(1);
-        let others: Vec<QualifiedMasternodeListEntry> = (2..=16).map(member).collect();
-        let members: Vec<&QualifiedMasternodeListEntry> =
-            std::iter::repeat_n(&repeated, 45).chain(&others).collect();
-        let signers: Vec<usize> = (0..45).collect();
-        let quorum = commitment(&signers, &signers);
-        assert!(quorum.quorum_entry.validate_structure().is_ok(), "it counts every set bit");
-
-        assert_eq!(
-            validate_signed_by(&quorum, &members),
-            Err(QuorumValidationError::DuplicateSigner {
-                index: 1,
-                first_index: 0,
             }),
         );
     }

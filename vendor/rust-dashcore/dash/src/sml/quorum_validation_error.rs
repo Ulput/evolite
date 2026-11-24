@@ -87,6 +87,16 @@ pub enum QuorumValidationError {
     #[error("Expected only rotated quorums, but got quorum {0} of type {1}")]
     ExpectedOnlyRotatedQuorums(QuorumHash, LLMQType),
 
+    /// evolite (BUG-283): a rotated commitment of a QRInfo that is not, as a whole, a quorum of
+    /// the QRInfo's own tip list, the list checked against its block's coinbase.
+    #[error(
+        "Rotated commitment {quorum_hash} of type {llmq_type} is not a quorum of the tip list checked against its coinbase"
+    )]
+    CommitmentNotInTipList {
+        llmq_type: LLMQType,
+        quorum_hash: QuorumHash,
+    },
+
     #[error("Signers bit {index} is set, but the quorum has only {members_count} members")]
     SignerBeyondMembers {
         index: usize,
@@ -97,12 +107,6 @@ pub enum QuorumValidationError {
     ValidMemberBeyondMembers {
         index: usize,
         members_count: usize,
-    },
-
-    #[error("Signers bit {index} names the masternode already signing at bit {first_index}")]
-    DuplicateSigner {
-        index: usize,
-        first_index: usize,
     },
 }
 

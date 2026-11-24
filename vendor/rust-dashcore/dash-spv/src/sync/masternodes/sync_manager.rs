@@ -123,6 +123,12 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
                     Err(e) => {
                         tracing::error!("QRInfo feed into engine failed: {}", e);
                         drop(engine);
+                        // evolite (BUG-283): a rotated commitment its own coinbase-checked tip
+                        // list does not hold is served by no honest peer: banned, as invalid
+                        // headers are. The retry below goes to another peer.
+                        if bans_its_peer(&e) {
+                            let _ = requests.ban_peer(msg.peer_address(), &format!("QRInfo: {e}"));
+                        }
                         // The response is unusable, but the request slot has to stay
                         // occupied. It is the only thing arming `tick`'s retry
                         // ladder, so releasing it here - as this handler used to,
@@ -588,6 +594,22 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
     fn progress(&self) -> SyncManagerProgress {
         SyncManagerProgress::Masternodes(self.progress.clone())
     }
+}
+
+/// evolite (BUG-283): whether a refused QRInfo bans the peer that sent it: only a rotated
+/// commitment its own coinbase-checked tip list does not hold, which no honest peer serves. Any
+/// other refusal may be a gap of ours (a block or a base list not held yet): retried elsewhere.
+fn bans_its_peer(
+    error: &crate::sml_engine::FeedError<
+        dashcore::sml::quorum_validation_error::QuorumValidationError,
+    >,
+) -> bool {
+    matches!(
+        error,
+        crate::sml_engine::FeedError::Refused(
+            dashcore::sml::quorum_validation_error::QuorumValidationError::CommitmentNotInTipList { .. }
+        )
+    )
 }
 
 #[cfg(test)]
@@ -1088,6 +1110,24 @@ mod tests {
             ),
             "a failed work-block list must not hold back the tip update, got {events:?}"
         );
+    }
+
+    /// evolite (BUG-283): a commitment off the tip list bans its peer; a refusal that may be a
+    /// gap of ours does not.
+    #[test]
+    fn only_a_commitment_off_the_tip_list_bans_the_peer() {
+        use crate::sml_engine::FeedError;
+        use dashcore::hashes::Hash;
+        use dashcore::sml::error::SmlError;
+        use dashcore::sml::llmq_type::LLMQType;
+        use dashcore::sml::quorum_validation_error::QuorumValidationError as E;
+        let off = E::CommitmentNotInTipList {
+            llmq_type: LLMQType::Llmqtype60_75,
+            quorum_hash: dashcore::QuorumHash::from_byte_array([1; 32]),
+        };
+        assert!(super::bans_its_peer(&FeedError::Refused(off)));
+        let gap = E::SMLError(SmlError::MissingStartMasternodeList(BlockHash::all_zeros()));
+        assert!(!super::bans_its_peer(&FeedError::Refused(gap)));
     }
 
     /// A QRInfo the engine rejects must not release the request slot.

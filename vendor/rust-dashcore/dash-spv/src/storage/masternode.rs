@@ -1081,6 +1081,57 @@ mod tests {
         );
     }
 
+    /// evolite (BUG-283): a real testnet sync's stored lists and QRInfo, replayed through the
+    /// validating engine as at a start (the coinbase checks and the tip check included), keep
+    /// every stored cycle's quorums Verified: the tip list holds each served commitment. Ignored:
+    /// it reads a copy of a testnet SPV folder (`block_headers` and `masternodes`) named by
+    /// `EVOLITE_TESTNET_SPV`; the folder itself is not touched.
+    #[tokio::test]
+    #[ignore]
+    async fn a_testnet_sync_replays_with_its_cycles_verified() {
+        use crate::storage::block_headers::PersistentBlockHeaderStorage;
+        use crate::storage::PersistentStorage;
+        use dashcore::sml::llmq_entry_verification::LLMQEntryVerificationStatus;
+        fn copy(from: &std::path::Path, to: &std::path::Path) {
+            std::fs::create_dir_all(to).unwrap();
+            for entry in std::fs::read_dir(from).unwrap().flatten() {
+                let target = to.join(entry.file_name());
+                if entry.path().is_dir() {
+                    copy(&entry.path(), &target);
+                } else {
+                    std::fs::copy(entry.path(), target).unwrap();
+                }
+            }
+        }
+        let source = std::env::var_os("EVOLITE_TESTNET_SPV").expect("EVOLITE_TESTNET_SPV");
+        let source = std::path::Path::new(&source);
+        let dir = TempDir::new().unwrap();
+        for folder in ["block_headers", "masternodes"] {
+            copy(&source.join(folder), &dir.path().join(folder));
+        }
+        let headers = PersistentBlockHeaderStorage::open(dir.path()).await.unwrap();
+        let storage = PersistentMasternodeStorage::open(
+            dir.path(),
+            Arc::new(RwLock::new(headers)),
+            Network::Testnet,
+        )
+        .await
+        .unwrap();
+        let stored = storage.qr_info_count();
+        assert!(stored > 0, "the folder holds a QRInfo");
+
+        let engine = storage.load_engine().await;
+
+        let cycles = engine.rotated_quorums_per_cycle();
+        let quorums: Vec<_> = cycles.values().flat_map(|cycle| cycle.values()).collect();
+        println!("{stored} QRInfo stored, {} cycles, {} quorums kept", cycles.len(), quorums.len());
+        assert!(!quorums.is_empty(), "a cycle is kept");
+        assert!(
+            quorums.iter().all(|q| q.verified == LLMQEntryVerificationStatus::Verified),
+            "every kept quorum Verified"
+        );
+    }
+
     // evolite (TECH-spv-prune).
 
     /// The lists at or above `floor`, as (height, block hash).
