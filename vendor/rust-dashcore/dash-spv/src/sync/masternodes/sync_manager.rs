@@ -122,13 +122,33 @@ impl<H: BlockHeaderStorage> SyncManager for MasternodesManager<H> {
                     Ok(qr_info_result) => qr_info_result,
                     Err(e) => {
                         tracing::error!("QRInfo feed into engine failed: {}", e);
-                        drop(engine);
                         // evolite (BUG-283): a rotated commitment its own coinbase-checked tip
                         // list does not hold is served by no honest peer: banned, as invalid
-                        // headers are. The retry below goes to another peer.
+                        // headers are. The retry below goes to another peer. The ban's line
+                        // names the quorum and the tip's height (review r1, Should), so an
+                        // honest peer banned this way would show in the first report.
                         if bans_its_peer(&e) {
+                            let tip = qr_info.mn_list_diff_tip.block_hash;
+                            let tip_height = engine.height_if_known(&tip).await;
+                            if let crate::sml_engine::FeedError::Refused(
+                                dashcore::sml::quorum_validation_error::QuorumValidationError::CommitmentNotInTipList {
+                                    llmq_type,
+                                    quorum_hash,
+                                },
+                            ) = &e
+                            {
+                                tracing::warn!(
+                                    peer = %msg.peer_address(),
+                                    llmq_type = %llmq_type,
+                                    quorum_hash = %quorum_hash,
+                                    tip = %tip,
+                                    tip_height = ?tip_height,
+                                    "Banning the peer: a QRInfo commitment is not in its tip list"
+                                );
+                            }
                             let _ = requests.ban_peer(msg.peer_address(), &format!("QRInfo: {e}"));
                         }
+                        drop(engine);
                         // The response is unusable, but the request slot has to stay
                         // occupied. It is the only thing arming `tick`'s retry
                         // ladder, so releasing it here - as this handler used to,
