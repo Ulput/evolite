@@ -142,6 +142,10 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
     /// added/removed. Combined with per-wallet account-level revisions to
     /// produce the total monitor revision.
     structural_revision: u64,
+    /// evolite (BUG-284 r1, Should): the mempool transactions past `MAX_MONEY` already warned
+    /// about, so a peer re-sending one can't flood the log: one WARN per txid, at most
+    /// [`OVERSIZED_REMEMBERED`] remembered.
+    pub(crate) oversized_warned: std::collections::HashSet<dashcore::Txid>,
     /// Event sender for wallet events.
     ///
     /// This is a *bounded, lossy* fan-out (capacity
@@ -203,6 +207,10 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
     events_emitted: std::sync::atomic::AtomicBool,
 }
 
+/// evolite (BUG-284 r1, Should): how many warned txids are remembered; past it the set starts
+/// over, so a flood costs a WARN per this many transactions at most.
+pub(crate) const OVERSIZED_REMEMBERED: usize = 1024;
+
 impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
     /// Create a new wallet manager
     pub fn new(network: Network) -> Self {
@@ -211,6 +219,7 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
             wallets: BTreeMap::new(),
             wallet_infos: BTreeMap::new(),
             structural_revision: 0,
+            oversized_warned: std::collections::HashSet::new(),
             event_sender: broadcast::Sender::new(DEFAULT_WALLET_EVENT_CAPACITY),
             // Persistence delivery is opt-in; the channel is created lazily when
             // a consumer calls `take_persistence_receiver`. See that field's docs.

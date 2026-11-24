@@ -64,6 +64,11 @@ pub(super) const TIP_FRESH_FOR: Duration = Duration::from_secs(2 * 60 * 60);
 /// evolite (BUG-281): or a tip at most this many blocks under the connected peers' best height.
 pub(super) const TIP_HEIGHT_MARGIN: u32 = 6;
 
+/// evolite (BUG-281 r1, Should 1): with exactly one peer connected (none known: nothing to wait
+/// for), its «nothing more» on a stale tip
+/// is all peers' at once; a second one is waited for this long before the sync completes on it.
+pub(super) const SECOND_PEER_WAIT: Duration = Duration::from_secs(30);
+
 /// evolite (SPV item 1): a valid branch off the stored chain below its tip, held until
 /// it has more work than ours from the fork point. Nothing is trimmed meanwhile.
 #[derive(Debug)]
@@ -116,6 +121,10 @@ pub struct BlockHeadersManager<H: BlockHeaderStorage, M: MetadataStorage> {
     pub(super) peers_best_height: Option<u32>,
     /// evolite (BUG-281): the peers that answered «nothing more» on the current stale tip.
     pub(super) empty_on_stale_tip: HashSet<SocketAddr>,
+    /// evolite (BUG-281 r1, Should 2): the tip height `empty_on_stale_tip` is about.
+    pub(super) stale_tip_height: Option<u32>,
+    /// evolite (BUG-281 r1, Should 1): since when a second peer is waited for.
+    pub(super) second_peer_wait_since: Option<Instant>,
     /// Network whose difficulty rules new headers are checked against.
     network: Network,
     /// evolite (SPV item 1): a branch that doesn't have more work than ours yet.
@@ -172,6 +181,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             peers: Vec::new(),
             peers_best_height: None,
             empty_on_stale_tip: HashSet::new(),
+            stale_tip_height: None,
+            second_peer_wait_since: None,
             network,
             fork: None,
             locator_asked: HashMap::new(),
@@ -424,6 +435,12 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
         from: SocketAddr,
     ) -> SyncResult<Option<SocketAddr>> {
         let tip = self.tip().await?;
+        // Another tip: who said «nothing more» on the last one says nothing about this one.
+        if self.stale_tip_height != Some(tip.height()) {
+            self.empty_on_stale_tip.clear();
+            self.second_peer_wait_since = None;
+            self.stale_tip_height = Some(tip.height());
+        }
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
@@ -448,6 +465,15 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
                     self.peers_best_height,
                     other
                 );
+            }
+            None if self.peers.len() == 1 && self.second_peer_wait_since.is_none() => {
+                tracing::info!(
+                    "{} has no headers past our stale tip {}: waiting up to {:?} for a second peer",
+                    from,
+                    tip.height(),
+                    SECOND_PEER_WAIT
+                );
+                self.second_peer_wait_since = Some(Instant::now());
             }
             None => {
                 tracing::warn!(
@@ -814,6 +840,29 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
     ) -> SyncResult<Vec<SyncEvent>> {
         if !self.pipeline.is_complete() {
             return Ok(Vec::new());
+        }
+
+        // evolite (BUG-281 r1, Should 1): a stale tip only one peer said was all: a second peer
+        // is asked as soon as one connects, and the sync completes on the first one's word only
+        // after SECOND_PEER_WAIT.
+        if let Some(since) = self.second_peer_wait_since {
+            if let Some(other) =
+                self.peers.iter().copied().find(|p| !self.empty_on_stale_tip.contains(p))
+            {
+                self.second_peer_wait_since = None;
+                tracing::info!("A second peer {} connected: asking it past our stale tip", other);
+                self.pipeline.ask_tip_again(requests, other)?;
+                return Ok(Vec::new());
+            }
+            if since.elapsed() < SECOND_PEER_WAIT {
+                return Ok(Vec::new());
+            }
+            tracing::warn!(
+                "No second peer within {:?}: the header sync completes on one peer's word",
+                SECOND_PEER_WAIT
+            );
+            self.second_peer_wait_since = None;
+            self.empty_on_stale_tip.clear();
         }
 
         // If blocks were announced during sync, request them before finalizing the sync
@@ -2056,6 +2105,63 @@ mod tests {
 
         let events = manager.handle_headers_pipeline(b, &[], &requests).await.unwrap();
         assert!(sync_completed(&events), "every peer said so: {events:?}");
+    }
+
+    /// evolite (BUG-281 r1, Should 1): one peer connected, a stale tip: its «nothing more»
+    /// does not complete the sync at once. A second peer that connects is asked; without one,
+    /// the sync completes after SECOND_PEER_WAIT.
+    #[tokio::test]
+    async fn with_one_peer_a_second_is_waited_for() {
+        let (mut manager, requests, mut rx) = syncing_manager().await;
+        let (a, b): (SocketAddr, SocketAddr) = (peer(), "5.6.7.8:9999".parse().unwrap());
+        manager.peers = vec![a];
+        manager.peers_best_height = Some(manager.tip().await.unwrap().height() + 100);
+
+        let events = manager.handle_headers_pipeline(a, &[], &requests).await.unwrap();
+        assert!(!sync_completed(&events), "{events:?}");
+        let events = manager.tick(&requests).await.unwrap();
+        assert!(!sync_completed(&events), "still waiting");
+        assert!(rx.try_recv().is_err());
+
+        manager.peers = vec![a, b];
+        manager.tick(&requests).await.unwrap();
+        match rx.try_recv().expect("the second peer asked") {
+            NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(_), to) => {
+                assert_eq!(to, b)
+            }
+            other => panic!("expected GetHeaders to {b}, got {other:?}"),
+        }
+        let events = manager.handle_headers_pipeline(b, &[], &requests).await.unwrap();
+        assert!(sync_completed(&events), "both said so: {events:?}");
+
+        // No second peer within the wait: complete on the first one's word.
+        let (mut manager, requests, _rx) = syncing_manager().await;
+        manager.peers = vec![a];
+        manager.peers_best_height = Some(manager.tip().await.unwrap().height() + 100);
+        manager.handle_headers_pipeline(a, &[], &requests).await.unwrap();
+        if let Some(since) = manager.second_peer_wait_since.as_mut() {
+            *since -= super::SECOND_PEER_WAIT;
+        }
+        let events = manager.tick(&requests).await.unwrap();
+        assert!(sync_completed(&events), "{events:?}");
+    }
+
+    /// evolite (BUG-281 r1, Should 2): who said «nothing more» on the last tip is forgotten when
+    /// the tip moves.
+    #[tokio::test]
+    async fn the_peers_that_said_nothing_more_are_forgotten_when_the_tip_moves() {
+        let (mut manager, _requests, _rx) = syncing_manager().await;
+        let (a, b): (SocketAddr, SocketAddr) = (peer(), "5.6.7.8:9999".parse().unwrap());
+        manager.peers = vec![a, b];
+        let tip = manager.tip().await.unwrap().height();
+        manager.peers_best_height = Some(tip + 100);
+        manager.empty_on_stale_tip.insert(b);
+        manager.stale_tip_height = Some(tip + 5);
+
+        let asked = manager.ask_another_on_a_stale_tip(a).await.unwrap();
+
+        assert_eq!(asked, Some(b), "b said so on another tip: asked again on this one");
+        assert_eq!(manager.stale_tip_height, Some(tip));
     }
 
     /// evolite (BUG-281): on a fresh tip (within the margin of the peers' best height) an empty

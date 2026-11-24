@@ -152,6 +152,20 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletInterface for WalletM
         tx: &Transaction,
         instant_lock: Option<InstantLock>,
     ) -> MempoolTransactionResult {
+        // evolite (BUG-284): a transaction no node would relay is not the wallet's: no balance,
+        // coin, record or event from it.
+        if !amounts_within_max_money(tx) {
+            let txid = tx.txid();
+            if self.oversized_warned.len() >= crate::OVERSIZED_REMEMBERED {
+                self.oversized_warned.clear();
+            }
+            if self.oversized_warned.insert(txid) {
+                tracing::warn!("Mempool transaction {} pays more than MAX_MONEY, ignored", txid);
+            } else {
+                tracing::debug!("Mempool transaction {} pays more than MAX_MONEY again", txid);
+            }
+            return MempoolTransactionResult::default();
+        }
         let context = match instant_lock.as_ref() {
             Some(lock) => {
                 debug_assert_eq!(lock.txid, tx.txid(), "InstantLock txid must match transaction");
@@ -669,6 +683,26 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
     }
 }
 
+/// evolite (BUG-284): the amount rules of Dash Core's `CheckTransaction`: every output, and the
+/// sum of them, at most `MAX_MONEY`. A mempool transaction is only a peer's word: one that breaks
+/// them is invalid on any node, and taken in it would give a coin or a History line worth more
+/// than all the money there is, past what `i64` amounts hold (security audit F7). A block's
+/// transactions are under its proof of work and merkle root, so only the mempool is checked.
+pub fn amounts_within_max_money(tx: &Transaction) -> bool {
+    use dashcore::blockdata::constants::MAX_MONEY;
+    let mut total: u64 = 0;
+    for output in &tx.output {
+        if output.value > MAX_MONEY {
+            return false;
+        }
+        total = match total.checked_add(output.value) {
+            Some(total) if total <= MAX_MONEY => total,
+            _ => return false,
+        };
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1028,6 +1062,59 @@ mod tests {
         assert_eq!(result.net_amount, TX_AMOUNT as i64);
         assert!(!result.is_outgoing);
         assert!(!result.addresses.is_empty());
+    }
+
+    /// evolite (BUG-284, test of the class): a mempool transaction paying the wallet more than
+    /// `MAX_MONEY`, in one output or in all of them, gives no balance, no coin and no record;
+    /// `MAX_MONEY` itself is taken.
+    #[tokio::test]
+    async fn a_mempool_transaction_past_max_money_is_not_the_wallets() {
+        use dashcore::blockdata::constants::MAX_MONEY;
+        for (values, taken) in [
+            (&[MAX_MONEY + 1][..], false),
+            (&[u64::MAX][..], false),
+            (&[MAX_MONEY, 1][..], false),
+            (&[u64::MAX, 2][..], false),
+            (&[MAX_MONEY][..], true),
+        ] {
+            let (mut manager, wallet_id, addr) = setup_manager_with_wallet();
+            let mut tx = create_tx_paying_to(&addr, 0xbe);
+            let paying = tx.output[0].clone();
+            tx.output = values
+                .iter()
+                .map(|value| dashcore::TxOut {
+                    value: *value,
+                    ..paying.clone()
+                })
+                .collect();
+
+            let result = manager.process_mempool_transaction(&tx, None).await;
+
+            assert_eq!(result.is_relevant, taken, "{values:?}");
+            let info = manager.get_wallet_info(&wallet_id).unwrap();
+            assert_eq!(info.balance().total() > 0, taken, "balance {values:?}");
+            assert_eq!(!info.utxos().is_empty(), taken, "coins {values:?}");
+            assert_eq!(!info.transaction_history().is_empty(), taken, "records {values:?}");
+        }
+    }
+
+    /// evolite (BUG-284 r1, Should): the same oversized transaction sent again is warned about
+    /// once; the remembered set is bounded.
+    #[tokio::test]
+    async fn an_oversized_transaction_is_warned_about_once() {
+        let (mut manager, _wallet_id, addr) = setup_manager_with_wallet();
+        let mut tx = create_tx_paying_to(&addr, 0xbe);
+        tx.output[0].value = u64::MAX;
+        for _ in 0..3 {
+            manager.process_mempool_transaction(&tx, None).await;
+        }
+        assert_eq!(manager.oversized_warned.len(), 1);
+        for seed in 0..(crate::OVERSIZED_REMEMBERED as u32 + 5) {
+            let mut other = tx.clone();
+            other.lock_time = seed + 1;
+            manager.process_mempool_transaction(&other, None).await;
+        }
+        assert!(manager.oversized_warned.len() <= crate::OVERSIZED_REMEMBERED);
     }
 
     #[tokio::test]
