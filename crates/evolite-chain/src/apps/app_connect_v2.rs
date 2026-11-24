@@ -27,6 +27,10 @@ const MAX_LABEL: usize = 64;
 const MAX_NAME: usize = 64;
 /// Integers above this are refused: apps written in JavaScript cannot hold them exactly.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
+/// The longest base58 of a body of `MAX_BODY` bytes, 1 399 characters: a byte is log58(256) ≈
+/// 1.3657 digits (1.366 here, then rounded up), a leading zero byte a single `1`. A longer
+/// `dash-key:` body fails to decode or decodes to over `MAX_BODY` bytes.
+const MAX_B58: usize = (MAX_BODY * 1_366).div_ceil(1_000);
 
 /// How far `CREATED_AT` may be from the wallet's clock.
 const STALE_BEHIND_MS: u64 = 10 * 60 * 1_000;
@@ -303,6 +307,11 @@ fn dash_key_uri(text: &str, here: Net) -> Result<Link, Refusal> {
         return refuse(Unsupported, Part::Carrier);
     }
     version_and_network(&q, here)?;
+    // Refused as `body_of` would refuse it, but before the decode, whose time is quadratic in
+    // the length: the link is anyone's text, and its length is not capped.
+    if body.len() > MAX_B58 {
+        return refuse(Invalid, Part::Body);
+    }
     let body = dpp::platform_value::string_encoding::decode(
         body,
         dpp::platform_value::string_encoding::Encoding::Base58,

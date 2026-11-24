@@ -133,6 +133,48 @@ fn dash_key_carries_v2_on_testnet_and_devnet_but_never_on_mainnet() {
 }
 
 #[test]
+fn a_dash_key_body_longer_than_the_base58_of_any_body_is_refused_before_the_decode() {
+    let longest = dpp::platform_value::string_encoding::encode(
+        &[0xff; MAX_BODY],
+        dpp::platform_value::string_encoding::Encoding::Base58,
+    );
+    assert_eq!((longest.len(), MAX_B58), (1_399, 1_399));
+    let link = |body: &str, n: &str, v: &str| format!("dash-key:{body}?n={n}&v={v}");
+    // At the bound the body is decoded: 1 024 bytes, refused for their version byte.
+    assert_eq!(
+        parse(&link(&longest, "t", "2"), Net::Test, CREATED),
+        Err(Refusal::Refused(Unsupported, Part::Version))
+    );
+    // One character over (here a zero byte and 1 024 more) it is refused without decoding, as
+    // `body_of` refuses a body over `MAX_BODY`.
+    let over = format!("1{longest}");
+    assert_eq!(over.len(), 1_400);
+    assert_eq!(
+        parse(&link(&over, "t", "2"), Net::Test, CREATED),
+        Err(Refusal::Refused(Invalid, Part::Body))
+    );
+    // The carrier, the version and the network are still read first.
+    assert_eq!(
+        parse(&link(&over, "m", "2"), Net::Main, CREATED),
+        Err(Refusal::Refused(Unsupported, Part::Carrier))
+    );
+    assert_eq!(
+        parse(&link(&over, "t", "1"), Net::Test, CREATED),
+        Err(Refusal::NotOurs)
+    );
+    assert_eq!(
+        parse(&link(&over, "d", "2"), Net::Test, CREATED),
+        Err(Refusal::Refused(Invalid, Part::Network))
+    );
+    // The bound is the body's, not the link's: a long ignored parameter is still read.
+    let padded = format!("{}&x={}", dash_key("t", "2"), "a".repeat(MAX_URI));
+    assert_eq!(
+        parse(&padded, Net::Test, CREATED).map(|l| l.request),
+        Ok(expected())
+    );
+}
+
+#[test]
 fn another_network_or_version_is_refused() {
     assert_eq!(
         parse(URI, Net::Test, CREATED),
