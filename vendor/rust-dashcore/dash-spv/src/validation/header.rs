@@ -44,7 +44,7 @@ impl Validator<&[HashedBlockHeader]> for BlockHeaderValidator {
             .collect();
 
         // Check continuity of i-1 to i, PoW and difficulty of i in parallel
-        hashed_headers.par_iter().enumerate().try_for_each(|(i, header)| {
+        let check = |(i, header): (usize, &HashedBlockHeader)| -> ValidationResult<()> {
             // For the first header, skip chain continuity check since we don't have i-1 here
             if i > 0 && header.header().prev_blockhash != *hashed_headers[i - 1].hash() {
                 return Err(ValidationError::InvalidHeaderChain(format!(
@@ -74,7 +74,16 @@ impl Validator<&[HashedBlockHeader]> for BlockHeaderValidator {
                 });
             }
             Ok(())
-        })?;
+        };
+        // evolite (BUG-305): the first bad header's error, by its place in the batch. The check
+        // stays parallel; `try_for_each` returned whichever error a thread met first, so the
+        // same batch was refused with another height and other numbers from run to run (the
+        // decision was the same: refused). The log and a ban's reason now name the first one.
+        if let Some(error) =
+            hashed_headers.par_iter().enumerate().find_map_first(|item| check(item).err())
+        {
+            return Err(error);
+        }
 
         tracing::trace!(
             "Header chain validation passed for {} headers, duration: {:?}",
@@ -118,6 +127,28 @@ mod tests {
 
         let headers = hashed(Header::dummy_chain(10, BlockHash::all_zeros()));
         assert!(validator.validate(&headers).is_ok());
+    }
+
+    /// evolite (BUG-305, test of the class): a batch bad at its 4th and 8th headers (the 4th
+    /// and the 8th don't connect, so the 5th and 9th don't either) is refused, every time, with
+    /// the 4th's error: the first by its place, whatever the threads meet first. 2000 times:
+    /// with `try_for_each` 200 were not always enough to see another one.
+    #[test]
+    fn a_batch_is_refused_with_its_first_bad_headers_error() {
+        let validator = BlockHeaderValidator::new(Network::Regtest, vec![], 0);
+        let mut headers = Header::dummy_chain(10, BlockHash::all_zeros());
+        headers[3].prev_blockhash = BlockHash::all_zeros();
+        headers[7].prev_blockhash = BlockHash::all_zeros();
+        let batch = hashed(headers);
+        let first = format!("Header {:?} does not connect to {:?}", batch[2], batch[3]);
+        for run in 0..2000 {
+            match validator.validate(&batch) {
+                Err(ValidationError::InvalidHeaderChain(message)) => {
+                    assert_eq!(message, first, "run {run}: not the first bad header")
+                }
+                other => panic!("run {run}: expected the chain refused, got {other:?}"),
+            }
+        }
     }
 
     #[test]
