@@ -111,27 +111,17 @@ fn a_signature_is_checked_as_it_is_typed() {
     button(&kit, "Sign a message").click();
     kit.run_steps(3);
     let ctx = kit.ctx.clone();
-    let address = "XjM5kXg6x5BqvxSTL6zWwW4mN8TfNGpxUA";
+    // The check of this build: the demo's stand-in, or the real one when the workspace builds
+    // evolite-core with `real` (CI's `--features evolite-ui/dev-tools`).
+    let (address, message, signature) = evolite_core::message::CHECK;
     type_in(
         &ctx,
         Tab::Check,
-        (
-            Some(address),
-            Some(evolite_core::message::DEMO_MESSAGE),
-            Some(evolite_core::message::DEMO_SIGNATURE),
-        ),
+        (Some(address), Some(message), Some(signature)),
     );
     kit.run_steps(3);
     assert!(has_words(&kit, "The signature is valid"));
-    type_in(
-        &ctx,
-        Tab::Check,
-        (
-            None,
-            Some(&format!("{} ", evolite_core::message::DEMO_MESSAGE)),
-            None,
-        ),
-    );
+    type_in(&ctx, Tab::Check, (None, Some(&format!("{message} ")), None));
     kit.run_steps(3);
     assert!(has_words(&kit, "The signature does not match this address"));
     assert!(has_words(&kit, "spaces and line breaks included"));

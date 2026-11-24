@@ -98,6 +98,43 @@ pub mod message {
         "IAM2qX24tYx/bdBTIgVLhD8QEAjrPlJpmjB4nZHdRYGIBa4DmVulAcwjPnWe6Q5iEwXH6F0pUCJP/ZeHPWS1h1o=";
     /// The message the demo's signature is of.
     pub const DEMO_MESSAGE: &str = "rust-dashcore MessageSignature test";
+
+    /// A signature [`verify`] of this build finds valid, with its message and address — for the
+    /// check's tests in both builds. The real check: the first testnet receiving key of the
+    /// public test phrase «abandon … about» (m/44'/1'/0'/0/0) signed it as dash-qt does.
+    #[cfg(feature = "real")]
+    pub const CHECK: (&str, &str, &str) = (
+        "yRd4FhXfVGHXpsuZXPNkMrfD9GVj46pnjt",
+        "evolite: a signed message to check",
+        "Hx9qBdVefL2j2YNujRyW8rcA+eaKrHa6DbOyXtaa78vSDzbKlCLzWWNclWFPC6k1L+5i27f6ZF2ORMBG2t7YtIc=",
+    );
+    /// The demo's stand-in check: its own signature, any address of an address's length.
+    #[cfg(not(feature = "real"))]
+    pub const CHECK: (&str, &str, &str) = (
+        "XjM5kXg6x5BqvxSTL6zWwW4mN8TfNGpxUA",
+        DEMO_MESSAGE,
+        DEMO_SIGNATURE,
+    );
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The check's vector is valid in this build; a space more in the message is not.
+        #[test]
+        fn the_check_vector_is_valid_in_this_build() {
+            let (address, message, signature) = CHECK;
+            assert_eq!(verify(address, message, signature), Ok(Verified::Valid));
+            assert_eq!(
+                verify(address, &format!("{message} "), signature),
+                Ok(Verified::NotThisAddress)
+            );
+            assert_eq!(
+                verify(address, message, "hello"),
+                Ok(Verified::NotASignature)
+            );
+        }
+    }
 }
 #[cfg(feature = "real")]
 mod real;
