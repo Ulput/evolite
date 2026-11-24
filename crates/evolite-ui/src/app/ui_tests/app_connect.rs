@@ -126,9 +126,14 @@ fn a_key_the_app_gets_without_adding_one_is_said() {
     kit.set_size(egui::vec2(1024.0, 2000.0));
     open_request(&mut kit);
     let key = "Get your private decryption key for another contract";
+    // Each line drawn: its label's node, not its text run too — AccessKit gives a painted line
+    // a `TextRun` child with the same text and box, and counting both saw each line twice
+    // (audit F1: «in the summary», 2 for 1).
     let lines = |kit: &Kit| -> Vec<egui::Rect> {
         kit.query_all_by(|n| {
-            n.label().is_some_and(|l| l.contains(key)) || n.value().is_some_and(|v| v.contains(key))
+            n.role() != Role::TextRun
+                && (n.label().is_some_and(|l| l.contains(key))
+                    || n.value().is_some_and(|v| v.contains(key)))
         })
         .map(|n| n.rect())
         .collect()
