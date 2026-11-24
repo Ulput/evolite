@@ -151,6 +151,22 @@ mod linux {
             libc::SYS_ptrace,
             libc::SYS_process_vm_readv,
             libc::SYS_process_vm_writev,
+            // No System V IPC: its shared memory, semaphores and message queues are the user's,
+            // other programs' among them (an X11 client's window pictures in MIT-SHM). The
+            // worker uses none: its frames go through the pipe. `ipc`, one call for all of them
+            // on some architectures, is on none of ours.
+            libc::SYS_shmget,
+            libc::SYS_shmat,
+            libc::SYS_shmdt,
+            libc::SYS_shmctl,
+            libc::SYS_msgget,
+            libc::SYS_msgsnd,
+            libc::SYS_msgrcv,
+            libc::SYS_msgctl,
+            libc::SYS_semget,
+            libc::SYS_semop,
+            libc::SYS_semtimedop,
+            libc::SYS_semctl,
             libc::SYS_unshare,
             libc::SYS_setns,
             libc::SYS_mount,

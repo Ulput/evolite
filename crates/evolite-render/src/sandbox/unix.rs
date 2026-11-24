@@ -91,6 +91,10 @@ fn confine(parent: libc::pid_t, memory: usize) -> io::Result<()> {
             // A network of its own with nothing in it, where unprivileged user namespaces are
             // allowed; elsewhere seccomp and Landlock still close the sockets.
             let _ = libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET);
+            // And System V IPC of its own, empty: none of the user's shared memory, semaphores
+            // or message queues. A call of its own, so a kernel without IPC namespaces still
+            // gives the network one; seccomp refuses those calls either way.
+            let _ = libc::unshare(libc::CLONE_NEWIPC);
         }
         #[cfg(not(target_os = "linux"))]
         let _ = parent;
