@@ -4,7 +4,7 @@
 //! filters or local address matching to identify wallet-relevant
 //! transactions from the mempool.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -74,6 +74,10 @@ pub(crate) struct MempoolManager<W: WalletInterface> {
     /// Wallet monitor revision at the time of the last filter build.
     /// Compared on each tick to detect when the wallet's monitored set has changed.
     pub(super) last_monitor_revision: u64,
+    /// evolite (BUG-279): the transactions this client broadcast itself. Their expiry tells the
+    /// wallet nothing: one of ours may still be live, and its coins stay spent (they are
+    /// rebroadcast instead).
+    pub(super) own: HashSet<Txid>,
 }
 
 impl<W: WalletInterface> MempoolManager<W> {
@@ -98,6 +102,7 @@ impl<W: WalletInterface> MempoolManager<W> {
             peers: HashMap::new(),
             pending_is_locks: HashMap::new(),
             seen_txids: HashMap::new(),
+            own: HashSet::new(),
             last_monitor_revision: initial_monitor_revision,
         }
     }
@@ -374,6 +379,7 @@ impl<W: WalletInterface> MempoolManager<W> {
         // wallet relevance — the caller explicitly asked to broadcast.
         let mut events = Vec::new();
         if is_local {
+            self.own.insert(txid);
             events.extend(self.start_broadcast(&tx, requests));
         }
 
@@ -569,6 +575,7 @@ impl<W: WalletInterface> MempoolManager<W> {
                     });
                 }
             }
+            self.own.remove(txid);
             if self.transactions.remove(txid).is_some() {
                 removed.push(*txid);
             }
@@ -630,8 +637,38 @@ impl<W: WalletInterface> MempoolManager<W> {
         events
     }
 
-    /// Prune transactions and pending IS locks older than `timeout`.
-    pub(super) fn prune_expired(&mut self, timeout: Duration) {
+    /// evolite (BUG-279): the wallet's unconfirmed transactions this manager does not track yet
+    /// (after a restart they are only in the wallet) are tracked from now, so they expire as
+    /// those seen in this run do. Not before now: the store keeps no time of their first sight.
+    /// Ours (broadcast in this run) are not taken in. How many were taken in.
+    pub(super) async fn track_unconfirmed(&mut self) -> usize {
+        let unconfirmed = self.wallet.read().await.unconfirmed_since().await;
+        let mut taken = 0;
+        for (tx, since) in unconfirmed {
+            let txid = tx.txid();
+            if self.transactions.contains_key(&txid) || self.own.contains(&txid) {
+                continue;
+            }
+            let mut tracked =
+                UnconfirmedTransaction::new(tx, Amount::ZERO, false, false, Vec::new(), 0);
+            // evolite (BUG-279 r1/r2, Must): from its first sight as the application kept it,
+            // by the wall clock (an `Instant` counts from the boot), so a restart does not start
+            // the 24 h again; none kept: from now.
+            tracked.first_seen_unix = since;
+            self.transactions.insert(txid, tracked);
+            taken += 1;
+        }
+        if taken > 0 {
+            self.progress.set_tracked(self.transactions.len() as u32);
+            tracing::info!("Tracking {} unconfirmed transactions of the wallet for expiry", taken);
+        }
+        taken
+    }
+
+    /// Prune transactions and pending IS locks older than `timeout`. evolite (BUG-279): the
+    /// expired transactions this client did not broadcast itself, for the wallet to give back
+    /// what they took ([`WalletInterface::mempool_transaction_expired`]).
+    pub(super) fn prune_expired(&mut self, timeout: Duration) -> Vec<Txid> {
         let mut expired_txids = Vec::new();
         self.transactions.retain(|txid, tx| {
             if tx.is_expired(timeout) {
@@ -646,6 +683,9 @@ impl<W: WalletInterface> MempoolManager<W> {
         if let Some(cutoff) = Instant::now().checked_sub(timeout) {
             self.broadcasts.retain(|_, state| state.created_at > cutoff);
         }
+
+        let foreign: Vec<Txid> =
+            expired_txids.iter().filter(|txid| !self.own.remove(*txid)).copied().collect();
 
         if !expired_txids.is_empty() {
             self.progress.add_removed(expired_txids.len() as u32);
@@ -663,6 +703,7 @@ impl<W: WalletInterface> MempoolManager<W> {
         if expired > 0 {
             tracing::debug!("Pruned {} expired pending IS locks", expired);
         }
+        foreign
     }
 
     /// Rebroadcast unconfirmed self-sent transactions.
@@ -1083,6 +1124,84 @@ mod tests {
         assert_eq!(manager.pending_requests.len(), 1);
     }
 
+    /// evolite (BUG-279 r1/r2, Must): a spend first seen 20 h before the restart expires 4 h
+    /// after it, one first seen 25 h before at once, and one first seen at 0 (before any boot)
+    /// at once: the 24 h count by the wall clock from the first sight, not from this start nor
+    /// from the system's boot.
+    #[tokio::test]
+    async fn a_restart_does_not_start_the_expiry_again() {
+        use crate::types::{expired_by_clock, now_unix};
+        let now = now_unix();
+        let hours = |h: u64| h * 3600;
+        assert!(!expired_by_clock(now - hours(20), now, MEMPOOL_TX_EXPIRY), "20 h: not yet");
+        assert!(
+            expired_by_clock(now - hours(20), now + hours(4), MEMPOOL_TX_EXPIRY),
+            "20 h: 4 h on"
+        );
+        assert!(
+            !expired_by_clock(now - hours(20), now + hours(4) - 1, MEMPOOL_TX_EXPIRY),
+            "20 h: not a second before"
+        );
+        assert!(expired_by_clock(now - hours(25), now, MEMPOOL_TX_EXPIRY), "25 h: at once");
+        assert!(!expired_by_clock(now, now - 60, MEMPOOL_TX_EXPIRY), "a clock set back");
+
+        for (since, expired) in [(now - hours(20), false), (now - hours(25), true), (0, true)] {
+            let (mut manager, _requests, _rx) = create_test_manager();
+            let tx = Transaction {
+                version: 1,
+                lock_time: (since % 1_000_000) as u32,
+                input: vec![],
+                output: vec![],
+                special_transaction_payload: None,
+            };
+            let txid = tx.txid();
+            {
+                let mut wallet = manager.wallet.write().await;
+                wallet.unconfirmed = vec![tx];
+                wallet.unconfirmed_since = Some(since);
+            }
+            manager.track_unconfirmed().await;
+            // By the wall clock, not by an `Instant` set back: on Linux and Windows that counts
+            // from the boot, and a spend older than it would start its 24 h again (where, as on
+            // this test machine, an `Instant` can go back that far, only this shows it).
+            let tracked = &manager.transactions[&txid];
+            assert_eq!(tracked.first_seen_unix, Some(since));
+            assert!(tracked.first_seen.elapsed() < Duration::from_secs(60), "a fresh Instant");
+            let told = manager.prune_expired(MEMPOOL_TX_EXPIRY);
+            assert_eq!(told.contains(&txid), expired, "first seen at {since}");
+        }
+    }
+
+    /// evolite (BUG-279, a restart in the middle): the wallet's unconfirmed transactions,
+    /// after a restart only in the wallet, are tracked from now and expire as the run's do:
+    /// the wallet is told then. One already tracked, or ours, is not taken in twice.
+    #[tokio::test]
+    async fn the_wallets_unconfirmed_transactions_are_tracked_and_expire() {
+        use crate::sync::{SyncEvent, SyncManager};
+        let (mut manager, requests, _rx) = create_test_manager();
+        let restored = Transaction {
+            version: 1,
+            lock_time: 7,
+            input: vec![],
+            output: vec![],
+            special_transaction_payload: None,
+        };
+        let txid = restored.txid();
+        manager.wallet.write().await.unconfirmed = vec![restored.clone(), restored];
+
+        let filters_done = SyncEvent::FiltersSyncComplete {
+            tip_height: 1000,
+        };
+        manager.handle_sync_event(&filters_done, &requests).await.unwrap();
+        assert!(manager.transactions.contains_key(&txid), "tracked after the filters");
+        assert_eq!(manager.track_unconfirmed().await, 0, "tracked already");
+        assert!(manager.prune_expired(MEMPOOL_TX_EXPIRY).is_empty(), "from now: not yet");
+
+        manager.transactions.get_mut(&txid).unwrap().first_seen -=
+            MEMPOOL_TX_EXPIRY + Duration::from_secs(1);
+        assert_eq!(manager.prune_expired(MEMPOOL_TX_EXPIRY), vec![txid], "in its time");
+    }
+
     #[test]
     fn test_prune_expired() {
         let (mut manager, _requests, _rx) = create_test_manager();
@@ -1121,12 +1240,32 @@ mod tests {
         expired_utx.first_seen = Instant::now() - test_timeout - Duration::from_secs(1);
         manager.transactions.insert(expired_txid, expired_utx);
 
-        manager.prune_expired(test_timeout);
+        let told = manager.prune_expired(test_timeout);
 
         assert_eq!(manager.transactions.len(), 1);
         assert!(manager.transactions.contains_key(&fresh_txid));
         assert!(!manager.transactions.contains_key(&expired_txid));
         assert_eq!(manager.progress.removed(), 1);
+        // evolite (BUG-279): the wallet is told of the expired one we did not send.
+        assert_eq!(told, vec![expired_txid]);
+
+        // One we broadcast ourselves expires too, but the wallet is not told: ours may be live.
+        let own_tx = Transaction {
+            version: 1,
+            lock_time: 98,
+            input: vec![],
+            output: vec![],
+            special_transaction_payload: None,
+        };
+        let own_txid = own_tx.txid();
+        let mut own_utx =
+            UnconfirmedTransaction::new(own_tx, Amount::from_sat(0), false, true, Vec::new(), 0);
+        own_utx.first_seen = Instant::now() - test_timeout - Duration::from_secs(1);
+        manager.transactions.insert(own_txid, own_utx);
+        manager.own.insert(own_txid);
+        assert!(manager.prune_expired(test_timeout).is_empty(), "ours: the wallet is not told");
+        assert!(!manager.transactions.contains_key(&own_txid));
+        assert!(manager.own.is_empty(), "forgotten with it");
     }
 
     /// Create a manager with BloomFilter strategy where the wallet reports

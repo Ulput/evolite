@@ -625,6 +625,7 @@ pub(super) mod tests {
                 .join("testnet")
                 .join("platform-wallet.db"),
             core_node: dir.join("core-node.txt"),
+            held_since: dir.join("held-since.json"),
         }
     }
 

@@ -154,6 +154,11 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
         "carried by the interface, section settings",
     ),
     ("notes.enc", true, "notes"),
+    (
+        "held-since.json",
+        false,
+        "when this computer first saw each unconfirmed spend held (BUG-279): its own mempool expiry",
+    ),
     ("address-book.json", true, "address_book"),
     ("collections.json", true, "nft, the collections added by id"),
     (

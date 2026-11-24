@@ -853,10 +853,26 @@ impl Real {
                 });
         let unfinished_top_up =
             turn::timed("unfinished_top_up", self.unfinished_top_up(&wallet)).await;
-        let live_count = {
+        let (live_count, mut unconfirmed) = {
             let state = turn::timed("state_count", wallet.state()).await;
-            state.core_wallet.transaction_history().len()
+            (
+                state.core_wallet.transaction_history().len(),
+                state
+                    .core_wallet
+                    .unconfirmed_transactions()
+                    .iter()
+                    .map(|tx| tx.txid())
+                    .collect::<Vec<_>>(),
+            )
         };
+        unconfirmed.sort();
+        // BUG-279 r1/r2: the first sight of each unconfirmed spend kept for the mempool's
+        // expiry, on a new record or a change of the unconfirmed ones (not only their number).
+        let kept = (id, live_count, unconfirmed);
+        if self.held_since_kept.as_ref() != Some(&kept) {
+            turn::timed("keep_held_since", self.chain.keep_held_since(&wallet)).await;
+            self.held_since_kept = Some(kept);
+        }
         // BUG-194: the pools as they are now, written to the store (platform-wallet does not):
         // first after the load, then on each new record.
         if self.pools_saved != Some((id, live_count)) {

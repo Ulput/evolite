@@ -31,6 +31,10 @@ pub struct MockWallet {
     addresses: Vec<Address>,
     /// Outpoints returned by watched_outpoints.
     outpoints: Vec<OutPoint>,
+    /// evolite (BUG-279): returned by `unconfirmed_transactions`.
+    pub unconfirmed: Vec<dashcore::Transaction>,
+    /// evolite (BUG-279 r1): returned with them by `unconfirmed_since`.
+    pub unconfirmed_since: Option<u64>,
     /// Net amount returned by process_mempool_transaction.
     mempool_net_amount: i64,
     /// Addresses returned by process_mempool_transaction.
@@ -66,6 +70,8 @@ impl MockWallet {
             mempool_relevant: false,
             addresses: Vec::new(),
             outpoints: Vec::new(),
+            unconfirmed: Vec::new(),
+            unconfirmed_since: None,
             mempool_net_amount: 0,
             mempool_addresses: Vec::new(),
             mempool_new_addresses: Vec::new(),
@@ -158,6 +164,14 @@ impl WalletInterface for MockWallet {
                 .map(|heights| BTreeMap::from([(self.wallet_id, heights.clone())]))
                 .unwrap_or_default(),
         }
+    }
+
+    async fn unconfirmed_transactions(&self) -> Vec<dashcore::Transaction> {
+        self.unconfirmed.clone()
+    }
+
+    async fn unconfirmed_since(&self) -> Vec<(dashcore::Transaction, Option<u64>)> {
+        self.unconfirmed.iter().map(|tx| (tx.clone(), self.unconfirmed_since)).collect()
     }
 
     async fn process_mempool_transaction(

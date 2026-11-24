@@ -83,6 +83,28 @@ pub trait WalletInterface: Send + Sync + 'static {
         instant_lock: Option<InstantLock>,
     ) -> MempoolTransactionResult;
 
+    /// evolite (BUG-279): `txid`, an unconfirmed transaction the caller tracked, left the
+    /// mempool without confirming (expired). A spend of ours a peer sent that never settled
+    /// gives its coins back, and its record and what descends from it go. Whether anything
+    /// changed. By default nothing: a wallet that keeps no mempool state.
+    async fn mempool_transaction_expired(&mut self, txid: &Txid) -> bool {
+        let _ = txid;
+        false
+    }
+
+    /// evolite (BUG-279): the unconfirmed transactions the wallet holds, for the mempool's
+    /// expiry to track: after a restart they are only in the wallet. None by default.
+    async fn unconfirmed_transactions(&self) -> Vec<Transaction> {
+        Vec::new()
+    }
+
+    /// evolite (BUG-279 r1, Must): [`Self::unconfirmed_transactions`], each with when it was
+    /// first seen (seconds since 1970) when the wallet was told ([`crate::WalletManager::note_first_seen`]):
+    /// the mempool's expiry counts from then, not from each start. By default none known.
+    async fn unconfirmed_since(&self) -> Vec<(Transaction, Option<u64>)> {
+        self.unconfirmed_transactions().await.into_iter().map(|tx| (tx, None)).collect()
+    }
+
     /// Get all addresses the wallet is monitoring for incoming transactions
     fn monitored_addresses(&self) -> Vec<Address>;
 

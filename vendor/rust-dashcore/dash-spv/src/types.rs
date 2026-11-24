@@ -214,6 +214,24 @@ pub struct UnconfirmedTransaction {
     pub addresses: Vec<dashcore::Address>,
     /// Net amount change for our wallet.
     pub net_amount: i64,
+    /// evolite (BUG-279 r2): when it was first seen, in seconds since 1970, for one first seen
+    /// before this start (the application kept it). An `Instant` can't hold that: it counts
+    /// from the system's boot, so a spend older than the boot would start its 24 h again.
+    pub first_seen_unix: Option<u64>,
+}
+
+/// evolite (BUG-279 r2): whether a transaction first seen at `since` has expired at `now`
+/// (both seconds since 1970) after `timeout`. A clock set back expires nothing.
+pub fn expired_by_clock(since: u64, now: u64, timeout: Duration) -> bool {
+    now.saturating_sub(since) >= timeout.as_secs()
+}
+
+/// Seconds since 1970 now; 0 for a clock before it (nothing then expires by the clock).
+pub(crate) fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default()
 }
 
 impl UnconfirmedTransaction {
@@ -237,6 +255,7 @@ impl UnconfirmedTransaction {
             is_outgoing,
             addresses,
             net_amount,
+            first_seen_unix: None,
         }
     }
 
@@ -248,6 +267,9 @@ impl UnconfirmedTransaction {
     /// Check if transaction has expired.
     pub fn is_expired(&self, timeout: Duration) -> bool {
         self.first_seen.elapsed() > timeout
+            || self
+                .first_seen_unix
+                .is_some_and(|since| expired_by_clock(since, now_unix(), timeout))
     }
 
     /// Get fee rate in satoshis per byte.

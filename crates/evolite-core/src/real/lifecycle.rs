@@ -176,6 +176,7 @@ impl Real {
             top_ups: Default::default(),
             history_read: None,
             pools_saved: None,
+            held_since_kept: None,
             gap_looked: None,
             past_the_gap_from: None,
             spend_ask: None,

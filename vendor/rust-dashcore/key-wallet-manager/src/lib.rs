@@ -146,6 +146,9 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
     /// about, so a peer re-sending one can't flood the log: one WARN per txid, at most
     /// [`OVERSIZED_REMEMBERED`] remembered.
     pub(crate) oversized_warned: std::collections::HashSet<dashcore::Txid>,
+    /// evolite (BUG-279 r1, Must): when each unconfirmed transaction was first seen, as the
+    /// application kept it across restarts (seconds since 1970).
+    pub(crate) first_seen: BTreeMap<dashcore::Txid, u64>,
     /// Event sender for wallet events.
     ///
     /// This is a *bounded, lossy* fan-out (capacity
@@ -212,6 +215,16 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
 pub(crate) const OVERSIZED_REMEMBERED: usize = 1024;
 
 impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
+    /// When `txid` was first seen, as [`Self::note_first_seen`] was told.
+    pub fn first_seen(&self, txid: &dashcore::Txid) -> Option<u64> {
+        self.first_seen.get(txid).copied()
+    }
+
+    pub fn note_first_seen(&mut self, txid: dashcore::Txid, unix: u64) {
+        let seen = self.first_seen.entry(txid).or_insert(unix);
+        *seen = (*seen).min(unix);
+    }
+
     /// Create a new wallet manager
     pub fn new(network: Network) -> Self {
         Self {
@@ -220,6 +233,7 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
             wallet_infos: BTreeMap::new(),
             structural_revision: 0,
             oversized_warned: std::collections::HashSet::new(),
+            first_seen: BTreeMap::new(),
             event_sender: broadcast::Sender::new(DEFAULT_WALLET_EVENT_CAPACITY),
             // Persistence delivery is opt-in; the channel is created lazily when
             // a consumer calls `take_persistence_receiver`. See that field's docs.
@@ -750,6 +764,9 @@ impl WalletManager<ManagedWalletInfo> {
         Some(outcome)
     }
 
+    /// evolite (BUG-279 r1, Must): `txid` was first seen at `unix` (seconds since 1970), as the
+    /// application kept it across restarts. An earlier time already noted stays: the first
+    /// sight is the earliest.
     /// Get receive address from a specific wallet and account
     pub fn next_receive_address(
         &mut self,

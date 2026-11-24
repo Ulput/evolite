@@ -1,0 +1,1025 @@
+diff --git a/dash-spv/src/sync/mempool/manager.rs b/dash-spv/src/sync/mempool/manager.rs
+index a5a3175d..4d2a5990 100644
+--- a/dash-spv/src/sync/mempool/manager.rs
++++ b/dash-spv/src/sync/mempool/manager.rs
+@@ -4,7 +4,7 @@
+ //! filters or local address matching to identify wallet-relevant
+ //! transactions from the mempool.
+ 
+-use std::collections::{HashMap, VecDeque};
++use std::collections::{HashMap, HashSet, VecDeque};
+ use std::fmt;
+ use std::net::SocketAddr;
+ use std::sync::Arc;
+@@ -74,6 +74,10 @@ pub(crate) struct MempoolManager<W: WalletInterface> {
+     /// Wallet monitor revision at the time of the last filter build.
+     /// Compared on each tick to detect when the wallet's monitored set has changed.
+     pub(super) last_monitor_revision: u64,
++    /// evolite (BUG-279): the transactions this client broadcast itself. Their expiry tells the
++    /// wallet nothing: one of ours may still be live, and its coins stay spent (they are
++    /// rebroadcast instead).
++    pub(super) own: HashSet<Txid>,
+ }
+ 
+ impl<W: WalletInterface> MempoolManager<W> {
+@@ -98,6 +102,7 @@ impl<W: WalletInterface> MempoolManager<W> {
+             peers: HashMap::new(),
+             pending_is_locks: HashMap::new(),
+             seen_txids: HashMap::new(),
++            own: HashSet::new(),
+             last_monitor_revision: initial_monitor_revision,
+         }
+     }
+@@ -374,6 +379,7 @@ impl<W: WalletInterface> MempoolManager<W> {
+         // wallet relevance — the caller explicitly asked to broadcast.
+         let mut events = Vec::new();
+         if is_local {
++            self.own.insert(txid);
+             events.extend(self.start_broadcast(&tx, requests));
+         }
+ 
+@@ -569,6 +575,7 @@ impl<W: WalletInterface> MempoolManager<W> {
+                     });
+                 }
+             }
++            self.own.remove(txid);
+             if self.transactions.remove(txid).is_some() {
+                 removed.push(*txid);
+             }
+@@ -630,8 +637,38 @@ impl<W: WalletInterface> MempoolManager<W> {
+         events
+     }
+ 
+-    /// Prune transactions and pending IS locks older than `timeout`.
+-    pub(super) fn prune_expired(&mut self, timeout: Duration) {
++    /// evolite (BUG-279): the wallet's unconfirmed transactions this manager does not track yet
++    /// (after a restart they are only in the wallet) are tracked from now, so they expire as
++    /// those seen in this run do. Not before now: the store keeps no time of their first sight.
++    /// Ours (broadcast in this run) are not taken in. How many were taken in.
++    pub(super) async fn track_unconfirmed(&mut self) -> usize {
++        let unconfirmed = self.wallet.read().await.unconfirmed_since().await;
++        let mut taken = 0;
++        for (tx, since) in unconfirmed {
++            let txid = tx.txid();
++            if self.transactions.contains_key(&txid) || self.own.contains(&txid) {
++                continue;
++            }
++            let mut tracked =
++                UnconfirmedTransaction::new(tx, Amount::ZERO, false, false, Vec::new(), 0);
++            // evolite (BUG-279 r1/r2, Must): from its first sight as the application kept it,
++            // by the wall clock (an `Instant` counts from the boot), so a restart does not start
++            // the 24 h again; none kept: from now.
++            tracked.first_seen_unix = since;
++            self.transactions.insert(txid, tracked);
++            taken += 1;
++        }
++        if taken > 0 {
++            self.progress.set_tracked(self.transactions.len() as u32);
++            tracing::info!("Tracking {} unconfirmed transactions of the wallet for expiry", taken);
++        }
++        taken
++    }
++
++    /// Prune transactions and pending IS locks older than `timeout`. evolite (BUG-279): the
++    /// expired transactions this client did not broadcast itself, for the wallet to give back
++    /// what they took ([`WalletInterface::mempool_transaction_expired`]).
++    pub(super) fn prune_expired(&mut self, timeout: Duration) -> Vec<Txid> {
+         let mut expired_txids = Vec::new();
+         self.transactions.retain(|txid, tx| {
+             if tx.is_expired(timeout) {
+@@ -647,6 +684,9 @@ impl<W: WalletInterface> MempoolManager<W> {
+             self.broadcasts.retain(|_, state| state.created_at > cutoff);
+         }
+ 
++        let foreign: Vec<Txid> =
++            expired_txids.iter().filter(|txid| !self.own.remove(*txid)).copied().collect();
++
+         if !expired_txids.is_empty() {
+             self.progress.add_removed(expired_txids.len() as u32);
+             self.progress.set_tracked(self.transactions.len() as u32);
+@@ -663,6 +703,7 @@ impl<W: WalletInterface> MempoolManager<W> {
+         if expired > 0 {
+             tracing::debug!("Pruned {} expired pending IS locks", expired);
+         }
++        foreign
+     }
+ 
+     /// Rebroadcast unconfirmed self-sent transactions.
+@@ -1083,6 +1124,84 @@ mod tests {
+         assert_eq!(manager.pending_requests.len(), 1);
+     }
+ 
++    /// evolite (BUG-279 r1/r2, Must): a spend first seen 20 h before the restart expires 4 h
++    /// after it, one first seen 25 h before at once, and one first seen at 0 (before any boot)
++    /// at once: the 24 h count by the wall clock from the first sight, not from this start nor
++    /// from the system's boot.
++    #[tokio::test]
++    async fn a_restart_does_not_start_the_expiry_again() {
++        use crate::types::{expired_by_clock, now_unix};
++        let now = now_unix();
++        let hours = |h: u64| h * 3600;
++        assert!(!expired_by_clock(now - hours(20), now, MEMPOOL_TX_EXPIRY), "20 h: not yet");
++        assert!(
++            expired_by_clock(now - hours(20), now + hours(4), MEMPOOL_TX_EXPIRY),
++            "20 h: 4 h on"
++        );
++        assert!(
++            !expired_by_clock(now - hours(20), now + hours(4) - 1, MEMPOOL_TX_EXPIRY),
++            "20 h: not a second before"
++        );
++        assert!(expired_by_clock(now - hours(25), now, MEMPOOL_TX_EXPIRY), "25 h: at once");
++        assert!(!expired_by_clock(now, now - 60, MEMPOOL_TX_EXPIRY), "a clock set back");
++
++        for (since, expired) in [(now - hours(20), false), (now - hours(25), true), (0, true)] {
++            let (mut manager, _requests, _rx) = create_test_manager();
++            let tx = Transaction {
++                version: 1,
++                lock_time: (since % 1_000_000) as u32,
++                input: vec![],
++                output: vec![],
++                special_transaction_payload: None,
++            };
++            let txid = tx.txid();
++            {
++                let mut wallet = manager.wallet.write().await;
++                wallet.unconfirmed = vec![tx];
++                wallet.unconfirmed_since = Some(since);
++            }
++            manager.track_unconfirmed().await;
++            // By the wall clock, not by an `Instant` set back: on Linux and Windows that counts
++            // from the boot, and a spend older than it would start its 24 h again (where, as on
++            // this test machine, an `Instant` can go back that far, only this shows it).
++            let tracked = &manager.transactions[&txid];
++            assert_eq!(tracked.first_seen_unix, Some(since));
++            assert!(tracked.first_seen.elapsed() < Duration::from_secs(60), "a fresh Instant");
++            let told = manager.prune_expired(MEMPOOL_TX_EXPIRY);
++            assert_eq!(told.contains(&txid), expired, "first seen at {since}");
++        }
++    }
++
++    /// evolite (BUG-279, a restart in the middle): the wallet's unconfirmed transactions,
++    /// after a restart only in the wallet, are tracked from now and expire as the run's do:
++    /// the wallet is told then. One already tracked, or ours, is not taken in twice.
++    #[tokio::test]
++    async fn the_wallets_unconfirmed_transactions_are_tracked_and_expire() {
++        use crate::sync::{SyncEvent, SyncManager};
++        let (mut manager, requests, _rx) = create_test_manager();
++        let restored = Transaction {
++            version: 1,
++            lock_time: 7,
++            input: vec![],
++            output: vec![],
++            special_transaction_payload: None,
++        };
++        let txid = restored.txid();
++        manager.wallet.write().await.unconfirmed = vec![restored.clone(), restored];
++
++        let filters_done = SyncEvent::FiltersSyncComplete {
++            tip_height: 1000,
++        };
++        manager.handle_sync_event(&filters_done, &requests).await.unwrap();
++        assert!(manager.transactions.contains_key(&txid), "tracked after the filters");
++        assert_eq!(manager.track_unconfirmed().await, 0, "tracked already");
++        assert!(manager.prune_expired(MEMPOOL_TX_EXPIRY).is_empty(), "from now: not yet");
++
++        manager.transactions.get_mut(&txid).unwrap().first_seen -=
++            MEMPOOL_TX_EXPIRY + Duration::from_secs(1);
++        assert_eq!(manager.prune_expired(MEMPOOL_TX_EXPIRY), vec![txid], "in its time");
++    }
++
+     #[test]
+     fn test_prune_expired() {
+         let (mut manager, _requests, _rx) = create_test_manager();
+@@ -1121,12 +1240,32 @@ mod tests {
+         expired_utx.first_seen = Instant::now() - test_timeout - Duration::from_secs(1);
+         manager.transactions.insert(expired_txid, expired_utx);
+ 
+-        manager.prune_expired(test_timeout);
++        let told = manager.prune_expired(test_timeout);
+ 
+         assert_eq!(manager.transactions.len(), 1);
+         assert!(manager.transactions.contains_key(&fresh_txid));
+         assert!(!manager.transactions.contains_key(&expired_txid));
+         assert_eq!(manager.progress.removed(), 1);
++        // evolite (BUG-279): the wallet is told of the expired one we did not send.
++        assert_eq!(told, vec![expired_txid]);
++
++        // One we broadcast ourselves expires too, but the wallet is not told: ours may be live.
++        let own_tx = Transaction {
++            version: 1,
++            lock_time: 98,
++            input: vec![],
++            output: vec![],
++            special_transaction_payload: None,
++        };
++        let own_txid = own_tx.txid();
++        let mut own_utx =
++            UnconfirmedTransaction::new(own_tx, Amount::from_sat(0), false, true, Vec::new(), 0);
++        own_utx.first_seen = Instant::now() - test_timeout - Duration::from_secs(1);
++        manager.transactions.insert(own_txid, own_utx);
++        manager.own.insert(own_txid);
++        assert!(manager.prune_expired(test_timeout).is_empty(), "ours: the wallet is not told");
++        assert!(!manager.transactions.contains_key(&own_txid));
++        assert!(manager.own.is_empty(), "forgotten with it");
+     }
+ 
+     /// Create a manager with BloomFilter strategy where the wallet reports
+diff --git a/dash-spv/src/sync/mempool/sync_manager.rs b/dash-spv/src/sync/mempool/sync_manager.rs
+index 5b6b8924..48eebf7c 100644
+--- a/dash-spv/src/sync/mempool/sync_manager.rs
++++ b/dash-spv/src/sync/mempool/sync_manager.rs
+@@ -68,6 +68,8 @@ impl<W: WalletInterface + 'static> SyncManager for MempoolManager<W> {
+             SyncEvent::FiltersSyncComplete {
+                 ..
+             } => {
++                // evolite (BUG-279): after the filters, blocks have settled what was mined.
++                self.track_unconfirmed().await;
+                 if self.state() != SyncState::Synced {
+                     self.activate_all_peers(requests).await?;
+                     let has_activated = self.peers.values().any(|v| v.is_some());
+@@ -121,8 +123,16 @@ impl<W: WalletInterface + 'static> SyncManager for MempoolManager<W> {
+             return Ok(events);
+         }
+ 
+-        // Prune expired transactions periodically
+-        self.prune_expired(MEMPOOL_TX_EXPIRY);
++        // Prune expired transactions periodically. evolite (BUG-279): what one we did not send
++        // took from the wallet comes back (a peer's spend of our coin that never settles froze
++        // it only for the mempool's lifetime).
++        let expired = self.prune_expired(MEMPOOL_TX_EXPIRY);
++        if !expired.is_empty() {
++            let mut wallet = self.wallet.write().await;
++            for txid in &expired {
++                wallet.mempool_transaction_expired(txid).await;
++            }
++        }
+ 
+         // Prune pending requests that never received a response
+         self.prune_pending_requests();
+@@ -1189,8 +1199,7 @@ mod tests {
+     /// it; the transaction arrives unlocked, and its lock applies once verified.
+     #[tokio::test]
+     async fn an_unverified_lock_before_its_transaction_is_not_kept() {
+-        let (mut manager, requests, _events, wallet, wallet_id, funding) =
+-            wallet_manager().await;
++        let (mut manager, requests, _events, wallet, wallet_id, funding) = wallet_manager().await;
+         let txid = funding.txid();
+         manager.handle_sync_event(&lock_of(txid, false), &requests).await.unwrap();
+         receive(&mut manager, &requests, &funding).await;
+diff --git a/dash-spv/src/types.rs b/dash-spv/src/types.rs
+index 7fcd2e6b..9130c333 100644
+--- a/dash-spv/src/types.rs
++++ b/dash-spv/src/types.rs
+@@ -214,6 +214,24 @@ pub struct UnconfirmedTransaction {
+     pub addresses: Vec<dashcore::Address>,
+     /// Net amount change for our wallet.
+     pub net_amount: i64,
++    /// evolite (BUG-279 r2): when it was first seen, in seconds since 1970, for one first seen
++    /// before this start (the application kept it). An `Instant` can't hold that: it counts
++    /// from the system's boot, so a spend older than the boot would start its 24 h again.
++    pub first_seen_unix: Option<u64>,
++}
++
++/// evolite (BUG-279 r2): whether a transaction first seen at `since` has expired at `now`
++/// (both seconds since 1970) after `timeout`. A clock set back expires nothing.
++pub fn expired_by_clock(since: u64, now: u64, timeout: Duration) -> bool {
++    now.saturating_sub(since) >= timeout.as_secs()
++}
++
++/// Seconds since 1970 now; 0 for a clock before it (nothing then expires by the clock).
++pub(crate) fn now_unix() -> u64 {
++    std::time::SystemTime::now()
++        .duration_since(std::time::UNIX_EPOCH)
++        .map(|d| d.as_secs())
++        .unwrap_or_default()
+ }
+ 
+ impl UnconfirmedTransaction {
+@@ -237,6 +255,7 @@ impl UnconfirmedTransaction {
+             is_outgoing,
+             addresses,
+             net_amount,
++            first_seen_unix: None,
+         }
+     }
+ 
+@@ -248,6 +267,9 @@ impl UnconfirmedTransaction {
+     /// Check if transaction has expired.
+     pub fn is_expired(&self, timeout: Duration) -> bool {
+         self.first_seen.elapsed() > timeout
++            || self
++                .first_seen_unix
++                .is_some_and(|since| expired_by_clock(since, now_unix(), timeout))
+     }
+ 
+     /// Get fee rate in satoshis per byte.
+diff --git a/key-wallet-manager/src/lib.rs b/key-wallet-manager/src/lib.rs
+index 99b78f2d..0ec30527 100644
+--- a/key-wallet-manager/src/lib.rs
++++ b/key-wallet-manager/src/lib.rs
+@@ -146,6 +146,9 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
+     /// about, so a peer re-sending one can't flood the log: one WARN per txid, at most
+     /// [`OVERSIZED_REMEMBERED`] remembered.
+     pub(crate) oversized_warned: std::collections::HashSet<dashcore::Txid>,
++    /// evolite (BUG-279 r1, Must): when each unconfirmed transaction was first seen, as the
++    /// application kept it across restarts (seconds since 1970).
++    pub(crate) first_seen: BTreeMap<dashcore::Txid, u64>,
+     /// Event sender for wallet events.
+     ///
+     /// This is a *bounded, lossy* fan-out (capacity
+@@ -212,6 +215,16 @@ pub struct WalletManager<T: WalletInfoInterface + Send + Sync + 'static = Manage
+ pub(crate) const OVERSIZED_REMEMBERED: usize = 1024;
+ 
+ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
++    /// When `txid` was first seen, as [`Self::note_first_seen`] was told.
++    pub fn first_seen(&self, txid: &dashcore::Txid) -> Option<u64> {
++        self.first_seen.get(txid).copied()
++    }
++
++    pub fn note_first_seen(&mut self, txid: dashcore::Txid, unix: u64) {
++        let seen = self.first_seen.entry(txid).or_insert(unix);
++        *seen = (*seen).min(unix);
++    }
++
+     /// Create a new wallet manager
+     pub fn new(network: Network) -> Self {
+         Self {
+@@ -220,6 +233,7 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletManager<T> {
+             wallet_infos: BTreeMap::new(),
+             structural_revision: 0,
+             oversized_warned: std::collections::HashSet::new(),
++            first_seen: BTreeMap::new(),
+             event_sender: broadcast::Sender::new(DEFAULT_WALLET_EVENT_CAPACITY),
+             // Persistence delivery is opt-in; the channel is created lazily when
+             // a consumer calls `take_persistence_receiver`. See that field's docs.
+@@ -750,6 +764,9 @@ impl WalletManager<ManagedWalletInfo> {
+         Some(outcome)
+     }
+ 
++    /// evolite (BUG-279 r1, Must): `txid` was first seen at `unix` (seconds since 1970), as the
++    /// application kept it across restarts. An earlier time already noted stays: the first
++    /// sight is the earliest.
+     /// Get receive address from a specific wallet and account
+     pub fn next_receive_address(
+         &mut self,
+diff --git a/key-wallet-manager/src/process_block.rs b/key-wallet-manager/src/process_block.rs
+index 797ab0e8..30bcb323 100644
+--- a/key-wallet-manager/src/process_block.rs
++++ b/key-wallet-manager/src/process_block.rs
+@@ -147,6 +147,64 @@ impl<T: WalletInfoInterface + Send + Sync + 'static> WalletInterface for WalletM
+         result
+     }
+ 
++    async fn unconfirmed_since(&self) -> Vec<(Transaction, Option<u64>)> {
++        self.unconfirmed_transactions()
++            .await
++            .into_iter()
++            .map(|tx| {
++                let since = self.first_seen.get(&tx.txid()).copied();
++                (tx, since)
++            })
++            .collect()
++    }
++
++    async fn unconfirmed_transactions(&self) -> Vec<Transaction> {
++        let mut seen = BTreeSet::new();
++        self.wallet_infos
++            .values()
++            .flat_map(|info| info.unconfirmed_transactions())
++            .filter(|tx| seen.insert(tx.txid()))
++            .collect()
++    }
++
++    async fn mempool_transaction_expired(&mut self, txid: &dashcore::Txid) -> bool {
++        let mut changed = false;
++        let wallet_ids: Vec<WalletId> = self.wallet_infos.keys().copied().collect();
++        for wallet_id in wallet_ids {
++            let Some(info) = self.wallet_infos.get_mut(&wallet_id) else {
++                continue;
++            };
++            let expiry = info.expire_mempool_transaction(*txid);
++            if expiry.expired.is_empty() {
++                continue;
++            }
++            let prior = info.account_balances();
++            info.update_balance();
++            let account_balances = diff_account_balances(&prior, &info.account_balances());
++            tracing::info!(
++                %txid,
++                removed = expiry.records_removed,
++                restored = expiry.restored.len(),
++                "An unconfirmed transaction left the mempool: its coins are back"
++            );
++            // The one removal event persisters act on: the records and the UTXOs the expired
++            // transactions made are deleted, and the coins they took are spendable again
++            // (`released_outpoints`). There is no winner: `superseded_by` is the expired root.
++            let event = WalletEvent::TransactionsSwept {
++                wallet_id,
++                txids: expiry.expired.into_iter().collect(),
++                superseded_by: *txid,
++                winner_mined_height: None,
++                released_outpoints: expiry.restored,
++                balance: info.balance(),
++                account_balances,
++            };
++            self.emit_event(event);
++            changed = true;
++        }
++        changed
++    }
++
+     async fn process_mempool_transaction(
+         &mut self,
+         tx: &Transaction,
+@@ -783,6 +841,167 @@ mod tests {
+         assert_eq!(manager.last_processed_height(), 0);
+     }
+ 
++    /// evolite (BUG-279, the security audit's F3): a peer's unsigned spend of our coin, seen
++    /// in the mempool only, takes the coin out of the balance and of coin selection. When it
++    /// expires from the mempool the coin is back, the balance as before, the spend's record
++    /// gone, and persisters are told so: `TransactionsSwept` with the coin released.
++    #[tokio::test]
++    async fn an_expired_mempool_spend_gives_the_coin_back() {
++        let (mut manager, wallet_id, addr) = setup_manager_with_wallet();
++        let funding = create_tx_paying_to(&addr, 0xaa);
++        let spend = spend_first_output_of(&funding);
++        let coin = OutPoint::new(funding.txid(), 0);
++        let block = make_block(vec![funding]);
++        manager
++            .process_block_for_wallets(
++                &block,
++                block.block_hash(),
++                100,
++                &BTreeSet::from([wallet_id]),
++            )
++            .await;
++        let before = manager.get_wallet_info(&wallet_id).unwrap().balance().total();
++        assert_eq!(before, TX_AMOUNT);
++
++        manager.process_mempool_transaction(&spend, None).await;
++        let info = manager.get_wallet_info(&wallet_id).unwrap();
++        assert!(!info.utxos().iter().any(|u| u.outpoint == coin), "frozen while pending");
++        assert_eq!(info.balance().total(), 0);
++
++        let mut rx = manager.subscribe_events();
++        assert!(manager.mempool_transaction_expired(&spend.txid()).await);
++
++        let info = manager.get_wallet_info(&wallet_id).unwrap();
++        assert!(info.utxos().iter().any(|u| u.outpoint == coin), "the coin is back");
++        assert_eq!(info.balance().total(), before, "the balance as before");
++        assert!(
++            !info.transaction_history().iter().any(|r| r.txid == spend.txid()),
++            "no phantom record"
++        );
++        let swept = drain_events(&mut rx).into_iter().find_map(|event| match event {
++            WalletEvent::TransactionsSwept {
++                txids,
++                released_outpoints,
++                ..
++            } => Some((txids, released_outpoints)),
++            _ => None,
++        });
++        assert_eq!(swept, Some((vec![spend.txid()], vec![coin])));
++        assert!(!manager.mempool_transaction_expired(&spend.txid()).await, "once");
++    }
++
++    /// evolite (BUG-279, a restart in the middle): the store gives the coins back without the
++    /// records, so after a restart a pending foreign spend's coin is gone and nothing knows why.
++    /// The spend read back from the store is held again: the coin still out of the balance,
++    /// the spend among the unconfirmed for the mempool to track, and its expiry gives the coin
++    /// back as in the run. Mined meanwhile, it is settled and nothing comes back.
++    #[tokio::test]
++    async fn a_spend_held_again_after_a_restart_expires_as_in_the_run() {
++        for mined in [false, true] {
++            let (mut before, wallet_id, addr) = setup_manager_with_wallet();
++            let funding = create_tx_paying_to(&addr, 0xaa);
++            let spend = spend_first_output_of(&funding);
++            let coin = OutPoint::new(funding.txid(), 0);
++            let wallets = BTreeSet::from([wallet_id]);
++            let block = make_block(vec![funding.clone()]);
++            before.process_block_for_wallets(&block, block.block_hash(), 100, &wallets).await;
++            let utxo = before
++                .get_wallet_info(&wallet_id)
++                .unwrap()
++                .utxos()
++                .into_iter()
++                .find(|u| u.outpoint == coin)
++                .cloned()
++                .unwrap();
++            before.process_mempool_transaction(&spend, None).await;
++            let record = before
++                .get_wallet_info(&wallet_id)
++                .unwrap()
++                .transaction_history()
++                .into_iter()
++                .find(|r| r.txid == spend.txid())
++                .cloned()
++                .unwrap();
++
++            // The restart: the store restores the coins left (none) and no record.
++            let (mut after, _, _) = setup_manager_with_wallet();
++            let info = after.get_wallet_info_mut(&wallet_id).unwrap();
++            assert_eq!(info.balance().total(), 0);
++            assert!(info.resume_unsettled_spend(record.clone(), vec![utxo]));
++            assert!(!info.resume_unsettled_spend(record, Vec::new()), "once");
++            info.update_balance();
++            assert_eq!(info.balance().total(), 0, "still frozen");
++            let unconfirmed: Vec<_> =
++                after.unconfirmed_transactions().await.iter().map(|tx| tx.txid()).collect();
++            assert_eq!(unconfirmed, vec![spend.txid()], "for the mempool to track");
++
++            if mined {
++                let mut spend_block = make_block(vec![spend.clone()]);
++                spend_block.header.nonce = 1;
++                after
++                    .process_block_for_wallets(
++                        &spend_block,
++                        spend_block.block_hash(),
++                        101,
++                        &wallets,
++                    )
++                    .await;
++                assert!(after.unconfirmed_transactions().await.is_empty());
++            }
++            assert_eq!(after.mempool_transaction_expired(&spend.txid()).await, !mined);
++            let info = after.get_wallet_info(&wallet_id).unwrap();
++            assert_eq!(info.utxos().iter().any(|u| u.outpoint == coin), !mined);
++            assert_eq!(
++                info.balance().total(),
++                if mined {
++                    0
++                } else {
++                    TX_AMOUNT
++                }
++            );
++        }
++    }
++
++    /// evolite (BUG-279 r1, Must): the time an unconfirmed transaction was first seen goes out
++    /// with it for the mempool's expiry; an earlier one noted stays.
++    #[tokio::test]
++    async fn the_first_sight_goes_out_with_the_unconfirmed() {
++        let (mut manager, _wallet_id, addr) = setup_manager_with_wallet();
++        let tx = create_tx_paying_to(&addr, 0xab);
++        manager.process_mempool_transaction(&tx, None).await;
++        assert_eq!(manager.unconfirmed_since().await, vec![(tx.clone(), None)]);
++        manager.note_first_seen(tx.txid(), 1_000);
++        manager.note_first_seen(tx.txid(), 2_000);
++        assert_eq!(manager.unconfirmed_since().await, vec![(tx, Some(1_000))], "the earliest");
++    }
++
++    /// evolite (BUG-279): the same spend mined in a block is settled: its expiry from our
++    /// mempool tracking gives nothing back, the coin is spent for good.
++    #[tokio::test]
++    async fn a_spend_in_a_block_does_not_expire() {
++        let (mut manager, wallet_id, addr) = setup_manager_with_wallet();
++        let funding = create_tx_paying_to(&addr, 0xaa);
++        let spend = spend_first_output_of(&funding);
++        let coin = OutPoint::new(funding.txid(), 0);
++        let wallets = BTreeSet::from([wallet_id]);
++        let funding_block = make_block(vec![funding]);
++        manager
++            .process_block_for_wallets(&funding_block, funding_block.block_hash(), 100, &wallets)
++            .await;
++        manager.process_mempool_transaction(&spend, None).await;
++        let mut spend_block = make_block(vec![spend.clone()]);
++        spend_block.header.nonce = 1;
++        manager
++            .process_block_for_wallets(&spend_block, spend_block.block_hash(), 101, &wallets)
++            .await;
++
++        assert!(!manager.mempool_transaction_expired(&spend.txid()).await);
++
++        let info = manager.get_wallet_info(&wallet_id).unwrap();
++        assert!(!info.utxos().iter().any(|u| u.outpoint == coin), "spent for good");
++        assert_eq!(info.balance().total(), 0);
++    }
++
+     #[tokio::test]
+     async fn test_funding_after_its_spend_asks_to_reapply_the_spend_block() {
+         use key_wallet::managed_account::transaction_record::TransactionDirection;
+diff --git a/key-wallet-manager/src/test_utils/mock_wallet.rs b/key-wallet-manager/src/test_utils/mock_wallet.rs
+index 8d96358a..f8a39673 100644
+--- a/key-wallet-manager/src/test_utils/mock_wallet.rs
++++ b/key-wallet-manager/src/test_utils/mock_wallet.rs
+@@ -31,6 +31,10 @@ pub struct MockWallet {
+     addresses: Vec<Address>,
+     /// Outpoints returned by watched_outpoints.
+     outpoints: Vec<OutPoint>,
++    /// evolite (BUG-279): returned by `unconfirmed_transactions`.
++    pub unconfirmed: Vec<dashcore::Transaction>,
++    /// evolite (BUG-279 r1): returned with them by `unconfirmed_since`.
++    pub unconfirmed_since: Option<u64>,
+     /// Net amount returned by process_mempool_transaction.
+     mempool_net_amount: i64,
+     /// Addresses returned by process_mempool_transaction.
+@@ -66,6 +70,8 @@ impl MockWallet {
+             mempool_relevant: false,
+             addresses: Vec::new(),
+             outpoints: Vec::new(),
++            unconfirmed: Vec::new(),
++            unconfirmed_since: None,
+             mempool_net_amount: 0,
+             mempool_addresses: Vec::new(),
+             mempool_new_addresses: Vec::new(),
+@@ -160,6 +166,14 @@ impl WalletInterface for MockWallet {
+         }
+     }
+ 
++    async fn unconfirmed_transactions(&self) -> Vec<dashcore::Transaction> {
++        self.unconfirmed.clone()
++    }
++
++    async fn unconfirmed_since(&self) -> Vec<(dashcore::Transaction, Option<u64>)> {
++        self.unconfirmed.iter().map(|tx| (tx.clone(), self.unconfirmed_since)).collect()
++    }
++
+     async fn process_mempool_transaction(
+         &mut self,
+         tx: &Transaction,
+diff --git a/key-wallet-manager/src/wallet_interface.rs b/key-wallet-manager/src/wallet_interface.rs
+index c1b6360e..7015b8df 100644
+--- a/key-wallet-manager/src/wallet_interface.rs
++++ b/key-wallet-manager/src/wallet_interface.rs
+@@ -83,6 +83,28 @@ pub trait WalletInterface: Send + Sync + 'static {
+         instant_lock: Option<InstantLock>,
+     ) -> MempoolTransactionResult;
+ 
++    /// evolite (BUG-279): `txid`, an unconfirmed transaction the caller tracked, left the
++    /// mempool without confirming (expired). A spend of ours a peer sent that never settled
++    /// gives its coins back, and its record and what descends from it go. Whether anything
++    /// changed. By default nothing: a wallet that keeps no mempool state.
++    async fn mempool_transaction_expired(&mut self, txid: &Txid) -> bool {
++        let _ = txid;
++        false
++    }
++
++    /// evolite (BUG-279): the unconfirmed transactions the wallet holds, for the mempool's
++    /// expiry to track: after a restart they are only in the wallet. None by default.
++    async fn unconfirmed_transactions(&self) -> Vec<Transaction> {
++        Vec::new()
++    }
++
++    /// evolite (BUG-279 r1, Must): [`Self::unconfirmed_transactions`], each with when it was
++    /// first seen (seconds since 1970) when the wallet was told ([`crate::WalletManager::note_first_seen`]):
++    /// the mempool's expiry counts from then, not from each start. By default none known.
++    async fn unconfirmed_since(&self) -> Vec<(Transaction, Option<u64>)> {
++        self.unconfirmed_transactions().await.into_iter().map(|tx| (tx, None)).collect()
++    }
++
+     /// Get all addresses the wallet is monitoring for incoming transactions
+     fn monitored_addresses(&self) -> Vec<Address>;
+ 
+diff --git a/key-wallet/src/managed_account/managed_core_funds_account.rs b/key-wallet/src/managed_account/managed_core_funds_account.rs
+index 336f79ae..408f6e5d 100644
+--- a/key-wallet/src/managed_account/managed_core_funds_account.rs
++++ b/key-wallet/src/managed_account/managed_core_funds_account.rs
+@@ -621,6 +621,65 @@ impl ManagedCoreFundsAccount {
+         }
+     }
+ 
++    /// evolite (BUG-279): `expired`, unconfirmed transactions gone from the mempool, are removed
++    /// as [`Self::apply_abandon`] removes them, and the coins they took are put back from
++    /// `unsettled_spends`, as a fork that drops a spend puts them back
++    /// ([`Self::truncate_above`]): unless a surviving record spends them too, a wallet-level
++    /// claim holds them, or one of `expired` made them. A spend that only went quiet freezes a
++    /// coin for the mempool's lifetime, not for ever. The coins put back.
++    pub(crate) fn expire_unsettled(
++        &mut self,
++        expired: &BTreeSet<Txid>,
++        spent_claims: &BTreeMap<OutPoint, Option<Txid>>,
++    ) -> (AbandonRemoval, Vec<OutPoint>) {
++        let spent: Vec<Utxo> = expired
++            .iter()
++            .filter_map(|txid| self.unsettled_spends.remove(txid))
++            .flatten()
++            .collect();
++        let removal = self.apply_abandon(expired);
++        let mut restored = Vec::new();
++        for utxo in spent {
++            let outpoint = utxo.outpoint;
++            if expired.contains(&outpoint.txid)
++                || self.spent_outpoints.contains(&outpoint)
++                || spent_claims.contains_key(&outpoint)
++                || self.utxos.contains_key(&outpoint)
++            {
++                continue;
++            }
++            self.utxos.insert(outpoint, utxo);
++            restored.push(outpoint);
++        }
++        if !restored.is_empty() {
++            self.keys.bump_monitor_revision();
++        }
++        (removal, restored)
++    }
++
++    /// evolite (BUG-279, a restart in the middle): `record`, an unconfirmed spend the store
++    /// kept but the wallet does not load back (platform-wallet restores the coins, not the
++    /// records), is held again as it was before the restart: recorded, its inputs spent, and
++    /// `spent`, the coins of ours it took, kept in `unsettled_spends` so its expiry gives them
++    /// back. A coin still in `utxos` is taken out of it, as the spend took it. Whether the
++    /// record was put back (not when the account holds it already).
++    pub(crate) fn resume_unsettled(&mut self, record: TransactionRecord, spent: Vec<Utxo>) -> bool {
++        let txid = record.txid;
++        if self.keys.transactions().contains_key(&txid) {
++            return false;
++        }
++        for input in &record.transaction.input {
++            self.spent_outpoints.insert(input.previous_output);
++            self.utxos.remove(&input.previous_output);
++        }
++        if !spent.is_empty() {
++            self.unsettled_spends.entry(txid).or_default().extend(spent);
++        }
++        self.keys.transactions_mut().insert(txid, record);
++        self.keys.bump_monitor_revision();
++        true
++    }
++
+     /// Drop the transactions recorded in blocks above `height`, like
+     /// [`Self::apply_abandon`], and put back the coins they spent from
+     /// transactions the fork keeps, along with the ones held in
+diff --git a/key-wallet/src/wallet/managed_wallet_info/helpers.rs b/key-wallet/src/wallet/managed_wallet_info/helpers.rs
+index 7f77f64f..1becd65b 100644
+--- a/key-wallet/src/wallet/managed_wallet_info/helpers.rs
++++ b/key-wallet/src/wallet/managed_wallet_info/helpers.rs
+@@ -4,6 +4,7 @@ use super::ManagedWalletInfo;
+ use crate::account::account_collection::PlatformPaymentAccountKey;
+ use crate::account::ManagedCoreFundsAccount;
+ use crate::account::TransactionRecord;
++use crate::managed_account::managed_account_collection::ManagedAccountCollection;
+ use crate::managed_account::managed_account_ref::ManagedAccountRefMut;
+ use crate::managed_account::managed_account_trait::ManagedAccountTrait;
+ use crate::managed_account::managed_platform_account::ManagedPlatformAccount;
+@@ -13,6 +14,18 @@ use crate::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterfa
+ use dashcore::{OutPoint, Transaction, Txid};
+ use std::collections::{BTreeMap, BTreeSet, HashSet};
+ 
++/// evolite (BUG-279): what [`ManagedWalletInfo::expire_mempool_transaction`] did.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct MempoolExpiry {
++    /// The transactions removed: the root and its recorded descendants. Empty when nothing
++    /// was removed or given back (a settled root, or one the wallet does not hold).
++    pub expired: BTreeSet<Txid>,
++    /// How many transaction records were dropped.
++    pub records_removed: usize,
++    /// The coins put back: spendable again.
++    pub restored: Vec<OutPoint>,
++}
++
+ /// What [`ManagedWalletInfo::abandon_transaction`] removed.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct AbandonOutcome {
+@@ -265,13 +278,7 @@ impl ManagedWalletInfo {
+     /// included: they hold records too, and a settled record there is just as
+     /// authoritative.
+     pub fn transaction_is_settled(&self, txid: &Txid) -> bool {
+-        self.accounts.all_accounts().into_iter().any(|account| {
+-            account.transaction_is_finalized(txid)
+-                || account
+-                    .transactions()
+-                    .get(txid)
+-                    .is_some_and(|r| r.is_confirmed() || r.context.is_instant_send())
+-        })
++        settled_in(&self.accounts, txid)
+     }
+ 
+     /// Abandon `root` and every recorded transaction descending from it.
+@@ -353,29 +360,7 @@ impl ManagedWalletInfo {
+                 records_removed: 0,
+             };
+         }
+-        let mut abandoned = BTreeSet::from([root]);
+-
+-        // Transitive closure over recorded spenders. Each pass can only add
+-        // txids, and the set is bounded by the recorded transactions, so this
+-        // terminates; a spend cycle is impossible anyway.
+-        loop {
+-            let mut found = BTreeSet::new();
+-            for account in self.accounts.all_accounts() {
+-                collect_spenders_of_records(account.transactions(), &abandoned, &mut found);
+-            }
+-            // Same step over the external view: anything spending an output of
+-            // an abandoned transaction is itself abandoned.
+-            for (outpoint, spender) in external_spends {
+-                if abandoned.contains(&outpoint.txid) && !self.transaction_is_settled(spender) {
+-                    found.insert(*spender);
+-                }
+-            }
+-            let before = abandoned.len();
+-            abandoned.extend(found);
+-            if abandoned.len() == before {
+-                break;
+-            }
+-        }
++        let abandoned = self.descendants_of(root, external_spends);
+ 
+         let mut utxos_removed = 0;
+         let mut records_removed = 0;
+@@ -410,6 +395,31 @@ impl ManagedWalletInfo {
+             records_removed,
+         }
+     }
++
++    /// evolite (BUG-279): `root`, an unconfirmed transaction that left the mempool (dash-spv
++    /// pruned it as expired), and every recorded transaction descending from it are removed,
++    /// and the coins they took from this wallet are put back as they were
++    /// ([`ManagedCoreFundsAccount::expire_unsettled`]). For a spend a peer sent that will never
++    /// confirm, an unsigned one most of all: it froze the coin only while it was in the
++    /// mempool. A settled root (in a block, chainlocked, InstantSend-locked) is refused, as by
++    /// [`Self::abandon_transaction_with_spends`]. Does not recompute the balance.
++    pub fn expire_mempool_transaction(&mut self, root: Txid) -> MempoolExpiry {
++        let expiry = expire_in(&mut self.accounts, root, &self.spent_claims);
++        if !expiry.expired.is_empty() {
++            self.release_spent_claims(&expiry.expired);
++        }
++        expiry
++    }
++
++    /// `root` and every transaction descending from it ([`descendants_in`]).
++    fn descendants_of(
++        &self,
++        root: Txid,
++        external_spends: &BTreeMap<OutPoint, Txid>,
++    ) -> BTreeSet<Txid> {
++        descendants_in(&self.accounts, root, external_spends)
++    }
++
+     // BIP44 Account Helpers
+ 
+     /// Get the first BIP44 managed account
+@@ -718,6 +728,85 @@ impl ManagedWalletInfo {
+     }
+ }
+ 
++/// Whether `accounts` hold `txid` as settled: finalized, in a block, or InstantSend-locked.
++pub(crate) fn settled_in(accounts: &ManagedAccountCollection, txid: &Txid) -> bool {
++    accounts.all_accounts().into_iter().any(|account| {
++        account.transaction_is_finalized(txid)
++            || account
++                .transactions()
++                .get(txid)
++                .is_some_and(|r| r.is_confirmed() || r.context.is_instant_send())
++    })
++}
++
++/// `root` and every transaction descending from it in `accounts`: recorded spenders of its
++/// outputs, and those `external_spends` names (a settled one not followed).
++pub(crate) fn descendants_in(
++    accounts: &ManagedAccountCollection,
++    root: Txid,
++    external_spends: &BTreeMap<OutPoint, Txid>,
++) -> BTreeSet<Txid> {
++    let mut abandoned = BTreeSet::from([root]);
++
++    // Transitive closure over recorded spenders. Each pass can only add
++    // txids, and the set is bounded by the recorded transactions, so this
++    // terminates; a spend cycle is impossible anyway.
++    loop {
++        let mut found = BTreeSet::new();
++        for account in accounts.all_accounts() {
++            collect_spenders_of_records(account.transactions(), &abandoned, &mut found);
++        }
++        // Same step over the external view: anything spending an output of
++        // an abandoned transaction is itself abandoned.
++        for (outpoint, spender) in external_spends {
++            if abandoned.contains(&outpoint.txid) && !settled_in(accounts, spender) {
++                found.insert(*spender);
++            }
++        }
++        let before = abandoned.len();
++        abandoned.extend(found);
++        if abandoned.len() == before {
++            break;
++        }
++    }
++    abandoned
++}
++
++/// evolite (BUG-279): [`ManagedWalletInfo::expire_mempool_transaction`] over `accounts`, with
++/// `spent_claims` the wallet-level claims that keep a coin from being put back. Shared with the
++/// default [`WalletInfoInterface::expire_mempool_transaction`], whose wallets hold no claims.
++pub(crate) fn expire_in(
++    accounts: &mut ManagedAccountCollection,
++    root: Txid,
++    spent_claims: &BTreeMap<OutPoint, Option<Txid>>,
++) -> MempoolExpiry {
++    if settled_in(accounts, &root) {
++        return MempoolExpiry::default();
++    }
++    let expired = descendants_in(accounts, root, &BTreeMap::new());
++    let mut expiry = MempoolExpiry::default();
++    for account in accounts.all_accounts_mut() {
++        match account {
++            ManagedAccountRefMut::Funds(funds) => {
++                let (removed, restored) = funds.expire_unsettled(&expired, spent_claims);
++                expiry.records_removed += removed.records;
++                expiry.restored.extend(restored);
++            }
++            ManagedAccountRefMut::Keys(keys) => {
++                for txid in &expired {
++                    if keys.transactions_mut().remove(txid).is_some() {
++                        expiry.records_removed += 1;
++                    }
++                }
++            }
++        }
++    }
++    if expiry.records_removed > 0 || !expiry.restored.is_empty() {
++        expiry.expired = expired;
++    }
++    expiry
++}
++
+ #[cfg(test)]
+ mod retain_unclaimed_tests {
+     use super::*;
+diff --git a/key-wallet/src/wallet/managed_wallet_info/mod.rs b/key-wallet/src/wallet/managed_wallet_info/mod.rs
+index 67d927da..6ae601e4 100644
+--- a/key-wallet/src/wallet/managed_wallet_info/mod.rs
++++ b/key-wallet/src/wallet/managed_wallet_info/mod.rs
+@@ -7,7 +7,7 @@ pub mod asset_lock_builder;
+ pub mod coin_selection;
+ pub mod fee;
+ pub mod helpers;
+-pub use helpers::AbandonOutcome;
++pub use helpers::{AbandonOutcome, MempoolExpiry};
+ pub mod managed_account_operations;
+ pub mod managed_accounts;
+ pub mod transaction_builder;
+diff --git a/key-wallet/src/wallet/managed_wallet_info/wallet_info_interface.rs b/key-wallet/src/wallet/managed_wallet_info/wallet_info_interface.rs
+index c574f3b6..778538d3 100644
+--- a/key-wallet/src/wallet/managed_wallet_info/wallet_info_interface.rs
++++ b/key-wallet/src/wallet/managed_wallet_info/wallet_info_interface.rs
+@@ -195,6 +195,55 @@ pub trait WalletInfoInterface: Sized + WalletTransactionChecker + ManagedAccount
+     /// Get accounts (mutable)
+     fn accounts_mut(&mut self) -> &mut ManagedAccountCollection;
+ 
++    /// evolite (BUG-279): `root`, an unconfirmed transaction gone from the mempool, and what
++    /// descends from it are removed, and the coins they took are put back
++    /// ([`ManagedWalletInfo::expire_mempool_transaction`]). By default over [`Self::accounts_mut`],
++    /// for a wallet holding no wallet-level spent-output claims; does not recompute the balance.
++    fn expire_mempool_transaction(
++        &mut self,
++        root: dashcore::Txid,
++    ) -> super::helpers::MempoolExpiry {
++        super::helpers::expire_in(self.accounts_mut(), root, &std::collections::BTreeMap::new())
++    }
++
++    /// evolite (BUG-279, a restart in the middle): `record`, an unconfirmed spend read back from
++    /// the store, is held again in its own funds account (`record.account_type`), with `spent`
++    /// the coins it took ([`ManagedCoreFundsAccount::resume_unsettled`]). Whether it was put
++    /// back: not when the account is not there or holds the record already, nor for a record
++    /// that is not unconfirmed.
++    fn resume_unsettled_spend(
++        &mut self,
++        record: crate::managed_account::transaction_record::TransactionRecord,
++        spent: Vec<crate::Utxo>,
++    ) -> bool {
++        if record.is_confirmed() || record.context.is_instant_send() || record.context.is_chain_locked() {
++            return false;
++        }
++        let account_type = record.account_type;
++        match self.accounts_mut().funds_account_mut(&account_type) {
++            Some(funds) => funds.resume_unsettled(record, spent),
++            None => false,
++        }
++    }
++
++    /// evolite (BUG-279): the unconfirmed transactions the wallet holds (not in a block, not
++    /// InstantSend-locked), for the mempool's expiry to track after a restart.
++    fn unconfirmed_transactions(&self) -> Vec<dashcore::Transaction> {
++        let mut seen = std::collections::BTreeSet::new();
++        self.accounts()
++            .all_accounts()
++            .into_iter()
++            .flat_map(|account| account.transactions().values())
++            .filter(|record| {
++                !record.is_confirmed()
++                    && !record.context.is_instant_send()
++                    && !record.context.is_chain_locked()
++            })
++            .filter(|record| seen.insert(record.txid))
++            .map(|record| record.transaction.clone())
++            .collect()
++    }
++
+     /// Get accounts (immutable)
+     fn accounts(&self) -> &ManagedAccountCollection;
+ 
+@@ -524,6 +573,13 @@ impl WalletInfoInterface for ManagedWalletInfo {
+         transactions
+     }
+ 
++    fn expire_mempool_transaction(
++        &mut self,
++        root: dashcore::Txid,
++    ) -> super::helpers::MempoolExpiry {
++        ManagedWalletInfo::expire_mempool_transaction(self, root)
++    }
++
+     fn accounts_mut(&mut self) -> &mut ManagedAccountCollection {
+         &mut self.accounts
+     }

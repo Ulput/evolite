@@ -14,6 +14,7 @@ mod contests;
 mod contract_write;
 mod contracts;
 mod funding_keys;
+mod held_spends;
 mod identities;
 pub mod mixed_lock;
 mod nft_series;
@@ -77,6 +78,9 @@ pub struct ChainPaths {
     pub store: PathBuf,
     /// "Own node": Core's only peer, read at the start ([`crate::node`]).
     pub core_node: PathBuf,
+    /// BUG-279 r1: when each unconfirmed spend the wallet holds was first seen, txid → seconds
+    /// since 1970, so the mempool's 24 h count from then across restarts ([`held_spends`]).
+    pub held_since: PathBuf,
 }
 
 pub struct Chain {
@@ -113,6 +117,8 @@ pub struct Chain {
     /// BUG-273 r1: the wallets whose asset-lock funding keys could not be checked against the
     /// store: no new asset lock for them until a read succeeds.
     funding_keys_unchecked: std::sync::Mutex<std::collections::BTreeSet<WalletId>>,
+    /// BUG-279 r1: [`ChainPaths::held_since`] of the store open.
+    held_since: Mutex<Option<PathBuf>>,
     /// BUG-260: the wallet's records as the store keeps them, read by the core after each new
     /// record (`set_stored_history`): rounds are counted over them and the ones in memory.
     stored_history: std::sync::Mutex<
@@ -212,6 +218,7 @@ impl Default for Chain {
             top_up_notes: Mutex::new(HashMap::new()),
             instant_locks: VerifiedLocks::default(),
             funding_keys_unchecked: Default::default(),
+            held_since: Default::default(),
             stored_history: Default::default(),
             persister: Mutex::new(None),
             frozen: Default::default(),
@@ -655,6 +662,7 @@ impl Chain {
             store.to_path_buf(),
         ));
         *self.persister.lock().unwrap_or_else(|e| e.into_inner()) = Some(persister.clone());
+        *self.held_since.lock().unwrap_or_else(|e| e.into_inner()) = Some(paths.held_since.clone());
         let manager = Arc::new(PlatformWalletManager::new(
             Arc::new(sdk),
             persister,
@@ -888,6 +896,8 @@ impl Chain {
             self.open_refusal_account(&wallet, seed).await;
             // BUG-273: a wallet restored from the store, before its first sync.
             self.mark_funding_keys_used(&wallet).await;
+            // BUG-279: its unconfirmed spends the store kept, held again for expiry.
+            self.hold_stored_spends(&wallet).await;
             return Ok((id, wallet));
         }
         let wallet = manager

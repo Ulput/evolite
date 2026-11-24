@@ -208,6 +208,7 @@ async fn a_start_again_counts_from_where_it_begins() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     {
@@ -845,6 +846,7 @@ async fn lock_status_read() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -903,6 +905,7 @@ async fn name_suggestions() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -962,6 +965,7 @@ async fn proved_read() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -1038,6 +1042,7 @@ async fn open_wallet_of(
             .join("testnet")
             .join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -1579,6 +1584,7 @@ fn a_stopped_chain_lets_go_of_the_store() {
             spv: dir.join("spv").join("testnet"),
             store: dir.join("wallets").join("testnet").join("platform-wallet.db"),
             core_node: dir.join("core-node.txt"),
+            held_since: dir.join("held-since.json"),
         };
         let chain = Chain::default();
         chain
@@ -1609,6 +1615,7 @@ async fn a_loaded_wallets_account_key_is_its_keys_own() {
             .join("testnet")
             .join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -1650,6 +1657,7 @@ async fn the_wallet_opened_with_a_passphrase_has_its_keys_addresses() {
             .join("testnet")
             .join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -1692,6 +1700,7 @@ async fn a_payment_takes_no_coin_with_an_unverified_instant_lock() {
             .join("testnet")
             .join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -1983,6 +1992,7 @@ async fn identity_verify_contract_read() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -2043,6 +2053,7 @@ async fn a_build_that_panics_or_times_out_leaves_no_coin_frozen() {
             .join("testnet")
             .join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Arc::new(Chain::default());
     chain
@@ -2211,6 +2222,7 @@ async fn protocol_after_a_proved_read() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -2289,6 +2301,7 @@ async fn register_collection() {
         spv: dir.join("spv").join("testnet"),
         store: folder.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain
@@ -2409,6 +2422,7 @@ async fn payout_document_read() {
         spv: dir.join("spv"),
         store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
     };
     let chain = Chain::default();
     chain

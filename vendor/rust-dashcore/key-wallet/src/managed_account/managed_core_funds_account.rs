@@ -621,6 +621,65 @@ impl ManagedCoreFundsAccount {
         }
     }
 
+    /// evolite (BUG-279): `expired`, unconfirmed transactions gone from the mempool, are removed
+    /// as [`Self::apply_abandon`] removes them, and the coins they took are put back from
+    /// `unsettled_spends`, as a fork that drops a spend puts them back
+    /// ([`Self::truncate_above`]): unless a surviving record spends them too, a wallet-level
+    /// claim holds them, or one of `expired` made them. A spend that only went quiet freezes a
+    /// coin for the mempool's lifetime, not for ever. The coins put back.
+    pub(crate) fn expire_unsettled(
+        &mut self,
+        expired: &BTreeSet<Txid>,
+        spent_claims: &BTreeMap<OutPoint, Option<Txid>>,
+    ) -> (AbandonRemoval, Vec<OutPoint>) {
+        let spent: Vec<Utxo> = expired
+            .iter()
+            .filter_map(|txid| self.unsettled_spends.remove(txid))
+            .flatten()
+            .collect();
+        let removal = self.apply_abandon(expired);
+        let mut restored = Vec::new();
+        for utxo in spent {
+            let outpoint = utxo.outpoint;
+            if expired.contains(&outpoint.txid)
+                || self.spent_outpoints.contains(&outpoint)
+                || spent_claims.contains_key(&outpoint)
+                || self.utxos.contains_key(&outpoint)
+            {
+                continue;
+            }
+            self.utxos.insert(outpoint, utxo);
+            restored.push(outpoint);
+        }
+        if !restored.is_empty() {
+            self.keys.bump_monitor_revision();
+        }
+        (removal, restored)
+    }
+
+    /// evolite (BUG-279, a restart in the middle): `record`, an unconfirmed spend the store
+    /// kept but the wallet does not load back (platform-wallet restores the coins, not the
+    /// records), is held again as it was before the restart: recorded, its inputs spent, and
+    /// `spent`, the coins of ours it took, kept in `unsettled_spends` so its expiry gives them
+    /// back. A coin still in `utxos` is taken out of it, as the spend took it. Whether the
+    /// record was put back (not when the account holds it already).
+    pub(crate) fn resume_unsettled(&mut self, record: TransactionRecord, spent: Vec<Utxo>) -> bool {
+        let txid = record.txid;
+        if self.keys.transactions().contains_key(&txid) {
+            return false;
+        }
+        for input in &record.transaction.input {
+            self.spent_outpoints.insert(input.previous_output);
+            self.utxos.remove(&input.previous_output);
+        }
+        if !spent.is_empty() {
+            self.unsettled_spends.entry(txid).or_default().extend(spent);
+        }
+        self.keys.transactions_mut().insert(txid, record);
+        self.keys.bump_monitor_revision();
+        true
+    }
+
     /// Drop the transactions recorded in blocks above `height`, like
     /// [`Self::apply_abandon`], and put back the coins they spent from
     /// transactions the fork keeps, along with the ones held in

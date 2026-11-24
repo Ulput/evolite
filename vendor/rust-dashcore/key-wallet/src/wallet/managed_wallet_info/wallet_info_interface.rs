@@ -195,6 +195,55 @@ pub trait WalletInfoInterface: Sized + WalletTransactionChecker + ManagedAccount
     /// Get accounts (mutable)
     fn accounts_mut(&mut self) -> &mut ManagedAccountCollection;
 
+    /// evolite (BUG-279): `root`, an unconfirmed transaction gone from the mempool, and what
+    /// descends from it are removed, and the coins they took are put back
+    /// ([`ManagedWalletInfo::expire_mempool_transaction`]). By default over [`Self::accounts_mut`],
+    /// for a wallet holding no wallet-level spent-output claims; does not recompute the balance.
+    fn expire_mempool_transaction(
+        &mut self,
+        root: dashcore::Txid,
+    ) -> super::helpers::MempoolExpiry {
+        super::helpers::expire_in(self.accounts_mut(), root, &std::collections::BTreeMap::new())
+    }
+
+    /// evolite (BUG-279, a restart in the middle): `record`, an unconfirmed spend read back from
+    /// the store, is held again in its own funds account (`record.account_type`), with `spent`
+    /// the coins it took ([`ManagedCoreFundsAccount::resume_unsettled`]). Whether it was put
+    /// back: not when the account is not there or holds the record already, nor for a record
+    /// that is not unconfirmed.
+    fn resume_unsettled_spend(
+        &mut self,
+        record: crate::managed_account::transaction_record::TransactionRecord,
+        spent: Vec<crate::Utxo>,
+    ) -> bool {
+        if record.is_confirmed() || record.context.is_instant_send() || record.context.is_chain_locked() {
+            return false;
+        }
+        let account_type = record.account_type;
+        match self.accounts_mut().funds_account_mut(&account_type) {
+            Some(funds) => funds.resume_unsettled(record, spent),
+            None => false,
+        }
+    }
+
+    /// evolite (BUG-279): the unconfirmed transactions the wallet holds (not in a block, not
+    /// InstantSend-locked), for the mempool's expiry to track after a restart.
+    fn unconfirmed_transactions(&self) -> Vec<dashcore::Transaction> {
+        let mut seen = std::collections::BTreeSet::new();
+        self.accounts()
+            .all_accounts()
+            .into_iter()
+            .flat_map(|account| account.transactions().values())
+            .filter(|record| {
+                !record.is_confirmed()
+                    && !record.context.is_instant_send()
+                    && !record.context.is_chain_locked()
+            })
+            .filter(|record| seen.insert(record.txid))
+            .map(|record| record.transaction.clone())
+            .collect()
+    }
+
     /// Get accounts (immutable)
     fn accounts(&self) -> &ManagedAccountCollection;
 
@@ -522,6 +571,13 @@ impl WalletInfoInterface for ManagedWalletInfo {
             transactions.extend(account.transactions().values());
         }
         transactions
+    }
+
+    fn expire_mempool_transaction(
+        &mut self,
+        root: dashcore::Txid,
+    ) -> super::helpers::MempoolExpiry {
+        ManagedWalletInfo::expire_mempool_transaction(self, root)
     }
 
     fn accounts_mut(&mut self) -> &mut ManagedAccountCollection {

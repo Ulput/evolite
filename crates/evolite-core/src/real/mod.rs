@@ -317,6 +317,7 @@ impl Paths {
                     evolite_api::Network::Testnet => "core-node.txt",
                     evolite_api::Network::Mainnet => "core-node-mainnet.txt",
                 }),
+                held_since: wallets.join("held-since.json"),
             },
             vault: wallets.join("wallet.json"),
             pending_names: wallets.join("pending-names.json"),
@@ -645,6 +646,10 @@ struct Real {
     /// the store ([`evolite_chain::chain::Chain::save_pools`]): again whenever the count moves —
     /// a payment out, one in, a pass of the filters that found one — and on the lock.
     pools_saved: Option<(WalletId, usize)>,
+    /// BUG-279 r1/r2: the wallet, its record count and its unconfirmed txids when
+    /// `held-since.json` was last kept in step ([`Chain::keep_held_since`]): a set that changes
+    /// while its size stays (one settled, another seen) is kept in step too.
+    held_since_kept: Option<(WalletId, usize, Vec<key_wallet::dashcore::Txid>)>,
     /// BUG-232: the wallet and its counts of records (live, stored) when its outputs not known
     /// as ours were last looked for past its pools' gap ([`Self::adopt_past_the_gap`]).
     gap_looked: Option<(WalletId, usize, usize)>,

@@ -4,6 +4,7 @@ use super::ManagedWalletInfo;
 use crate::account::account_collection::PlatformPaymentAccountKey;
 use crate::account::ManagedCoreFundsAccount;
 use crate::account::TransactionRecord;
+use crate::managed_account::managed_account_collection::ManagedAccountCollection;
 use crate::managed_account::managed_account_ref::ManagedAccountRefMut;
 use crate::managed_account::managed_account_trait::ManagedAccountTrait;
 use crate::managed_account::managed_platform_account::ManagedPlatformAccount;
@@ -12,6 +13,18 @@ use crate::transaction_checking::TransactionContext;
 use crate::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
 use dashcore::{OutPoint, Transaction, Txid};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+/// evolite (BUG-279): what [`ManagedWalletInfo::expire_mempool_transaction`] did.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MempoolExpiry {
+    /// The transactions removed: the root and its recorded descendants. Empty when nothing
+    /// was removed or given back (a settled root, or one the wallet does not hold).
+    pub expired: BTreeSet<Txid>,
+    /// How many transaction records were dropped.
+    pub records_removed: usize,
+    /// The coins put back: spendable again.
+    pub restored: Vec<OutPoint>,
+}
 
 /// What [`ManagedWalletInfo::abandon_transaction`] removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,13 +278,7 @@ impl ManagedWalletInfo {
     /// included: they hold records too, and a settled record there is just as
     /// authoritative.
     pub fn transaction_is_settled(&self, txid: &Txid) -> bool {
-        self.accounts.all_accounts().into_iter().any(|account| {
-            account.transaction_is_finalized(txid)
-                || account
-                    .transactions()
-                    .get(txid)
-                    .is_some_and(|r| r.is_confirmed() || r.context.is_instant_send())
-        })
+        settled_in(&self.accounts, txid)
     }
 
     /// Abandon `root` and every recorded transaction descending from it.
@@ -353,29 +360,7 @@ impl ManagedWalletInfo {
                 records_removed: 0,
             };
         }
-        let mut abandoned = BTreeSet::from([root]);
-
-        // Transitive closure over recorded spenders. Each pass can only add
-        // txids, and the set is bounded by the recorded transactions, so this
-        // terminates; a spend cycle is impossible anyway.
-        loop {
-            let mut found = BTreeSet::new();
-            for account in self.accounts.all_accounts() {
-                collect_spenders_of_records(account.transactions(), &abandoned, &mut found);
-            }
-            // Same step over the external view: anything spending an output of
-            // an abandoned transaction is itself abandoned.
-            for (outpoint, spender) in external_spends {
-                if abandoned.contains(&outpoint.txid) && !self.transaction_is_settled(spender) {
-                    found.insert(*spender);
-                }
-            }
-            let before = abandoned.len();
-            abandoned.extend(found);
-            if abandoned.len() == before {
-                break;
-            }
-        }
+        let abandoned = self.descendants_of(root, external_spends);
 
         let mut utxos_removed = 0;
         let mut records_removed = 0;
@@ -410,6 +395,31 @@ impl ManagedWalletInfo {
             records_removed,
         }
     }
+
+    /// evolite (BUG-279): `root`, an unconfirmed transaction that left the mempool (dash-spv
+    /// pruned it as expired), and every recorded transaction descending from it are removed,
+    /// and the coins they took from this wallet are put back as they were
+    /// ([`ManagedCoreFundsAccount::expire_unsettled`]). For a spend a peer sent that will never
+    /// confirm, an unsigned one most of all: it froze the coin only while it was in the
+    /// mempool. A settled root (in a block, chainlocked, InstantSend-locked) is refused, as by
+    /// [`Self::abandon_transaction_with_spends`]. Does not recompute the balance.
+    pub fn expire_mempool_transaction(&mut self, root: Txid) -> MempoolExpiry {
+        let expiry = expire_in(&mut self.accounts, root, &self.spent_claims);
+        if !expiry.expired.is_empty() {
+            self.release_spent_claims(&expiry.expired);
+        }
+        expiry
+    }
+
+    /// `root` and every transaction descending from it ([`descendants_in`]).
+    fn descendants_of(
+        &self,
+        root: Txid,
+        external_spends: &BTreeMap<OutPoint, Txid>,
+    ) -> BTreeSet<Txid> {
+        descendants_in(&self.accounts, root, external_spends)
+    }
+
     // BIP44 Account Helpers
 
     /// Get the first BIP44 managed account
@@ -716,6 +726,85 @@ impl ManagedWalletInfo {
     pub fn all_managed_accounts(&self) -> Vec<crate::managed_account::ManagedAccountRef<'_>> {
         self.accounts.all_accounts()
     }
+}
+
+/// Whether `accounts` hold `txid` as settled: finalized, in a block, or InstantSend-locked.
+pub(crate) fn settled_in(accounts: &ManagedAccountCollection, txid: &Txid) -> bool {
+    accounts.all_accounts().into_iter().any(|account| {
+        account.transaction_is_finalized(txid)
+            || account
+                .transactions()
+                .get(txid)
+                .is_some_and(|r| r.is_confirmed() || r.context.is_instant_send())
+    })
+}
+
+/// `root` and every transaction descending from it in `accounts`: recorded spenders of its
+/// outputs, and those `external_spends` names (a settled one not followed).
+pub(crate) fn descendants_in(
+    accounts: &ManagedAccountCollection,
+    root: Txid,
+    external_spends: &BTreeMap<OutPoint, Txid>,
+) -> BTreeSet<Txid> {
+    let mut abandoned = BTreeSet::from([root]);
+
+    // Transitive closure over recorded spenders. Each pass can only add
+    // txids, and the set is bounded by the recorded transactions, so this
+    // terminates; a spend cycle is impossible anyway.
+    loop {
+        let mut found = BTreeSet::new();
+        for account in accounts.all_accounts() {
+            collect_spenders_of_records(account.transactions(), &abandoned, &mut found);
+        }
+        // Same step over the external view: anything spending an output of
+        // an abandoned transaction is itself abandoned.
+        for (outpoint, spender) in external_spends {
+            if abandoned.contains(&outpoint.txid) && !settled_in(accounts, spender) {
+                found.insert(*spender);
+            }
+        }
+        let before = abandoned.len();
+        abandoned.extend(found);
+        if abandoned.len() == before {
+            break;
+        }
+    }
+    abandoned
+}
+
+/// evolite (BUG-279): [`ManagedWalletInfo::expire_mempool_transaction`] over `accounts`, with
+/// `spent_claims` the wallet-level claims that keep a coin from being put back. Shared with the
+/// default [`WalletInfoInterface::expire_mempool_transaction`], whose wallets hold no claims.
+pub(crate) fn expire_in(
+    accounts: &mut ManagedAccountCollection,
+    root: Txid,
+    spent_claims: &BTreeMap<OutPoint, Option<Txid>>,
+) -> MempoolExpiry {
+    if settled_in(accounts, &root) {
+        return MempoolExpiry::default();
+    }
+    let expired = descendants_in(accounts, root, &BTreeMap::new());
+    let mut expiry = MempoolExpiry::default();
+    for account in accounts.all_accounts_mut() {
+        match account {
+            ManagedAccountRefMut::Funds(funds) => {
+                let (removed, restored) = funds.expire_unsettled(&expired, spent_claims);
+                expiry.records_removed += removed.records;
+                expiry.restored.extend(restored);
+            }
+            ManagedAccountRefMut::Keys(keys) => {
+                for txid in &expired {
+                    if keys.transactions_mut().remove(txid).is_some() {
+                        expiry.records_removed += 1;
+                    }
+                }
+            }
+        }
+    }
+    if expiry.records_removed > 0 || !expiry.restored.is_empty() {
+        expiry.expired = expired;
+    }
+    expiry
 }
 
 #[cfg(test)]

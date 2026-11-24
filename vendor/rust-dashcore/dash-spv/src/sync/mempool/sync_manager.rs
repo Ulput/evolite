@@ -68,6 +68,8 @@ impl<W: WalletInterface + 'static> SyncManager for MempoolManager<W> {
             SyncEvent::FiltersSyncComplete {
                 ..
             } => {
+                // evolite (BUG-279): after the filters, blocks have settled what was mined.
+                self.track_unconfirmed().await;
                 if self.state() != SyncState::Synced {
                     self.activate_all_peers(requests).await?;
                     let has_activated = self.peers.values().any(|v| v.is_some());
@@ -121,8 +123,16 @@ impl<W: WalletInterface + 'static> SyncManager for MempoolManager<W> {
             return Ok(events);
         }
 
-        // Prune expired transactions periodically
-        self.prune_expired(MEMPOOL_TX_EXPIRY);
+        // Prune expired transactions periodically. evolite (BUG-279): what one we did not send
+        // took from the wallet comes back (a peer's spend of our coin that never settles froze
+        // it only for the mempool's lifetime).
+        let expired = self.prune_expired(MEMPOOL_TX_EXPIRY);
+        if !expired.is_empty() {
+            let mut wallet = self.wallet.write().await;
+            for txid in &expired {
+                wallet.mempool_transaction_expired(txid).await;
+            }
+        }
 
         // Prune pending requests that never received a response
         self.prune_pending_requests();
@@ -1189,8 +1199,7 @@ mod tests {
     /// it; the transaction arrives unlocked, and its lock applies once verified.
     #[tokio::test]
     async fn an_unverified_lock_before_its_transaction_is_not_kept() {
-        let (mut manager, requests, _events, wallet, wallet_id, funding) =
-            wallet_manager().await;
+        let (mut manager, requests, _events, wallet, wallet_id, funding) = wallet_manager().await;
         let txid = funding.txid();
         manager.handle_sync_event(&lock_of(txid, false), &requests).await.unwrap();
         receive(&mut manager, &requests, &funding).await;
