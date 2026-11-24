@@ -433,3 +433,78 @@ fn only_a_gift_of_ones_own_copy_counts() {
         }]
     );
 }
+
+/// F10: in an open collection anyone may write a model and a copy of it. An NFT is the issuer's
+/// (its picture drawn at once from a chosen collection, «issue» of the issuer) only when the
+/// issuer wrote both: by the type in a closed collection, by `$creatorId` for a copy, by its
+/// owner for a model that never changes hands. Another's is shown as its writer's, never the
+/// issuer's; a copy whose maker Platform did not keep is not the issuer's.
+#[test]
+fn only_what_the_issuer_wrote_is_the_issuers() {
+    use dpp::data_contract::accessors::v0::DataContractV0Setters;
+    use serde_json::json;
+    let (issuer, stranger, holder) = (id(1), id(2), id(3));
+    let collection = |open: bool| {
+        let mut s = super::profile::tests::schema();
+        if open {
+            s["nft"]["creationRestrictionMode"] = json!(0);
+            s["image"]["creationRestrictionMode"] = json!(0);
+        }
+        let mut c = super::profile::tests::contract(&s, true).expect("the standard's schema");
+        c.set_owner_id(issuer);
+        c
+    };
+    // A copy `holder` holds, made by `maker` (`None`: Platform kept no `$creatorId`).
+    let copy = |maker: Option<Identifier>| {
+        Document::V0(DocumentV0 {
+            id: id(10),
+            owner_id: holder,
+            creator_id: maker,
+            ..Default::default()
+        })
+    };
+    // A model `by` wrote: it never changes hands, so its owner is its writer.
+    let model = |by: Identifier| {
+        Document::V0(DocumentV0 {
+            id: id(20),
+            owner_id: by,
+            ..Default::default()
+        })
+    };
+    let shown = |c: &DataContract, copy: &Document, model: &Document| {
+        let writers = [
+            super::chain::writer_of(c, "nft", copy),
+            super::chain::writer_of(c, "image", model),
+        ];
+        super::chain::issuer_of(issuer, writers)
+    };
+    let issuers = (issuer.to_string(Encoding::Base58), true);
+    let strangers = (stranger.to_string(Encoding::Base58), false);
+
+    // Closed (the Workshop's own): only the issuer can write either, kept maker or not.
+    let closed = collection(false);
+    assert_eq!(shown(&closed, &copy(None), &model(issuer)), issuers);
+
+    let open = collection(true);
+    assert_eq!(shown(&open, &copy(Some(issuer)), &model(issuer)), issuers);
+    assert_eq!(
+        shown(&open, &copy(Some(stranger)), &model(stranger)),
+        strangers,
+        "a stranger's picture in the issuer's collection"
+    );
+    assert_eq!(
+        shown(&open, &copy(Some(stranger)), &model(issuer)),
+        strangers,
+        "a stranger's copy of the issuer's model"
+    );
+    assert_eq!(
+        shown(&open, &copy(Some(issuer)), &model(stranger)),
+        strangers,
+        "the issuer's copy of a stranger's model"
+    );
+    assert_eq!(
+        shown(&open, &copy(None), &model(issuer)),
+        (String::new(), false),
+        "who made the copy is not known: not the issuer's"
+    );
+}

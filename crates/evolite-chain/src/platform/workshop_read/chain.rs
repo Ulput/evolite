@@ -8,7 +8,10 @@ use dash_sdk::platform::{DocumentQuery, FetchMany};
 use dpp::data_contract::DataContract;
 use dpp::data_contract::accessors::v0::DataContractV0Getters;
 use dpp::data_contract::accessors::v1::DataContractV1Getters;
+use dpp::data_contract::document_type::accessors::DocumentTypeV0Getters;
+use dpp::data_contract::document_type::restricted_creation::CreationRestrictionMode;
 use dpp::document::{Document, DocumentV0Getters};
+use dpp::nft::TradeMode;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
 use evolite_api::workshop::{
@@ -111,6 +114,34 @@ pub fn model_of(doc: &Document) -> Model {
     }
 }
 
+/// F10: who wrote `doc`, a document of `contract`'s type `kind`, as far as Platform vouches for
+/// it. A type only the owner may create (`creationRestrictionMode` 1; the profile's contract is
+/// read-only, so for good): the contract's owner. In an open one anyone may write: a document
+/// that can change hands, its `$creatorId` (Platform keeps it for such a type; its owner is only
+/// who holds it now); one that never does, its owner. `None`: not known.
+pub(super) fn writer_of(contract: &DataContract, kind: &str, doc: &Document) -> Option<Identifier> {
+    let t = contract.document_type_optional_for_name(kind)?;
+    if t.creation_restriction_mode() == CreationRestrictionMode::OwnerOnly {
+        return Some(contract.owner_id());
+    }
+    if t.documents_transferable().is_transferable() || t.trade_mode() != TradeMode::None {
+        doc.creator_id()
+    } else {
+        Some(doc.owner_id())
+    }
+}
+
+/// F10: an NFT's issuer as shown, and whether it is the collection owner's (`owner`): only when
+/// the owner wrote both the copy and its model (`writers`, by [`writer_of`]). Else the one who
+/// wrote what is not the owner's — "" when Platform does not keep who that was, never the owner.
+pub(super) fn issuer_of(owner: Identifier, writers: [Option<Identifier>; 2]) -> (String, bool) {
+    if writers.iter().all(|w| *w == Some(owner)) {
+        return (b58(owner), true);
+    }
+    let other = writers.into_iter().flatten().find(|w| *w != owner);
+    (other.map(b58).unwrap_or_default(), false)
+}
+
 impl Chain {
     /// A collection's contract and profile, fresh within [`CONTRACT_WITHIN`].
     async fn collection_contract(
@@ -130,13 +161,20 @@ impl Chain {
         profile: &Profile,
     ) -> Result<Vec<Model>, String> {
         let sdk = self.sdk().await?;
-        let query = DocumentQuery::new(contract, &profile.model).map_err(|e| format!("{e:?}"))?;
+        let query =
+            DocumentQuery::new(contract.clone(), &profile.model).map_err(|e| format!("{e:?}"))?;
         let page = pages(&sdk, query, None, usize::MAX, MAX_PAGES, |_| true).await?;
+        // F10: the collection owner's own only — in an open collection anyone may write a model.
+        let own: Vec<&Document> = page
+            .docs
+            .iter()
+            .filter(|d| writer_of(&contract, &profile.model, d) == Some(contract.owner_id()))
+            .collect();
         // BUG-269: their pictures kept to draw, on any copy and after a restart.
-        for doc in &page.docs {
+        for doc in &own {
             self.keep_workshop_picture(doc);
         }
-        Ok(page.docs.iter().map(model_of).collect())
+        Ok(own.into_iter().map(model_of).collect())
     }
 
     /// BUG-271 (the architect, 2026-11-22): the contracts `owner` (base58) registered, found on
@@ -621,12 +659,11 @@ impl Chain {
             for doc in docs.iter().filter(|d| needed.contains(&b58(d.id()))) {
                 self.keep_workshop_picture(doc);
             }
-            let models: BTreeMap<String, Model> = docs
+            let models: BTreeMap<String, (Model, Option<Identifier>)> = docs
                 .iter()
-                .map(model_of)
-                .map(|m| (m.id.clone(), m))
+                .map(|d| (model_of(d), writer_of(&contract, &profile.model, d)))
+                .map(|(m, w)| (m.id.clone(), (m, w)))
                 .collect();
-            let issuer = b58(contract.owner_id());
             for doc in &page.docs {
                 let model = doc
                     .properties()
@@ -634,7 +671,16 @@ impl Chain {
                     .and_then(|v| v.to_identifier().ok())
                     .and_then(|m| models.get(&b58(m)));
                 // An instance whose model is not read cannot be shown: nothing to show.
-                let Some(model) = model else { continue };
+                let Some((model, model_writer)) = model else {
+                    continue;
+                };
+                // F10: in an open collection anyone may write a model or a copy. The issuer's
+                // only when the issuer wrote both; another's is shown as its writer's, is not of
+                // the source the person chose (its picture waits for «Show») nor of a release.
+                let (issuer, by_issuer) = issuer_of(
+                    contract.owner_id(),
+                    [writer_of(&contract, &profile.instance, doc), *model_writer],
+                );
                 out.push(evolite_api::Nft {
                     id: b58(doc.id()),
                     name: model.name.clone(),
@@ -642,19 +688,19 @@ impl Chain {
                     art: model.art.clone(),
                     // The key is the SHA-256 of the stored bytes: what is drawn is what is there.
                     art_verified: true,
-                    origin: if contract.owner_id() == holder {
+                    origin: if by_issuer && contract.owner_id() == holder {
                         evolite_api::NftOrigin::Release
                     } else {
                         evolite_api::NftOrigin::Received { at: None }
                     },
-                    issuer: issuer.clone(),
+                    issuer,
                     contract: collection.clone(),
                     edition: (serial_of(doc), model.supply),
                     owner: owner_name.into(),
                     owner_id: owner.into(),
                     // 1 duff = 1 000 credits.
                     price: price_of(doc).map(|credits| (credits / 1000) as evolite_api::Duffs),
-                    chosen: chosen.contains(collection),
+                    chosen: by_issuer && chosen.contains(collection),
                 });
             }
         }
