@@ -257,9 +257,12 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
             }
             NetworkEvent::PeersUpdated {
                 connected_count,
+                addresses,
                 best_height,
-                ..
             } => {
+                // evolite (BUG-281): whom to ask again on a stale tip, and how high they are.
+                self.peers = addresses.clone();
+                self.peers_best_height = *best_height;
                 if let Some(best_height) = best_height {
                     self.progress.update_target_height(*best_height);
                     let mut metadata_storage = self.metadata_storage.write().await;

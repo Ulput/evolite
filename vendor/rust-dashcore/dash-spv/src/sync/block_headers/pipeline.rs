@@ -7,6 +7,7 @@
 use dashcore::block::Header;
 use dashcore::pow::DGW_PAST_BLOCKS;
 use dashcore::BlockHash;
+use std::net::SocketAddr;
 
 use crate::chain::CheckpointManager;
 use crate::error::SyncResult;
@@ -156,7 +157,20 @@ impl HeadersPipeline {
     /// Try to match incoming headers to the correct segment.
     /// Returns the segment index if matched, or None if headers don't belong to any segment.
     /// Returns an error if checkpoint validation fails.
+    /// From no peer in particular: the tests' route.
+    #[cfg(test)]
     pub fn receive_headers(&mut self, headers: &[HashedBlockHeader]) -> SyncResult<Option<usize>> {
+        self.receive_headers_from(None, headers)
+    }
+
+    /// [`Self::receive_headers`] from `from`. evolite (BUG-281): an empty answer completes the
+    /// tip segment only from the peer it asked, when it asked one ([`SegmentState::asked`]);
+    /// another peer's empty answer is not routed.
+    pub fn receive_headers_from(
+        &mut self,
+        from: Option<SocketAddr>,
+        headers: &[HashedBlockHeader],
+    ) -> SyncResult<Option<usize>> {
         if headers.is_empty() {
             // Empty response means the peer has no more headers after our locator.
             // Route to the tip segment (target_height is None) if it has in-flight requests.
@@ -166,6 +180,17 @@ impl HeadersPipeline {
                     && segment.target_height.is_none()
                     && segment.coordinator.active_count() > 0
                 {
+                    if let (Some(asked), Some(from)) = (segment.asked, from) {
+                        if asked != from {
+                            tracing::debug!(
+                                "Empty headers from {} ignored: segment {} asked {}",
+                                from,
+                                segment.segment_id,
+                                asked
+                            );
+                            return Ok(None);
+                        }
+                    }
                     tracing::debug!(
                         "Routing empty response to tip segment {} at height {}",
                         segment.segment_id,
@@ -397,6 +422,25 @@ impl HeadersPipeline {
             segment.locator_tail = tail;
         }
         true
+    }
+
+    /// evolite (BUG-281): the tip segment, completed on an empty answer, asks `peer` again: not
+    /// complete any more, its request sent to that peer, and only that peer's empty answer
+    /// completes it. Whether there was a completed tip segment.
+    pub(super) fn ask_tip_again(
+        &mut self,
+        requests: &RequestSender,
+        peer: SocketAddr,
+    ) -> SyncResult<bool> {
+        let Some(idx) = self.segments.iter().position(|s| s.target_height.is_none() && s.complete)
+        else {
+            return Ok(false);
+        };
+        let segment = &mut self.segments[idx];
+        segment.complete = false;
+        self.next_to_store = self.next_to_store.min(idx);
+        segment.send_request_to(requests, Some(peer))?;
+        Ok(true)
     }
 
     /// Check if the tip segment has active requests in flight.

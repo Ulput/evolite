@@ -5,6 +5,7 @@ use crate::sync::download_coordinator::{
 };
 use crate::types::HashedBlockHeader;
 use dashcore::BlockHash;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// evolite (TECH-spv-peers): a header request is asked again after 3× the median reply of all
@@ -55,6 +56,10 @@ pub(super) struct SegmentState {
     /// evolite (SPV item 1б): stored hashes below `current_tip_hash` the next getheaders
     /// carries after it, once (see `HeadersPipeline::reset_tip_segment_with_locator`).
     pub(super) locator_tail: Vec<BlockHash>,
+    /// evolite (BUG-281): the peer this segment's request in flight was sent to, when the sync
+    /// chose it (asked again after an empty answer on a stale tip). Only that peer's empty
+    /// answer then completes the segment. `None`: the network chose, and any peer's counts.
+    pub(super) asked: Option<SocketAddr>,
 }
 
 impl SegmentState {
@@ -77,6 +82,7 @@ impl SegmentState {
             buffered_headers: Vec::new(),
             complete: false,
             locator_tail: Vec::new(),
+            asked: None,
         }
     }
 
@@ -96,14 +102,25 @@ impl SegmentState {
 
     /// Send a GetHeaders request for this segment.
     pub(super) fn send_request(&mut self, requests: &RequestSender) -> SyncResult<()> {
-        if self.locator_tail.is_empty() {
+        self.send_request_to(requests, None)
+    }
+
+    /// [`Self::send_request`] to `peer` (`None`: the network chooses), remembered as the
+    /// peer asked (BUG-281).
+    pub(super) fn send_request_to(
+        &mut self,
+        requests: &RequestSender,
+        peer: Option<SocketAddr>,
+    ) -> SyncResult<()> {
+        if self.locator_tail.is_empty() && peer.is_none() {
             requests.request_block_headers(self.current_tip_hash)?;
         } else {
             // evolite (SPV item 1б): the tip, then hashes back, as Dash Core's locator.
             let mut locator = vec![self.current_tip_hash];
             locator.append(&mut self.locator_tail);
-            requests.request_block_headers_with_locator(locator, None)?;
+            requests.request_block_headers_with_locator(locator, peer)?;
         }
+        self.asked = peer;
         self.coordinator.mark_sent(&[self.current_tip_hash]);
         tracing::debug!(
             "Segment {}: sent GetHeaders from height {} hash {}",
@@ -129,6 +146,7 @@ impl SegmentState {
             self.complete = true;
             // Clear in-flight tracking for the current tip hash
             self.coordinator.receive(&self.current_tip_hash);
+            self.asked = None;
             tracing::info!(
                 "Segment {}: complete (empty response at height {})",
                 self.segment_id,
@@ -239,6 +257,7 @@ impl SegmentState {
     /// without re-fetching headers we already have.
     pub(super) fn clear_in_flight(&mut self) {
         self.coordinator.clear();
+        self.asked = None;
     }
 }
 

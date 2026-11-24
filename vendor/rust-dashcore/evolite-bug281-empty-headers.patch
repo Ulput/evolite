@@ -1,0 +1,336 @@
+diff --git a/dash-spv/src/sync/block_headers/manager.rs b/dash-spv/src/sync/block_headers/manager.rs
+index 27e820af..443add87 100644
+--- a/dash-spv/src/sync/block_headers/manager.rs
++++ b/dash-spv/src/sync/block_headers/manager.rs
+@@ -57,6 +57,13 @@ pub(super) const MAX_PENDING_ANNOUNCEMENTS: usize = 500;
+ /// them. What is still pending then is left to the post-sync fallback in `tick`.
+ pub(super) const PENDING_ANNOUNCEMENTS_SYNC_WAIT: Duration = Duration::from_secs(20);
+ 
++/// evolite (BUG-281): a tip no older than this, by its header's time, is fresh: an empty answer
++/// on it completes the header sync.
++pub(super) const TIP_FRESH_FOR: Duration = Duration::from_secs(2 * 60 * 60);
++
++/// evolite (BUG-281): or a tip at most this many blocks under the connected peers' best height.
++pub(super) const TIP_HEIGHT_MARGIN: u32 = 6;
++
+ /// evolite (SPV item 1): a valid branch off the stored chain below its tip, held until
+ /// it has more work than ours from the fork point. Nothing is trimmed meanwhile.
+ #[derive(Debug)]
+@@ -104,6 +111,11 @@ pub struct BlockHeadersManager<H: BlockHeaderStorage, M: MetadataStorage> {
+     /// Peers we've sent a GetHeaders to after sync, so Dash Core knows our tip
+     /// and can send us header announcements instead of inv.
+     pub(super) announced_peers: HashSet<SocketAddr>,
++    /// evolite (BUG-281): the connected peers and their best height, from `PeersUpdated`.
++    pub(super) peers: Vec<SocketAddr>,
++    pub(super) peers_best_height: Option<u32>,
++    /// evolite (BUG-281): the peers that answered «nothing more» on the current stale tip.
++    pub(super) empty_on_stale_tip: HashSet<SocketAddr>,
+     /// Network whose difficulty rules new headers are checked against.
+     network: Network,
+     /// evolite (SPV item 1): a branch that doesn't have more work than ours yet.
+@@ -157,6 +169,9 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+             pending_announcements: HashMap::new(),
+             announcements_wait_started: None,
+             announced_peers: HashSet::new(),
++            peers: Vec::new(),
++            peers_best_height: None,
++            empty_on_stale_tip: HashSet::new(),
+             network,
+             fork: None,
+             locator_asked: HashMap::new(),
+@@ -320,7 +335,18 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         }
+ 
+         // Route headers to the pipeline, validates checkpoint match.
+-        let matched = self.pipeline.receive_headers(headers)?;
++        let matched = self.pipeline.receive_headers_from(Some(peer), headers)?;
++
++        // evolite (BUG-281): «nothing more» completes the sync only on a fresh tip. On a stale
++        // one the same request goes to a peer not asked yet, and only its answer counts; once
++        // every connected peer said so, the sync completes as before.
++        if headers.is_empty() && matched.is_some() && was_syncing && self.pipeline.is_tip_complete()
++        {
++            if let Some(other) = self.ask_another_on_a_stale_tip(peer).await? {
++                self.pipeline.ask_tip_again(requests, other)?;
++                return Ok(Vec::new());
++            }
++        }
+ 
+         if matched.is_none() && !headers.is_empty() {
+             // evolite (security): only a batch validated above (`Attach::At`) may start a
+@@ -390,6 +416,51 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         Ok(events)
+     }
+ 
++    /// evolite (BUG-281): after `from` answered «nothing more»: the peer to ask instead, when our
++    /// tip is stale (older than [`TIP_FRESH_FOR`] and more than [`TIP_HEIGHT_MARGIN`] under the
++    /// peers' best height) and a connected peer has not answered so on it yet. `None`: complete.
++    pub(super) async fn ask_another_on_a_stale_tip(
++        &mut self,
++        from: SocketAddr,
++    ) -> SyncResult<Option<SocketAddr>> {
++        let tip = self.tip().await?;
++        let now = std::time::SystemTime::now()
++            .duration_since(std::time::UNIX_EPOCH)
++            .map(|d| d.as_secs())
++            .unwrap_or_default();
++        let fresh_by_time =
++            now.saturating_sub(u64::from(tip.header().time)) <= TIP_FRESH_FOR.as_secs();
++        let fresh_by_height = self
++            .peers_best_height
++            .is_some_and(|best| tip.height().saturating_add(TIP_HEIGHT_MARGIN) >= best);
++        if fresh_by_time || fresh_by_height {
++            self.empty_on_stale_tip.clear();
++            return Ok(None);
++        }
++        self.empty_on_stale_tip.insert(from);
++        let other = self.peers.iter().copied().find(|p| !self.empty_on_stale_tip.contains(p));
++        match other {
++            Some(other) => {
++                tracing::warn!(
++                    "{} has no headers past our tip {}, which is stale (peers at {:?}): asking {}",
++                    from,
++                    tip.height(),
++                    self.peers_best_height,
++                    other
++                );
++            }
++            None => {
++                tracing::warn!(
++                    "No connected peer has headers past our tip {} (peers at {:?}): complete",
++                    tip.height(),
++                    self.peers_best_height
++                );
++                self.empty_on_stale_tip.clear();
++            }
++        }
++        Ok(other)
++    }
++
+     /// evolite (SPV item 1): `headers` past the ones we already store.
+     async fn unstored(&self, headers: &[HashedBlockHeader]) -> SyncResult<Vec<HashedBlockHeader>> {
+         let storage = self.header_storage.read().await;
+@@ -1958,6 +2029,53 @@ mod tests {
+         events.iter().any(|event| matches!(event, SyncEvent::BlockHeaderSyncComplete { .. }))
+     }
+ 
++    /// evolite (BUG-281): «nothing more» on a stale tip (genesis here, peers 100 blocks higher)
++    /// completes nothing. The same request goes to a peer not asked yet; the first peer's empty
++    /// answer is then not taken; once every connected peer said so, the sync completes.
++    #[tokio::test]
++    async fn an_empty_answer_on_a_stale_tip_asks_another_peer_and_only_its_answer_counts() {
++        let (mut manager, requests, mut rx) = syncing_manager().await;
++        let (a, b): (SocketAddr, SocketAddr) = (peer(), "5.6.7.8:9999".parse().unwrap());
++        manager.peers = vec![a, b];
++        manager.peers_best_height = Some(manager.tip().await.unwrap().height() + 100);
++
++        let events = manager.handle_headers_pipeline(a, &[], &requests).await.unwrap();
++        assert!(!sync_completed(&events), "{events:?}");
++        match rx.try_recv().expect("asked again") {
++            NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(_), to) => {
++                assert_eq!(to, b)
++            }
++            other => panic!("expected GetHeaders to {b}, got {other:?}"),
++        }
++        assert!(rx.try_recv().is_err());
++
++        let events = manager.handle_headers_pipeline(a, &[], &requests).await.unwrap();
++        assert!(!sync_completed(&events), "the peer not asked: not taken");
++        assert!(rx.try_recv().is_err());
++        assert_eq!(manager.state(), SyncState::Syncing);
++
++        let events = manager.handle_headers_pipeline(b, &[], &requests).await.unwrap();
++        assert!(sync_completed(&events), "every peer said so: {events:?}");
++    }
++
++    /// evolite (BUG-281): on a fresh tip (within the margin of the peers' best height) an empty
++    /// answer completes the sync at once, as before.
++    #[tokio::test]
++    async fn an_empty_answer_on_a_fresh_tip_completes_as_before() {
++        let (mut manager, requests, mut rx) = syncing_manager().await;
++        manager.peers = vec![peer(), "5.6.7.8:9999".parse().unwrap()];
++        manager.peers_best_height =
++            Some(manager.tip().await.unwrap().height() + super::TIP_HEIGHT_MARGIN);
++
++        let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
++
++        assert!(sync_completed(&events), "{events:?}");
++        assert!(!std::iter::from_fn(|| rx.try_recv().ok()).any(|r| matches!(
++            r,
++            NetworkRequest::SendMessageToPeer(NetworkMessage::GetHeaders(_), _)
++        )));
++    }
++
+     /// evolite (security): however many block hashes `inv`s list, at most
+     /// [`MAX_PENDING_ANNOUNCEMENTS`] are held.
+     #[tokio::test]
+diff --git a/dash-spv/src/sync/block_headers/pipeline.rs b/dash-spv/src/sync/block_headers/pipeline.rs
+index da89f849..a7bccf83 100644
+--- a/dash-spv/src/sync/block_headers/pipeline.rs
++++ b/dash-spv/src/sync/block_headers/pipeline.rs
+@@ -7,6 +7,7 @@
+ use dashcore::block::Header;
+ use dashcore::pow::DGW_PAST_BLOCKS;
+ use dashcore::BlockHash;
++use std::net::SocketAddr;
+ 
+ use crate::chain::CheckpointManager;
+ use crate::error::SyncResult;
+@@ -156,7 +157,20 @@ impl HeadersPipeline {
+     /// Try to match incoming headers to the correct segment.
+     /// Returns the segment index if matched, or None if headers don't belong to any segment.
+     /// Returns an error if checkpoint validation fails.
++    /// From no peer in particular: the tests' route.
++    #[cfg(test)]
+     pub fn receive_headers(&mut self, headers: &[HashedBlockHeader]) -> SyncResult<Option<usize>> {
++        self.receive_headers_from(None, headers)
++    }
++
++    /// [`Self::receive_headers`] from `from`. evolite (BUG-281): an empty answer completes the
++    /// tip segment only from the peer it asked, when it asked one ([`SegmentState::asked`]);
++    /// another peer's empty answer is not routed.
++    pub fn receive_headers_from(
++        &mut self,
++        from: Option<SocketAddr>,
++        headers: &[HashedBlockHeader],
++    ) -> SyncResult<Option<usize>> {
+         if headers.is_empty() {
+             // Empty response means the peer has no more headers after our locator.
+             // Route to the tip segment (target_height is None) if it has in-flight requests.
+@@ -166,6 +180,17 @@ impl HeadersPipeline {
+                     && segment.target_height.is_none()
+                     && segment.coordinator.active_count() > 0
+                 {
++                    if let (Some(asked), Some(from)) = (segment.asked, from) {
++                        if asked != from {
++                            tracing::debug!(
++                                "Empty headers from {} ignored: segment {} asked {}",
++                                from,
++                                segment.segment_id,
++                                asked
++                            );
++                            return Ok(None);
++                        }
++                    }
+                     tracing::debug!(
+                         "Routing empty response to tip segment {} at height {}",
+                         segment.segment_id,
+@@ -399,6 +424,25 @@ impl HeadersPipeline {
+         true
+     }
+ 
++    /// evolite (BUG-281): the tip segment, completed on an empty answer, asks `peer` again: not
++    /// complete any more, its request sent to that peer, and only that peer's empty answer
++    /// completes it. Whether there was a completed tip segment.
++    pub(super) fn ask_tip_again(
++        &mut self,
++        requests: &RequestSender,
++        peer: SocketAddr,
++    ) -> SyncResult<bool> {
++        let Some(idx) = self.segments.iter().position(|s| s.target_height.is_none() && s.complete)
++        else {
++            return Ok(false);
++        };
++        let segment = &mut self.segments[idx];
++        segment.complete = false;
++        self.next_to_store = self.next_to_store.min(idx);
++        segment.send_request_to(requests, Some(peer))?;
++        Ok(true)
++    }
++
+     /// Check if the tip segment has active requests in flight.
+     pub fn tip_segment_has_pending_request(&self) -> bool {
+         self.segments
+diff --git a/dash-spv/src/sync/block_headers/segment_state.rs b/dash-spv/src/sync/block_headers/segment_state.rs
+index 541132f2..7021bc96 100644
+--- a/dash-spv/src/sync/block_headers/segment_state.rs
++++ b/dash-spv/src/sync/block_headers/segment_state.rs
+@@ -5,6 +5,7 @@ use crate::sync::download_coordinator::{
+ };
+ use crate::types::HashedBlockHeader;
+ use dashcore::BlockHash;
++use std::net::SocketAddr;
+ use std::time::Duration;
+ 
+ /// evolite (TECH-spv-peers): a header request is asked again after 3× the median reply of all
+@@ -55,6 +56,10 @@ pub(super) struct SegmentState {
+     /// evolite (SPV item 1б): stored hashes below `current_tip_hash` the next getheaders
+     /// carries after it, once (see `HeadersPipeline::reset_tip_segment_with_locator`).
+     pub(super) locator_tail: Vec<BlockHash>,
++    /// evolite (BUG-281): the peer this segment's request in flight was sent to, when the sync
++    /// chose it (asked again after an empty answer on a stale tip). Only that peer's empty
++    /// answer then completes the segment. `None`: the network chose, and any peer's counts.
++    pub(super) asked: Option<SocketAddr>,
+ }
+ 
+ impl SegmentState {
+@@ -77,6 +82,7 @@ impl SegmentState {
+             buffered_headers: Vec::new(),
+             complete: false,
+             locator_tail: Vec::new(),
++            asked: None,
+         }
+     }
+ 
+@@ -96,14 +102,25 @@ impl SegmentState {
+ 
+     /// Send a GetHeaders request for this segment.
+     pub(super) fn send_request(&mut self, requests: &RequestSender) -> SyncResult<()> {
+-        if self.locator_tail.is_empty() {
++        self.send_request_to(requests, None)
++    }
++
++    /// [`Self::send_request`] to `peer` (`None`: the network chooses), remembered as the
++    /// peer asked (BUG-281).
++    pub(super) fn send_request_to(
++        &mut self,
++        requests: &RequestSender,
++        peer: Option<SocketAddr>,
++    ) -> SyncResult<()> {
++        if self.locator_tail.is_empty() && peer.is_none() {
+             requests.request_block_headers(self.current_tip_hash)?;
+         } else {
+             // evolite (SPV item 1б): the tip, then hashes back, as Dash Core's locator.
+             let mut locator = vec![self.current_tip_hash];
+             locator.append(&mut self.locator_tail);
+-            requests.request_block_headers_with_locator(locator, None)?;
++            requests.request_block_headers_with_locator(locator, peer)?;
+         }
++        self.asked = peer;
+         self.coordinator.mark_sent(&[self.current_tip_hash]);
+         tracing::debug!(
+             "Segment {}: sent GetHeaders from height {} hash {}",
+@@ -129,6 +146,7 @@ impl SegmentState {
+             self.complete = true;
+             // Clear in-flight tracking for the current tip hash
+             self.coordinator.receive(&self.current_tip_hash);
++            self.asked = None;
+             tracing::info!(
+                 "Segment {}: complete (empty response at height {})",
+                 self.segment_id,
+@@ -239,6 +257,7 @@ impl SegmentState {
+     /// without re-fetching headers we already have.
+     pub(super) fn clear_in_flight(&mut self) {
+         self.coordinator.clear();
++        self.asked = None;
+     }
+ }
+ 
+diff --git a/dash-spv/src/sync/block_headers/sync_manager.rs b/dash-spv/src/sync/block_headers/sync_manager.rs
+index 525849a4..15e1c2fb 100644
+--- a/dash-spv/src/sync/block_headers/sync_manager.rs
++++ b/dash-spv/src/sync/block_headers/sync_manager.rs
+@@ -257,9 +257,12 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
+             }
+             NetworkEvent::PeersUpdated {
+                 connected_count,
++                addresses,
+                 best_height,
+-                ..
+             } => {
++                // evolite (BUG-281): whom to ask again on a stale tip, and how high they are.
++                self.peers = addresses.clone();
++                self.peers_best_height = *best_height;
+                 if let Some(best_height) = best_height {
+                     self.progress.update_target_height(*best_height);
+                     let mut metadata_storage = self.metadata_storage.write().await;
