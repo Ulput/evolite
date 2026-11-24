@@ -46,9 +46,10 @@ fn hash(text: &str) -> [u8; 32] {
 }
 
 /// FEAT-0042 R-9: public text that should not stay in the clipboard's history or the cloud (an
-/// account public key) — past them as a secret is, but not forced away after [`KEEP`]: it
-/// spends nothing and is meant to be pasted. Wiped as an ordinary copy is when «Clipboard» is on
-/// (review r1, Should 1). `false`: it could not go past the history, so it was not copied.
+/// account public key) — on Windows past them as a secret is (elsewhere an ordinary copy,
+/// `put_secret`), but not forced away after [`KEEP`]: it spends nothing and is meant to be
+/// pasted. Wiped as an ordinary copy is when «Clipboard» is on (review r1, Should 1). `false`: it
+/// could not go past the history, so it was not copied.
 pub fn copy_public_excluded(ctx: &egui::Context, text: &str) -> bool {
     if !put_secret(ctx, text) {
         return false;
@@ -61,11 +62,12 @@ pub fn copy_public_excluded(ctx: &egui::Context, text: &str) -> bool {
     true
 }
 
-/// Copies a secret (the phrase) for [`KEEP`]. On Windows it is kept out of the clipboard
-/// history (Win+V), the cloud clipboard and clipboard managers: a copy there is not wiped
+/// Copies a secret (the phrase, a private key) for [`KEEP`]. On Windows it is kept out of the
+/// clipboard history (Win+V), the cloud clipboard and clipboard managers; on Linux and macOS it
+/// carries the mark clipboard managers leave out of their history: a copy there is not wiped
 /// with the clipboard. If it cannot be copied that way, it is not copied at all (false).
 pub fn copy_secret(ctx: &egui::Context, text: Zeroizing<String>) -> bool {
-    let put = put_secret(ctx, &text);
+    let put = put_marked(ctx, &text);
     remember(ctx, &text, put)
 }
 
@@ -75,12 +77,37 @@ fn put_secret(_ctx: &egui::Context, text: &str) -> bool {
 }
 
 /// Elsewhere egui's clipboard keeps the text while the app runs (an arboard one would
-/// lose it on Linux when dropped); there is no history to keep it out of.
+/// lose it on Linux when dropped); nothing here keeps it out of a clipboard history. A secret
+/// on Linux and macOS goes through `put_marked` instead.
 #[cfg(any(not(windows), test))]
 fn put_secret(ctx: &egui::Context, text: &str) -> bool {
     ctx.copy_text(text.to_owned());
     true
 }
+
+/// A secret ([`copy_secret`]) on Linux and macOS: through the arboard clipboard kept for the run
+/// (`KEPT`), marked for clipboard managers to leave out of their history.
+#[cfg(all(any(target_os = "linux", target_os = "macos"), not(test)))]
+fn put_marked(_ctx: &egui::Context, text: &str) -> bool {
+    let mut kept = KEPT.lock().unwrap_or_else(|e| e.into_inner());
+    if kept.is_none() {
+        *kept = arboard::Clipboard::new().ok().map(System);
+    }
+    kept.as_mut().is_some_and(|board| board.put_marked(text))
+}
+
+/// Elsewhere, and in tests, a secret goes as [`put_secret`] puts it.
+#[cfg(not(all(any(target_os = "linux", target_os = "macos"), not(test))))]
+fn put_marked(ctx: &egui::Context, text: &str) -> bool {
+    put_secret(ctx, text)
+}
+
+/// The arboard clipboard a secret is copied through on Linux and macOS, kept until the app
+/// closes ([`wipe_now`]): on Linux the app itself hands out what it copied, and on X11 that goes
+/// with the last arboard clipboard dropped. A wipe through another one (`system_board`) still
+/// reaches it: on X11 arboard's clipboards share one connection and window.
+#[cfg(all(any(target_os = "linux", target_os = "macos"), not(test)))]
+static KEPT: Mutex<Option<System>> = Mutex::new(None);
 
 /// Notes what to wipe, only if it was copied; and, on disk, that a secret is on the clipboard
 /// (its hash only), for a start after a crash to wipe it (SEC-2 B5).
@@ -259,6 +286,10 @@ pub fn wipe_now(ctx: &egui::Context) {
     {
         wipe_if_still(copy.hash, &mut board, false);
     }
+    // After the wipes the kept clipboard goes too, so the last arboard clipboard is dropped as
+    // before: on X11 it hands an ordinary copy to a clipboard manager and takes a marked one away.
+    #[cfg(all(any(target_os = "linux", target_os = "macos"), not(test)))]
+    drop(KEPT.lock().unwrap_or_else(|e| e.into_inner()).take());
 }
 
 fn wipe_secret(ctx: &egui::Context) {
@@ -294,6 +325,26 @@ struct System(arboard::Clipboard);
 impl System {
     fn put_secret(&mut self, text: &str) -> bool {
         excluded(self.0.set()).text(text).is_ok()
+    }
+}
+
+/// KDE's `x-kde-passwordManagerHint`, on X11 and on Wayland (`wayland-data-control`).
+#[cfg(all(target_os = "linux", not(test)))]
+impl System {
+    fn put_marked(&mut self, text: &str) -> bool {
+        arboard::SetExtLinux::exclude_from_history(self.0.set())
+            .text(text)
+            .is_ok()
+    }
+}
+
+/// `org.nspasteboard.ConcealedType`, which clipboard managers on macOS leave out.
+#[cfg(all(target_os = "macos", not(test)))]
+impl System {
+    fn put_marked(&mut self, text: &str) -> bool {
+        arboard::SetExtApple::exclude_from_history(self.0.set())
+            .text(text)
+            .is_ok()
     }
 }
 
