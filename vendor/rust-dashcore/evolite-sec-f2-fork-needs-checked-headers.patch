@@ -1,0 +1,57 @@
+diff --git a/dash-spv/src/sync/block_headers/manager.rs b/dash-spv/src/sync/block_headers/manager.rs
+index 82f26690..634f3d28 100644
+--- a/dash-spv/src/sync/block_headers/manager.rs
++++ b/dash-spv/src/sync/block_headers/manager.rs
+@@ -310,7 +310,15 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
+         let matched = self.pipeline.receive_headers(headers)?;
+ 
+         if matched.is_none() && !headers.is_empty() {
+-            if let Some(fork_height) = self.fork_height(headers).await? {
++            // evolite (security): only a batch validated above (`Attach::At`) may start a
++            // fork. A `Nowhere` one skipped the validator: headers we store at its start
++            // would let `fork_height` find a stored parent for unchecked ones after them.
++            let fork_height = if matches!(attached, Attach::At(..)) {
++                self.fork_height(headers).await?
++            } else {
++                None
++            };
++            if let Some(fork_height) = fork_height {
+                 // evolite (SPV item 1): a fork is followed only once it has more work than
+                 // our chain from the fork point; until then it is held, nothing trimmed.
+                 let new = self.unstored(headers).await?;
+@@ -1678,6 +1686,35 @@ mod tests {
+         assert!(manager.fork.is_none());
+     }
+ 
++    /// evolite (security): a batch whose first header's parent we don't store is not
++    /// validated, so it starts no fork even when that first header is one we store and the
++    /// next branches off below our tip claiming far more work, with no proof of work. Not
++    /// held, nothing trimmed, nobody banned; synced, its peer is asked with our locator.
++    #[tokio::test]
++    async fn an_unvalidated_batch_behind_a_stored_header_starts_no_fork() {
++        let ours = mined_chain(BlockHash::dummy(0), 5, EASY, 0);
++        let (mut manager, _storage) = fork_manager(FORK_BASE, &ours).await;
++        let (requests, mut rx) = create_test_request_sender();
++        let forged = Header {
++            prev_blockhash: *ours[2].hash(),
++            bits: dashcore::CompactTarget::from_consensus(0x0300_0001),
++            ..Header::dummy(0)
++        };
++        assert!(!forged.target().is_met_by(forged.block_hash()), "no proof of work");
++
++        let batch = [ours[0].clone(), forged.into()];
++        let result = manager.handle_headers_pipeline(peer(), &batch, &requests).await;
++
++        assert!(result.is_ok(), "{result:?}");
++        assert_eq!(fork_detected(&result), None, "{result:?}");
++        assert!(manager.fork.is_none(), "not held");
++        assert_eq!(manager.tip().await.unwrap().height(), FORK_BASE + 4, "nothing trimmed");
++        let sent = sent(&mut rx);
++        assert!(sent.banned.is_empty(), "{sent:?}");
++        let to: Vec<_> = sent.locators.iter().map(|(to, _)| *to).collect();
++        assert_eq!(to, vec![Some(peer())]);
++    }
++
+     /// evolite (SPV item 1б, AC-T1б.2): a ChainLock, synced, for a block we don't store asks
+     /// the peer that sent it and one other with our locator. One for our own block, or one
+     /// while still syncing, asks nobody.

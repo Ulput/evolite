@@ -1,0 +1,259 @@
+diff --git a/dash-spv/src/sync/instantsend/manager.rs b/dash-spv/src/sync/instantsend/manager.rs
+index a77d865f..75975325 100644
+--- a/dash-spv/src/sync/instantsend/manager.rs
++++ b/dash-spv/src/sync/instantsend/manager.rs
+@@ -20,6 +20,13 @@ use crate::validation::{InstantLockStructureValidator, InstantLockValidator, Val
+ /// Maximum number of pending InstantLocks awaiting validation.
+ const MAX_PENDING_INSTANTLOCKS: usize = 500;
+ 
++/// evolite (security audit F8, review r1 Should 1): at most this many pending locks for one txid.
++/// Locks with garbage signatures for one txid would otherwise fill the whole queue and push out
++/// the genuine locks of other txids waiting for their cycle. Past it a new lock for that txid is
++/// not queued: those already waiting stay, so a forgery sent after the genuine lock cannot push
++/// it out (one sent before it can still take a place; the txid then waits for its ChainLock).
++const MAX_PENDING_PER_TXID: usize = 4;
++
+ /// Maximum number of InstantLocks to cache.
+ const MAX_CACHE_SIZE: usize = 5000;
+ 
+@@ -142,10 +149,18 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
+         tracing::info!("Processing InstantLock for txid {}", txid);
+ 
+         // Check for duplicates
+-        if self.instantlocks.contains_key(&txid) {
++        // evolite (security): only a verified lock suppresses later ones for its txid. Anyone can
++        // send a well-formed lock with a garbage signature, so deduping against an unverified one
++        // would drop the genuine quorum-signed lock arriving after it. A lock identical to one
++        // already pending is skipped too, so a re-sent lock does not fill the queue.
++        if self.is_transaction_locked(&txid) {
+             tracing::debug!("Already have InstantLock for txid {}", txid);
+             return Ok(vec![]);
+         }
++        if self.pending_instantlocks.iter().any(|pending| pending.instant_lock == *instantlock) {
++            tracing::debug!("InstantLock for txid {} is already pending", txid);
++            return Ok(vec![]);
++        }
+ 
+         // A malformed lock is dropped before it is queued or cached, so it can
+         // neither stay pending nor shadow the genuine lock for its txid.
+@@ -185,12 +200,18 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
+         }
+ 
+         // Store in cache
+-        let entry = InstantLockEntry {
+-            instant_lock: instantlock.clone(),
+-            received_at: SystemTime::now(),
+-            validated,
+-        };
+-        self.store_instantlock(txid, entry);
++        // evolite (security): a verified lock becomes the txid's entry. An unverified one is
++        // cached only while the txid has none, so it never replaces another lock; and since it
++        // suppresses nothing (above), a different lock for the txid is still verified, and the one
++        // that verifies takes the entry (here or in `validate_pending`).
++        if validated || !self.instantlocks.contains_key(&txid) {
++            let entry = InstantLockEntry {
++                instant_lock: instantlock.clone(),
++                received_at: SystemTime::now(),
++                validated,
++            };
++            self.store_instantlock(txid, entry);
++        }
+ 
+         Ok(vec![SyncEvent::InstantLockReceived {
+             instant_lock: instantlock.clone(),
+@@ -200,6 +221,17 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
+ 
+     /// Queue an InstantLock for later validation.
+     fn queue_pending(&mut self, pending: PendingInstantLock) {
++        let txid = pending.instant_lock.txid;
++        let same = self.pending_instantlocks.iter().filter(|p| p.instant_lock.txid == txid).count();
++        if same >= MAX_PENDING_PER_TXID {
++            tracing::debug!(
++                "{} InstantLocks already pending for txid {}, not queueing another",
++                same,
++                txid
++            );
++            self.progress.add_invalid(1);
++            return;
++        }
+         // Remove oldest if at capacity
+         if self.pending_instantlocks.len() >= MAX_PENDING_INSTANTLOCKS {
+             let dropped = self.pending_instantlocks.remove(0);
+@@ -260,6 +292,13 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
+                 continue;
+             }
+ 
++            // evolite (security): another lock for this txid has verified meanwhile, so this one
++            // is superseded; dropping it keeps a single verified lock (and event) per txid.
++            if self.is_transaction_locked(&txid) {
++                tracing::debug!("Dropping pending InstantLock for already-locked txid {}", txid);
++                continue;
++            }
++
+             let lock = &pending_lock.instant_lock;
+             let validated =
+                 self.engine.read().await.rotated_quorums_of_cycle(&lock.cyclehash).is_some_and(
+@@ -269,9 +308,23 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
+             if validated {
+                 self.progress.add_valid(1);
+                 // Update the cached entry
+-                if let Some(entry) = self.instantlocks.get_mut(&txid) {
+-                    entry.validated = true;
+-                }
++                // evolite (security): the cache stores exactly the lock that verified. The entry
++                // for the txid may hold a different, unverified lock (a forged one that came
++                // first); marking that one validated would vouch for a lock never checked. The
++                // entry keeps its `received_at` only when it already holds this very lock.
++                let received_at = self
++                    .instantlocks
++                    .get(&txid)
++                    .filter(|entry| entry.instant_lock == pending_lock.instant_lock)
++                    .map_or_else(SystemTime::now, |entry| entry.received_at);
++                self.store_instantlock(
++                    txid,
++                    InstantLockEntry {
++                        instant_lock: pending_lock.instant_lock.clone(),
++                        received_at,
++                        validated: true,
++                    },
++                );
+                 events.push(SyncEvent::InstantLockReceived {
+                     instant_lock: pending_lock.instant_lock.clone(),
+                     validated: true,
+@@ -794,12 +847,135 @@ mod tests {
+         assert!(!sent.is_empty(), "sent once, unverified");
+         for event in sent {
+             assert!(
+-                matches!(event, SyncEvent::InstantLockReceived { validated: false, .. }),
++                matches!(
++                    event,
++                    SyncEvent::InstantLockReceived {
++                        validated: false,
++                        ..
++                    }
++                ),
+                 "{event:?}"
+             );
+         }
+     }
+ 
++    /// The IS lock of the mainnet fixture's cycle (`TestEngine::mainnet_fixture`), signed by its
++    /// quorum; the same lock `validation::instantlock`'s tests verify.
++    fn genuine_lock() -> InstantLock {
++        dashcore::consensus::deserialize(&hex_conservative::decode_to_vec("01018d53e7997ead57409750942af0d5e0aafc06f852a9a52308f4781b6a8220298f00000000c6f9d8c63dd15937ea70aaddb7890daad42c91bf6818e2bf76d183d6f2d9215b4b5f84978fad9dde7ab52bdcc0674be891e9029cc1ef0cb01200000000000000a27c98836c4c04653ab81eb4e07ddfc2c8c2c1036b75247969c05a4f25451cd78913a971f1899d9f2bddec9cf8e0104004f72f20c2856453e5aa3bcd2a8200670ec28feda38f67cc400fc72ef1966956656ec0765478c9d16e9a9e470c07f9ed").unwrap()).unwrap()
++    }
++
++    /// The genuine lock with a garbage (non-zero) signature: well-formed, so it passes the
++    /// structure check, but it never verifies.
++    fn forged_lock() -> InstantLock {
++        InstantLock {
++            signature: BLSSignature::from([1u8; 96]),
++            ..genuine_lock()
++        }
++    }
++
++    /// evolite (security): a forged lock that a peer sends first for a txid must not shadow the
++    /// genuine one that follows. The genuine lock is verified, sent `validated: true` and cached
++    /// as the txid's lock; only then are later locks for the txid ignored.
++    #[tokio::test]
++    async fn a_forged_lock_sent_first_does_not_shadow_the_genuine_one() {
++        let engine = TestEngine::mainnet_fixture();
++        let mut manager: TestInstantSendManager =
++            InstantSendManager::new(Arc::new(RwLock::new(engine)));
++        let genuine = genuine_lock();
++        let txid = genuine.txid;
++
++        let events = manager.process_instantlock(&forged_lock()).await.unwrap();
++        assert!(
++            matches!(
++                events.as_slice(),
++                [SyncEvent::InstantLockReceived {
++                    validated: false,
++                    ..
++                }]
++            ),
++            "{events:?}"
++        );
++        assert!(!manager.is_transaction_locked(&txid));
++
++        let events = manager.process_instantlock(&genuine).await.unwrap();
++        match events.as_slice() {
++            [SyncEvent::InstantLockReceived {
++                instant_lock,
++                validated: true,
++            }] => assert_eq!(instant_lock, &genuine),
++            other => panic!("expected the genuine lock sent verified, got {other:?}"),
++        }
++        let entry = manager.get_instantlock(&txid).expect("cached");
++        assert!(entry.validated);
++        assert_eq!(entry.instant_lock, genuine);
++
++        // Verified, the txid's lock now suppresses any other.
++        assert!(manager.process_instantlock(&forged_lock()).await.unwrap().is_empty());
++        assert_eq!(manager.get_instantlock(&txid).expect("cached").instant_lock, genuine);
++    }
++
++    /// evolite (security audit F8, review r1 Should 1): many forged locks for one txid take at most
++    /// `MAX_PENDING_PER_TXID` places; those already waiting stay, and another txid's lock is still
++    /// queued.
++    #[tokio::test]
++    async fn forged_locks_for_one_txid_take_a_few_places_only() {
++        let mut manager = create_test_manager();
++        let genuine = genuine_lock();
++        let _ = manager.process_instantlock(&genuine).await.unwrap();
++        for n in 1..=6u8 {
++            let forged = InstantLock {
++                signature: BLSSignature::from([n; 96]),
++                ..genuine_lock()
++            };
++            let _ = manager.process_instantlock(&forged).await.unwrap();
++        }
++        assert_eq!(manager.pending_count(), MAX_PENDING_PER_TXID);
++        assert!(
++            manager.pending_instantlocks.iter().any(|p| p.instant_lock == genuine),
++            "the one waiting first stays"
++        );
++        let other = InstantLock {
++            txid: Txid::from_byte_array([3u8; 32]),
++            ..genuine_lock()
++        };
++        let _ = manager.process_instantlock(&other).await.unwrap();
++        assert_eq!(manager.pending_count(), MAX_PENDING_PER_TXID + 1, "another txid's is queued");
++    }
++
++    /// evolite (security): both locks arrive before their cycle's quorum is known, the forged one
++    /// first. Both are kept pending; once the quorum lands, the lock that verifies is the one
++    /// cached as validated (not the forged entry merely marked so), and the forged one, now
++    /// superseded, is dropped.
++    #[tokio::test]
++    async fn the_pending_lock_that_verifies_is_the_one_cached() {
++        let mut manager = create_test_manager();
++        let genuine = genuine_lock();
++        let txid = genuine.txid;
++
++        let _ = manager.process_instantlock(&forged_lock()).await.unwrap();
++        let _ = manager.process_instantlock(&genuine).await.unwrap();
++        assert_eq!(manager.pending_count(), 2, "the genuine lock is queued, not a duplicate");
++        assert!(!manager.is_transaction_locked(&txid));
++
++        *manager.engine.write().await = TestEngine::mainnet_fixture();
++        let events = manager.validate_pending(Instant::now()).await.unwrap();
++        match events.as_slice() {
++            [SyncEvent::InstantLockReceived {
++                instant_lock,
++                validated: true,
++            }] => assert_eq!(instant_lock, &genuine),
++            other => panic!("expected the genuine lock sent verified, got {other:?}"),
++        }
++        let entry = manager.get_instantlock(&txid).expect("cached");
++        assert!(entry.validated);
++        assert_eq!(entry.instant_lock, genuine);
++
++        let events = manager.validate_pending(Instant::now()).await.unwrap();
++        assert!(events.is_empty());
++        assert_eq!(manager.pending_count(), 0, "the superseded forged lock is dropped");
++    }
++
+     /// `on_disconnect` clears queued locks and resets the re-validation marker so
+     /// a lock re-received after reconnect is validated fresh.
+     #[tokio::test]

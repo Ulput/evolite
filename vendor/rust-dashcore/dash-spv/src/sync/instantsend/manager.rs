@@ -20,6 +20,13 @@ use crate::validation::{InstantLockStructureValidator, InstantLockValidator, Val
 /// Maximum number of pending InstantLocks awaiting validation.
 const MAX_PENDING_INSTANTLOCKS: usize = 500;
 
+/// evolite (security audit F8, review r1 Should 1): at most this many pending locks for one txid.
+/// Locks with garbage signatures for one txid would otherwise fill the whole queue and push out
+/// the genuine locks of other txids waiting for their cycle. Past it a new lock for that txid is
+/// not queued: those already waiting stay, so a forgery sent after the genuine lock cannot push
+/// it out (one sent before it can still take a place; the txid then waits for its ChainLock).
+const MAX_PENDING_PER_TXID: usize = 4;
+
 /// Maximum number of InstantLocks to cache.
 const MAX_CACHE_SIZE: usize = 5000;
 
@@ -214,6 +221,17 @@ impl<H: BlockHeaderStorage> InstantSendManager<H> {
 
     /// Queue an InstantLock for later validation.
     fn queue_pending(&mut self, pending: PendingInstantLock) {
+        let txid = pending.instant_lock.txid;
+        let same = self.pending_instantlocks.iter().filter(|p| p.instant_lock.txid == txid).count();
+        if same >= MAX_PENDING_PER_TXID {
+            tracing::debug!(
+                "{} InstantLocks already pending for txid {}, not queueing another",
+                same,
+                txid
+            );
+            self.progress.add_invalid(1);
+            return;
+        }
         // Remove oldest if at capacity
         if self.pending_instantlocks.len() >= MAX_PENDING_INSTANTLOCKS {
             let dropped = self.pending_instantlocks.remove(0);
@@ -829,7 +847,13 @@ mod tests {
         assert!(!sent.is_empty(), "sent once, unverified");
         for event in sent {
             assert!(
-                matches!(event, SyncEvent::InstantLockReceived { validated: false, .. }),
+                matches!(
+                    event,
+                    SyncEvent::InstantLockReceived {
+                        validated: false,
+                        ..
+                    }
+                ),
                 "{event:?}"
             );
         }
@@ -863,7 +887,13 @@ mod tests {
 
         let events = manager.process_instantlock(&forged_lock()).await.unwrap();
         assert!(
-            matches!(events.as_slice(), [SyncEvent::InstantLockReceived { validated: false, .. }]),
+            matches!(
+                events.as_slice(),
+                [SyncEvent::InstantLockReceived {
+                    validated: false,
+                    ..
+                }]
+            ),
             "{events:?}"
         );
         assert!(!manager.is_transaction_locked(&txid));
@@ -883,6 +913,34 @@ mod tests {
         // Verified, the txid's lock now suppresses any other.
         assert!(manager.process_instantlock(&forged_lock()).await.unwrap().is_empty());
         assert_eq!(manager.get_instantlock(&txid).expect("cached").instant_lock, genuine);
+    }
+
+    /// evolite (security audit F8, review r1 Should 1): many forged locks for one txid take at most
+    /// `MAX_PENDING_PER_TXID` places; those already waiting stay, and another txid's lock is still
+    /// queued.
+    #[tokio::test]
+    async fn forged_locks_for_one_txid_take_a_few_places_only() {
+        let mut manager = create_test_manager();
+        let genuine = genuine_lock();
+        let _ = manager.process_instantlock(&genuine).await.unwrap();
+        for n in 1..=6u8 {
+            let forged = InstantLock {
+                signature: BLSSignature::from([n; 96]),
+                ..genuine_lock()
+            };
+            let _ = manager.process_instantlock(&forged).await.unwrap();
+        }
+        assert_eq!(manager.pending_count(), MAX_PENDING_PER_TXID);
+        assert!(
+            manager.pending_instantlocks.iter().any(|p| p.instant_lock == genuine),
+            "the one waiting first stays"
+        );
+        let other = InstantLock {
+            txid: Txid::from_byte_array([3u8; 32]),
+            ..genuine_lock()
+        };
+        let _ = manager.process_instantlock(&other).await.unwrap();
+        assert_eq!(manager.pending_count(), MAX_PENDING_PER_TXID + 1, "another txid's is queued");
     }
 
     /// evolite (security): both locks arrive before their cycle's quorum is known, the forged one
