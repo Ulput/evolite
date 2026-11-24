@@ -98,9 +98,12 @@ fn connecting_puts_the_app_in_the_list() {
 fn an_optional_key_left_off_is_not_granted() {
     let (_turn, mut kit) = demo_app("apps", "en");
     open_request(&mut kit);
+    // By AccessKit, as a reader: the summary over the password grows with each encryption key
+    // the app gets (the demo's own), and at the test window's height the box can be below the
+    // fold of the middle, where a click at its centre would miss it.
     kit.query_by_role_and_label(Role::CheckBox, "Change your DashPay profile")
         .expect("the optional key's checkbox")
-        .click();
+        .click_accesskit();
     kit.run_steps(2);
     let state = &kit.state().requests;
     let request = state.open.clone().unwrap();
@@ -109,6 +112,63 @@ fn an_optional_key_left_off_is_not_granted() {
             .expect("a grant");
     assert_eq!(grant.keys[1], None);
     assert_eq!(grant.keys[0].map(|(b, _)| b), Some(51_000_000));
+}
+
+/// An encryption key the app gets with none added — the identity's own current decryption key of
+/// another contract — is said in the request and again in the summary over the password, as the
+/// private key the app receives; a key the wallet does not send is not said.
+#[test]
+fn a_key_the_app_gets_without_adding_one_is_said() {
+    const OTHER: &str = "9Mz3Rt6wQmRz8LpXcV4nB7sYd3Ke1JaPu5W2x";
+    let (_turn, mut kit) = demo_app("apps", "en");
+    // Tall enough for the whole middle: AccessKit keeps a widget's whole box, clipped or not,
+    // so a middle that scrolls would put its own copy of a line inside the summary's place.
+    kit.set_size(egui::vec2(1024.0, 2000.0));
+    open_request(&mut kit);
+    let key = "Get your private decryption key for another contract";
+    let lines = |kit: &Kit| -> Vec<egui::Rect> {
+        kit.query_all_by(|n| {
+            n.label().is_some_and(|l| l.contains(key)) || n.value().is_some_and(|v| v.contains(key))
+        })
+        .map(|n| n.rect())
+        .collect()
+    };
+    for given in [true, false] {
+        if let Some(open) = kit.state_mut().requests.open.as_mut() {
+            let evolite_api::AppRequestKind::Connect2 { encryption, .. } = &mut open.kind;
+            *encryption = vec![evolite_api::EncryptionOffer {
+                contract: OTHER.into(),
+                encryption: false,
+                given,
+                added: false,
+            }];
+        }
+        kit.run_steps(3);
+        let seen = crate::components::dialog_seen(&kit.ctx).expect("the request dialog");
+        assert!(
+            seen.scrolled.is_none() && !seen.one_scroll,
+            "given {given}: the middle fits whole, the summary pinned under it"
+        );
+        let (summary, _) = seen.summary.expect("the request's summary");
+        let shown = lines(&kit);
+        let pinned = shown
+            .iter()
+            .filter(|r| summary.expand(0.5).contains_rect(**r))
+            .count();
+        assert_eq!(pinned, usize::from(given), "given {given}: in the summary");
+        assert_eq!(
+            shown.len() - pinned,
+            usize::from(given),
+            "given {given}: in the request"
+        );
+        for words in [
+            "receives the private key itself",
+            "already has for this contract",
+            "This is not the app's own contract",
+        ] {
+            assert_eq!(has_words(&kit, words), given, "given {given}: «{words}»");
+        }
+    }
 }
 
 /// L1/L2: active, used up (with what to do), expired, and the disconnected ones apart with

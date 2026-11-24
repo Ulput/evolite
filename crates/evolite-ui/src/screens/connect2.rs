@@ -171,6 +171,63 @@ pub fn binding_title(binding: &AppBinding, app: &str) -> String {
     }
 }
 
+/// An encryption key the wallet sends the app (`given`: a new one added, or the identity's own
+/// current one): its private key goes to the app, so it is said in the request and in its
+/// summary over the password. The icon (a key for the app's own contract, a warning for another
+/// one), a title naming which half of the pair and whose contract, and the line under it.
+/// `None`: the app gets no key for it.
+pub fn key_words(
+    enc: &EncryptionOffer,
+    app_id: &str,
+    app: &str,
+) -> Option<(&'static str, String, String)> {
+    if !enc.given {
+        return None;
+    }
+    let own = enc.contract == app_id;
+    let other = text::short_address(&enc.contract);
+    let title = match (enc.encryption, own) {
+        (true, true) => format!(
+            tr!("Get your private encryption key for the {} contract"),
+            app
+        ),
+        (false, true) => format!(
+            tr!("Get your private decryption key for the {} contract"),
+            app
+        ),
+        (true, false) => format!(
+            tr!("Get your private encryption key for another contract, {}"),
+            other
+        ),
+        (false, false) => format!(
+            tr!("Get your private decryption key for another contract, {}"),
+            other
+        ),
+    };
+    // Each sentence in the interface's language, then together: the catalog has them apart.
+    let said = |s: &str| crate::i18n::t_in(crate::i18n::current(), s).into_owned();
+    let mut under = vec![
+        said(tr!(
+            "The app receives the private key itself and can read what is encrypted to you under this contract. Disconnecting the app does not take the key back."
+        )),
+        if enc.added {
+            said(tr!(
+                "evolite adds this new key to the identity; it spends nothing."
+            ))
+        } else {
+            said(tr!(
+                "It is the key your identity already has for this contract, so what was encrypted to you before can be read too."
+            ))
+        },
+    ];
+    if !own {
+        under.push(said(tr!(
+            "This is not the app's own contract: what other apps keep encrypted to you there, this app can read too."
+        )));
+    }
+    Some((if own { "key" } else { "warning" }, title, under.join(" ")))
+}
+
 /// "a minute ago"-style age of a request.
 fn age(seconds: Timestamp) -> String {
     let minutes = (seconds / 60).max(1) as u32;
@@ -371,6 +428,11 @@ pub fn request(
         state.choice = Choice::of(request, now.timestamp());
     }
     let app = label.as_str();
+    // The encryption keys whose private key the app gets: said in the middle and the summary.
+    let keys: Vec<_> = encryption
+        .iter()
+        .filter_map(|e| key_words(e, app_id, app))
+        .collect();
     let title = match renews {
         Some(_) => format!(tr!("Renew the {} connection"), app),
         None => tr!("Connect an app").to_string(),
@@ -391,11 +453,18 @@ pub fn request(
             let p = a.p;
             ui.spacing_mut().item_spacing.y = 12.0;
             // BUG-249: what is agreed to, pinned over the password, a line each: the rights as
-            // chosen above (the primary key's and the optional ones kept), the limit and the
-            // period's end, and what adding the keys costs. The choices themselves, who the app
-            // is and the explanations stay in the middle.
+            // chosen above (the primary key's and the optional ones kept), each encryption key
+            // the app gets, the limit and the period's end, and what adding the keys costs. The
+            // choices themselves, who the app is and the explanations stay in the middle.
             if part == Part::Summary {
-                summary(ui, a, state, (sessions, limits, app), now.timestamp());
+                summary(
+                    ui,
+                    a,
+                    state,
+                    (sessions, limits, app),
+                    &keys,
+                    now.timestamp(),
+                );
                 kv_row(
                     ui,
                     &p,
@@ -600,6 +669,9 @@ pub fn request(
                     state.choice.kept[i] = on;
                 }
             }
+            for (icon, title, under) in &keys {
+                can_line(ui, a, icon, title, Some(under.as_str()), false);
+            }
             can_line(ui, a, "close", tr!("Transfer credits and DASH"), None, true);
             can_line(
                 ui,
@@ -609,25 +681,6 @@ pub fn request(
                 None,
                 true,
             );
-            for enc in encryption.iter().filter(|e| e.added) {
-                let EncryptionOffer { contract, .. } = enc;
-                let whose = if contract == app_id {
-                    app.to_owned()
-                } else {
-                    text::short_address(contract)
-                };
-                wrapped(
-                    ui,
-                    &format!(
-                        tr!(
-                            "evolite also adds an encryption key for {} messages; it spends nothing."
-                        ),
-                        whose
-                    ),
-                    12.0,
-                    p.muted,
-                );
-            }
             crate::components::divider(ui, &p);
             section(ui, a, tr!("Spending limit, DASH"));
             let mut items: Vec<String> = limits.budget_presets.iter().map(|&d| number(d)).collect();
@@ -689,13 +742,15 @@ pub fn request(
     pick
 }
 
-/// BUG-249: the request's summary: what the app will be able to do as chosen, its limit and its
-/// period's end ("—" while the choice is not one the wallet takes).
+/// BUG-249: the request's summary: what the app will be able to do as chosen, the encryption
+/// keys whose private key it gets ([`key_words`]), its limit and its period's end ("—" while
+/// the choice is not one the wallet takes).
 fn summary(
     ui: &mut Ui,
     a: &mut Assets,
     state: &AppRequests,
     (sessions, limits, app): (&[SessionOffer], &SessionLimits, &str),
+    keys: &[(&'static str, String, String)],
     now: Timestamp,
 ) {
     let p = a.p;
@@ -712,6 +767,9 @@ fn summary(
                     false,
                 );
             }
+        }
+        for (icon, title, _) in keys {
+            can_line(ui, a, icon, title, None, false);
         }
     });
     let value = mono(13.0, Weight::Medium);

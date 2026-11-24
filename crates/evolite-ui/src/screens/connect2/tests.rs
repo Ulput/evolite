@@ -251,6 +251,86 @@ fn the_explanation_says_the_whole_ask() {
     );
 }
 
+fn enc(contract: &str, encryption: bool, given: bool, added: bool) -> EncryptionOffer {
+    EncryptionOffer {
+        contract: contract.into(),
+        encryption,
+        given,
+        added,
+    }
+}
+
+const OTHER: &str = "9Mz3Rt6wQmRz8LpXcV4nB7sYd3Ke1JaPu5W2x";
+
+/// Every encryption key the app gets is said — the identity's own current one as much as a new
+/// one added — with which half of the pair it is, whose contract, and that the app receives its
+/// private key; another contract is said to be another's. A key not sent is not said.
+#[test]
+fn every_key_the_app_gets_is_said() {
+    let sent = enc(OTHER, false, true, false);
+    let (icon, title, under) = key_words(&sent, "A", "Yappr").expect("sent, not added");
+    assert_eq!(icon, "warning");
+    assert_eq!(
+        title,
+        format!(
+            "Get your private decryption key for another contract, {}",
+            text::short_address(OTHER)
+        )
+    );
+    for words in [
+        "receives the private key itself",
+        "encrypted to you under this contract",
+        "already has",
+        "not the app's own contract",
+    ] {
+        assert!(under.contains(words), "«{words}»: {under}");
+    }
+    assert!(!under.contains("adds this new key"), "{under}");
+
+    let added = enc("A", true, true, true);
+    let (icon, title, under) = key_words(&added, "A", "Yappr").expect("added");
+    assert_eq!(icon, "key");
+    assert_eq!(
+        title,
+        "Get your private encryption key for the Yappr contract"
+    );
+    assert!(
+        under.contains("receives the private key itself") && under.contains("adds this new key"),
+        "{under}"
+    );
+    assert!(!under.contains("not the app's own"), "{under}");
+
+    assert_eq!(
+        key_words(&enc(OTHER, false, false, false), "A", "Yappr"),
+        None,
+        "not sent"
+    );
+}
+
+/// The same words in ru and uk, each from the catalog: no English left in them.
+#[test]
+fn the_keys_words_are_translated() {
+    for lang in [crate::i18n::Lang::Ru, crate::i18n::Lang::Uk] {
+        crate::i18n::set(lang);
+        for offer in [
+            enc("A", true, true, true),
+            enc("A", false, true, false),
+            enc(OTHER, true, true, true),
+            enc(OTHER, false, true, false),
+        ] {
+            let (_, title, under) = key_words(&offer, "A", "Yappr").expect("said");
+            let title = crate::i18n::t_in(lang, &title).into_owned();
+            for said in [&title, &under] {
+                assert!(
+                    !said.contains("key") && !said.contains("contract"),
+                    "{lang:?}: {said}"
+                );
+            }
+        }
+    }
+    crate::i18n::set(crate::i18n::Lang::En);
+}
+
 /// BUG-161, App Connect's «Your amount» limit: «0,002» and «0.002» are the same limit in every
 /// language; «1,000,000» is no limit (none is granted) and the line under the field says so.
 #[test]
