@@ -14,6 +14,7 @@ use crate::real::sent;
 
 use dpp::identity::IdentityPublicKey;
 use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
+use dpp::identity::identity_public_key::accessors::v1::IdentityPublicKeyGettersV1;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
 use evolite_api::*;
@@ -562,23 +563,34 @@ impl Real {
                     let secret = v2keys::derive(&keys, &path).map_err(CoreError::Failed)?;
                     let key = grant::session_key(next, b, limits, &secret)
                         .map_err(CoreError::Failed)?;
-                    // A retry of the same request: the key from before is reused (DIP).
-                    let id = match who
+                    // A retry of the same request: the key from before is reused (DIP), only if
+                    // Platform holds it to no more than this «Allow», and kept as Platform holds
+                    // it; else the app sent its `appEphPub` again for other limits: refused.
+                    let (id, held) = match who
                         .keys
                         .iter()
                         .find(|k| k.data() == key.data() && k.disabled_at().is_none())
                     {
-                        Some(there) => there.id(),
+                        Some(there) => match held_within(there, &key) {
+                            Some(held) => (there.id(), held),
+                            None => {
+                                return Err(refusal(
+                                    Refusal::Refused(Status::Invalid, Part::AppKey),
+                                    "",
+                                    false,
+                                ));
+                            }
+                        },
                         None => {
                             next += 1;
                             add.push(NewKey {
                                 key,
                                 secret: secret.clone(),
                             });
-                            next - 1
+                            (next - 1, *limits)
                         }
                     };
-                    stored.push(stored_key(id, &b.bounds, b.level, limits));
+                    stored.push(stored_key(id, &b.bounds, b.level, &held));
                     auth_slots.push(secret);
                 }
                 let steps = enc_steps(&chain, &keys, &me, &who.keys, &request).await?;
@@ -1047,6 +1059,30 @@ fn all_on(added: &[IdentityPublicKey], keys: &[IdentityPublicKey]) -> bool {
     added.iter().all(|new| {
         keys.iter()
             .any(|k| k.data() == new.data() && k.disabled_at().is_none())
+    })
+}
+
+/// The limits Platform holds `there` to, if it may do no more than `key`: `there` is the
+/// identity's enabled key with the data of `key`, the session key this «Allow» would add. The
+/// data depends only on `appEphPub` and the binding's index, so `there` is this request's key from
+/// before (a retry: the same bounds and budget, its end worked out again at the new «Allow», so
+/// only later) or an app's `appEphPub` sent again. Reused for lower limits or other bounds,
+/// Platform would keep the old ones while the record showed the new: `None`.
+fn held_within(there: &IdentityPublicKey, key: &IdentityPublicKey) -> Option<Limits> {
+    let same = there.purpose() == key.purpose()
+        && there.key_type() == key.key_type()
+        && there.security_level() == key.security_level()
+        && there.contract_bounds() == key.contract_bounds();
+    let budget = there
+        .total_budget()
+        .filter(|&held| key.total_budget().is_some_and(|asked| held <= asked))?;
+    let expires_at = there
+        .expires_at()
+        .filter(|&held| key.expires_at().is_some_and(|asked| held <= asked))?;
+    same.then_some(Limits {
+        budget,
+        expires_at,
+        changed: false,
     })
 }
 

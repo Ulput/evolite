@@ -356,6 +356,83 @@ fn the_response_waits_for_every_new_key_on_the_identity() {
     assert!(all_on(&[], &[key(1, false)]), "a sign-in again adds none");
 }
 
+/// A session key's data depends only on `appEphPub` and the binding's index: the key already on
+/// the identity is reused only if Platform holds it to no more than this «Allow», and kept as
+/// Platform holds it. A retry (the same bounds and budget, its end worked out again a little
+/// later) is; the same `appEphPub` again for a lower budget, an earlier end, other bounds, another
+/// level, or a key with no limits on Platform is not. And the path refuses before anything is
+/// sent. Mutant: the found key reused as before, whatever Platform holds it to.
+#[test]
+fn a_key_on_the_identity_is_reused_only_within_this_allow() {
+    const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+    let secret = [0x42u8; SLOT];
+    let binding = v2::AuthBinding {
+        bounds: Bounds::SingleContract([7; 32]),
+        level: Level::High,
+        total_budget: 0,
+        expires_at: 0,
+    };
+    let limits = |budget, expires_at| Limits {
+        budget,
+        expires_at,
+        changed: false,
+    };
+    let asked = |binding: &v2::AuthBinding, chosen: Limits| {
+        grant::session_key(9, binding, &chosen, &secret).unwrap()
+    };
+    let first = limits(5 * grant::CREDITS_PER_DASH, NOW_MS + 365 * DAY_MS);
+    let there = grant::session_key(5, &binding, &first, &secret).unwrap();
+
+    let held = |b: &v2::AuthBinding, l: Limits| held_within(&there, &asked(b, l));
+
+    assert_eq!(held(&binding, first), Some(first));
+    let retry = limits(first.budget, first.expires_at + 120_000);
+    assert_eq!(held(&binding, retry), Some(first), "Platform's end");
+
+    let lower = limits(grant::CREDITS_PER_DASH / 2, NOW_MS + 30 * DAY_MS);
+    assert_eq!(held(&binding, lower), None, "lower limits");
+    let less = limits(grant::CREDITS_PER_DASH / 2, first.expires_at);
+    assert_eq!(held(&binding, less), None, "a lower budget");
+    let sooner = limits(first.budget, NOW_MS + 30 * DAY_MS);
+    assert_eq!(held(&binding, sooner), None, "an earlier end");
+    let elsewhere = v2::AuthBinding {
+        bounds: Bounds::SingleContract([8; 32]),
+        ..binding.clone()
+    };
+    assert_eq!(held(&elsewhere, first), None, "other bounds");
+    let critical = v2::AuthBinding {
+        level: Level::Critical,
+        ..binding.clone()
+    };
+    assert_eq!(held(&critical, first), None, "another level");
+    let unlimited = IdentityPublicKey::V0(IdentityPublicKeyV0 {
+        id: 5,
+        purpose: there.purpose(),
+        security_level: there.security_level(),
+        contract_bounds: there.contract_bounds().cloned(),
+        key_type: there.key_type(),
+        read_only: false,
+        data: there.data().clone(),
+        disabled_at: None,
+    });
+    assert_eq!(
+        held_within(&unlimited, &asked(&binding, first)),
+        None,
+        "no budget and no end on Platform"
+    );
+
+    let source = include_str!("../app_connect2.rs");
+    let f = &source[source.find("fn approve_connect2(").expect("approve")..];
+    let reuse = f
+        .find("held_within(there, &key)")
+        .expect("the found key checked");
+    let kept = f
+        .find("stored_key(id, &b.bounds, b.level, &held)")
+        .expect("kept as Platform holds it");
+    let update = f.find("sent::run(").expect("the update");
+    assert!(reuse < kept && kept < update);
+}
+
 /// BUG-208: the response not published after the keys were paid: their History line and the
 /// record (keys, no response) are written then, not lost; with nothing paid, neither. And the
 /// path writes them in that branch, after the keys went through the one rule. Mutant: returning
