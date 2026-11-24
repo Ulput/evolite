@@ -1795,8 +1795,9 @@ pub fn unsignable(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletI
     coins_once(info)
         .into_iter()
         .filter(|u| !signable.contains(&u.outpoint))
-        .map(|u| u.value() as Duffs)
-        .sum()
+        // As in [`core_balance`], which it is taken from.
+        .filter_map(|u| coin_duffs(u.value()))
+        .fold(0, Duffs::saturating_add)
 }
 
 /// Moves each coin filed in BIP44 or BIP32 account 0 at an address that account does not derive
@@ -1874,20 +1875,35 @@ fn send_accounts(
 /// accounts twice. The same sum as key-wallet's total (confirmed, unconfirmed, immature and
 /// locked coins).
 pub fn core_balance(info: &key_wallet::wallet::managed_wallet_info::ManagedWalletInfo) -> Duffs {
-    coins_once(info).iter().map(|u| u.value() as Duffs).sum()
+    coins_once(info)
+        .iter()
+        .filter_map(|u| coin_duffs(u.value()))
+        .fold(0, Duffs::saturating_add)
+}
+
+/// A coin's value in duffs, `None` above `MAX_MONEY`: no valid transaction pays that much, but
+/// a peer can relay an unconfirmed one paying the wallet any u64, and `as Duffs` turned 2^63 or
+/// more into a negative amount that took the balance below zero and refused every payment.
+fn coin_duffs(value: u64) -> Option<Duffs> {
+    if value > key_wallet::dashcore::constants::MAX_MONEY {
+        return None;
+    }
+    Duffs::try_from(value).ok()
 }
 
 /// The wallet's coins (`values`, in duffs) as [`Fees::core_coins`]: largest first, each with
 /// the fee of a payment spending it and every larger one — what platform-wallet's selection
 /// (key-wallet `BranchAndBound`, which accumulates the largest coins when no change-free set
 /// fits) pays for an amount those coins cover (BUG-55).
-pub fn core_coins(mut values: Vec<u64>) -> Vec<CoreCoin> {
+pub fn core_coins(values: Vec<u64>) -> Vec<CoreCoin> {
+    // Coins above `MAX_MONEY` left out, as in [`core_balance`].
+    let mut values: Vec<Duffs> = values.into_iter().filter_map(coin_duffs).collect();
     values.sort_unstable_by(|a, b| b.cmp(a));
     values
         .into_iter()
         .enumerate()
         .map(|(n, value)| CoreCoin {
-            value: value as Duffs,
+            value,
             fee: fee_rate().calculate_fee(estimate_tx_size(n + 1, 1, true)) as Duffs,
         })
         .collect()
@@ -5283,6 +5299,57 @@ mod coinjoin_tests {
             "only what can be signed for"
         );
         assert_eq!(unsignable(&info), 100_000);
+    }
+
+    /// A peer can relay an unconfirmed transaction paying the wallet more than `MAX_MONEY` (any
+    /// u64): `as Duffs` made 2^63 or more a negative amount, the balance fell below zero and
+    /// every Core payment was refused. Such a coin is left out of the sums; one of `MAX_MONEY`
+    /// still counts.
+    #[test]
+    fn a_coin_above_max_money_is_not_counted() {
+        let max = key_wallet::dashcore::constants::MAX_MONEY;
+        assert_eq!(coin_duffs(max), Some(2_100_000_000_000_000));
+        assert_eq!(coin_duffs(max + 1), None);
+        assert_eq!(coin_duffs(u64::MAX), None);
+        let mut info = info();
+        let own = address(&info, false, 0);
+        let mine = utxo(
+            OutPoint::new(Txid::from_byte_array([1; 32]), 0),
+            5_000_000,
+            &own,
+        );
+        let mut fake = utxo(
+            OutPoint::new(Txid::from_byte_array([2; 32]), 0),
+            1 << 63,
+            &own,
+        );
+        fake.is_confirmed = false;
+        let mut filed = utxo(
+            OutPoint::new(Txid::from_byte_array([3; 32]), 0),
+            u64::MAX,
+            &other(42),
+        );
+        filed.is_confirmed = false;
+        {
+            let account = info
+                .accounts_mut()
+                .standard_bip44_accounts
+                .get_mut(&0)
+                .unwrap();
+            account.utxos.insert(mine.outpoint, mine.clone());
+            account.utxos.insert(fake.outpoint, fake.clone());
+            account.utxos.insert(filed.outpoint, filed.clone());
+        }
+        assert_eq!(core_balance(&info), 5_000_000, "not below zero");
+        assert_eq!(unsignable(&info), 0);
+        let coins = core_coins(coins_once(&info).iter().map(|u| u.value()).collect());
+        assert_eq!(
+            coins,
+            vec![CoreCoin {
+                value: 5_000_000,
+                fee: fees(1).core_payment,
+            }]
+        );
     }
 
     /// AC-T2, BUG-121 p. 1: a coin of the CoinJoin account is no Core coin — not in the balance,
