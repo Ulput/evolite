@@ -86,6 +86,24 @@ pub enum QuorumValidationError {
     CorruptedCodeExecution(String),
     #[error("Expected only rotated quorums, but got quorum {0} of type {1}")]
     ExpectedOnlyRotatedQuorums(QuorumHash, LLMQType),
+
+    #[error("Signers bit {index} is set, but the quorum has only {members_count} members")]
+    SignerBeyondMembers {
+        index: usize,
+        members_count: usize,
+    },
+
+    #[error("Valid members bit {index} is set, but the quorum has only {members_count} members")]
+    ValidMemberBeyondMembers {
+        index: usize,
+        members_count: usize,
+    },
+
+    #[error("Signers bit {index} names the masternode already signing at bit {first_index}")]
+    DuplicateSigner {
+        index: usize,
+        first_index: usize,
+    },
 }
 
 impl From<SmlError> for QuorumValidationError {
