@@ -45,6 +45,8 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> SyncManager for BlockHeadersMana
         // we already have.
         self.pipeline.clear_in_flight();
         self.pending_announcements.clear();
+        // evolite (security): a resumed sync waits for its own announcements afresh.
+        self.announcements_wait_started = None;
         self.announced_peers.clear();
     }
 

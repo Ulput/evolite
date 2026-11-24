@@ -48,6 +48,15 @@ pub(super) const MAX_FORK_HEADERS: usize = 2016;
 /// ChainLock that don't connect to our chain.
 pub(super) const LOCATOR_ASK_INTERVAL: Duration = Duration::from_secs(30);
 
+/// evolite (security): the most block announcements held at once. A peer's `inv` may list
+/// any number of hashes; past this, new ones are dropped until held ones arrive or expire.
+pub(super) const MAX_PENDING_ANNOUNCEMENTS: usize = 500;
+
+/// evolite (security): how long a complete initial sync keeps asking for the blocks
+/// announced during it, from the first time it waits for them, before it completes without
+/// them. What is still pending then is left to the post-sync fallback in `tick`.
+pub(super) const PENDING_ANNOUNCEMENTS_SYNC_WAIT: Duration = Duration::from_secs(20);
+
 /// evolite (SPV item 1): a valid branch off the stored chain below its tip, held until
 /// it has more work than ours from the fork point. Nothing is trimmed meanwhile.
 #[derive(Debug)]
@@ -89,6 +98,9 @@ pub struct BlockHeadersManager<H: BlockHeaderStorage, M: MetadataStorage> {
     checkpoint_manager: &'static CheckpointManager,
     /// Pending block announcements waiting for headers message (post-sync).
     pub(super) pending_announcements: HashMap<BlockHash, Instant>,
+    /// evolite (security): when a complete initial sync first waited for announced blocks;
+    /// the wait is bounded from then, whatever is announced meanwhile.
+    pub(super) announcements_wait_started: Option<Instant>,
     /// Peers we've sent a GetHeaders to after sync, so Dash Core knows our tip
     /// and can send us header announcements instead of inv.
     pub(super) announced_peers: HashSet<SocketAddr>,
@@ -143,6 +155,7 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
             pipeline: HeadersPipeline::new(checkpoint_manager),
             checkpoint_manager,
             pending_announcements: HashMap::new(),
+            announcements_wait_started: None,
             announced_peers: HashSet::new(),
             network,
             fork: None,
@@ -734,15 +747,30 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
 
         // If blocks were announced during sync, request them before finalizing the sync
         if !self.pending_announcements.is_empty() {
-            tracing::info!(
-                "Pipeline complete but {} blocks announced during sync, requesting headers",
-                self.pending_announcements.len()
+            // evolite (security): asked for again after every answer, but only for
+            // PENDING_ANNOUNCEMENTS_SYNC_WAIT from the first time, however many arrive
+            // meanwhile: a peer announcing blocks that never come can't keep the sync from
+            // completing. Those still pending then are left to the post-sync fallback in
+            // `tick`, which asks once more and drops them.
+            let started = *self.announcements_wait_started.get_or_insert_with(Instant::now);
+            if started.elapsed() < PENDING_ANNOUNCEMENTS_SYNC_WAIT {
+                tracing::info!(
+                    "Pipeline complete but {} blocks announced during sync, requesting headers",
+                    self.pending_announcements.len()
+                );
+                // evolite (SPV item 1б): with a locator.
+                self.reset_tip_with_locator().await?;
+                self.pipeline.send_pending(requests)?;
+                return Ok(Vec::new());
+            }
+            tracing::warn!(
+                "Headers for {} blocks announced during sync did not arrive within {:?}, \
+                 completing the sync without them",
+                self.pending_announcements.len(),
+                PENDING_ANNOUNCEMENTS_SYNC_WAIT
             );
-            // evolite (SPV item 1б): with a locator.
-            self.reset_tip_with_locator().await?;
-            self.pipeline.send_pending(requests)?;
-            return Ok(Vec::new());
         }
+        self.announcements_wait_started = None;
 
         // Synced to the tip and no pending announcements, finalize and emit event
         let tip = self.tip().await?;
@@ -772,6 +800,15 @@ impl<H: BlockHeaderStorage, M: MetadataStorage> BlockHeadersManager<H, M> {
                 // Check if already pending
                 if self.pending_announcements.contains_key(block_hash) {
                     continue;
+                }
+
+                // evolite (security): bounded, whatever a peer's `inv` lists.
+                if self.pending_announcements.len() >= MAX_PENDING_ANNOUNCEMENTS {
+                    tracing::debug!(
+                        "{} block announcements already pending, dropping the rest of this inv",
+                        MAX_PENDING_ANNOUNCEMENTS
+                    );
+                    break;
                 }
 
                 // Check if we already have this block
@@ -1884,6 +1921,134 @@ mod tests {
             events.iter().any(|e| matches!(e, SyncEvent::BlockHeaderSyncComplete { .. })),
             "completion must be announced, or downstream managers never start"
         );
+    }
+
+    /// evolite (security): a peer's `inv` of block `id`, a block nobody has.
+    fn bogus_inv(id: u32) -> crate::network::Message {
+        let inv = NetworkMessage::Inv(vec![Inventory::Block(BlockHash::dummy(id))]);
+        crate::network::Message::new(peer(), inv)
+    }
+
+    /// evolite (security): how many getheaders the manager sent.
+    fn getheaders_sent(rx: &mut tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>) -> usize {
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .filter(|request| {
+                matches!(request, NetworkRequest::SendMessage(NetworkMessage::GetHeaders(_)))
+            })
+            .count()
+    }
+
+    /// evolite (security): a syncing manager whose only segment, the tip's, has asked.
+    async fn syncing_manager() -> (
+        TestBlockHeadersManager,
+        RequestSender,
+        tokio::sync::mpsc::UnboundedReceiver<NetworkRequest>,
+    ) {
+        let mut manager = create_test_manager().await;
+        let tip = manager.tip().await.unwrap();
+        manager.pipeline.init(tip.height(), *tip.hash(), tip.height());
+        manager.progress.set_state(SyncState::Syncing);
+        let (requests, mut rx) = create_test_request_sender();
+        manager.pipeline.send_pending(&requests).unwrap();
+        assert_eq!(getheaders_sent(&mut rx), 1, "precondition: the tip segment asked");
+        (manager, requests, rx)
+    }
+
+    fn sync_completed(events: &[SyncEvent]) -> bool {
+        events.iter().any(|event| matches!(event, SyncEvent::BlockHeaderSyncComplete { .. }))
+    }
+
+    /// evolite (security): however many block hashes `inv`s list, at most
+    /// [`MAX_PENDING_ANNOUNCEMENTS`] are held.
+    #[tokio::test]
+    async fn the_block_announcements_held_are_bounded() {
+        let mut manager = create_test_manager().await;
+        let (requests, _rx) = create_test_request_sender();
+        let inv = |ids: std::ops::Range<u32>| -> Vec<Inventory> {
+            ids.map(|id| Inventory::Block(BlockHash::dummy(id))).collect()
+        };
+        let cap = MAX_PENDING_ANNOUNCEMENTS as u32;
+
+        manager.handle_inventory(&inv(1_000..1_000 + 2 * cap), &requests).await.unwrap();
+        assert_eq!(manager.pending_announcements.len(), MAX_PENDING_ANNOUNCEMENTS);
+
+        manager.handle_inventory(&inv(10_000..10_000 + cap), &requests).await.unwrap();
+        assert_eq!(manager.pending_announcements.len(), MAX_PENDING_ANNOUNCEMENTS);
+        assert!(!manager.pending_announcements.contains_key(&BlockHash::dummy(10_000)));
+    }
+
+    /// evolite (security): a peer announcing a fresh block that never comes before every
+    /// answer and every tick can't keep the header sync from completing. They are asked for
+    /// again after every answer, for [`PENDING_ANNOUNCEMENTS_SYNC_WAIT`] from the first
+    /// time, which later announcements don't move; then the sync completes and leaves them
+    /// to the post-sync fallback, which asks once more and drops them.
+    #[tokio::test]
+    async fn announcements_that_never_come_do_not_keep_the_sync_from_completing() {
+        let (mut manager, requests, mut rx) = syncing_manager().await;
+
+        let mut started = None;
+        for round in 0..5u32 {
+            manager.handle_message(bogus_inv(1_000 + 2 * round), &requests).await.unwrap();
+            let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
+            assert!(!sync_completed(&events), "round {round}: still within the wait");
+            assert_eq!(getheaders_sent(&mut rx), 1, "round {round}: asked for again");
+            let wait = manager.announcements_wait_started;
+            assert!(wait.is_some(), "round {round}: waiting");
+            assert!(started.is_none() || started == wait, "round {round}: the wait not moved");
+            started = wait;
+
+            manager.handle_message(bogus_inv(1_001 + 2 * round), &requests).await.unwrap();
+            let events = manager.tick(&requests).await.unwrap();
+            assert!(!sync_completed(&events), "round {round}: the request is still out");
+            assert_eq!(getheaders_sent(&mut rx), 0, "round {round}: asked once per answer");
+        }
+
+        // The wait has passed since the first round; announcements keep coming.
+        if let Some(started) = manager.announcements_wait_started.as_mut() {
+            *started -= PENDING_ANNOUNCEMENTS_SYNC_WAIT;
+        }
+        manager.handle_message(bogus_inv(2_000), &requests).await.unwrap();
+        let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
+
+        assert!(sync_completed(&events), "the sync completes without them");
+        assert_eq!(manager.state(), SyncState::Synced);
+        assert_eq!(manager.announcements_wait_started, None);
+        assert_eq!(manager.pending_announcements.len(), 11, "left to the post-sync fallback");
+
+        for at in manager.pending_announcements.values_mut() {
+            *at -= 2 * super::super::sync_manager::UNSOLICITED_HEADERS_WAIT_TIMEOUT;
+        }
+        manager.tick(&requests).await.unwrap();
+        assert_eq!(getheaders_sent(&mut rx), 1, "asked once more");
+        assert!(manager.pending_announcements.is_empty(), "then dropped");
+    }
+
+    /// evolite (security): a block announced long before the pipeline completes is asked
+    /// for again after every answer without it while the wait lasts, so a peer that doesn't
+    /// have it yet doesn't leave the sync a block short.
+    #[tokio::test]
+    async fn an_announced_block_is_asked_for_until_it_arrives() {
+        let (mut manager, requests, mut rx) = syncing_manager().await;
+        let tip = manager.tip().await.unwrap();
+        let block: HashedBlockHeader = Header::dummy_chain(1, *tip.hash()).remove(0).into();
+        let inv = NetworkMessage::Inv(vec![Inventory::Block(*block.hash())]);
+        manager.handle_message(crate::network::Message::new(peer(), inv), &requests).await.unwrap();
+        for at in manager.pending_announcements.values_mut() {
+            *at -= 2 * super::super::sync_manager::UNSOLICITED_HEADERS_WAIT_TIMEOUT;
+        }
+
+        for answer in 0..2 {
+            let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
+            assert!(events.is_empty(), "answer {answer}: still waiting for it");
+            assert_eq!(getheaders_sent(&mut rx), 1, "answer {answer}: asked for again");
+        }
+
+        manager.handle_headers_pipeline(peer(), &[block], &requests).await.unwrap();
+        let events = manager.handle_headers_pipeline(peer(), &[], &requests).await.unwrap();
+
+        assert!(sync_completed(&events), "{events:?}");
+        assert_eq!(manager.tip().await.unwrap().height(), tip.height() + 1);
+        assert!(manager.pending_announcements.is_empty());
     }
 
     #[tokio::test]
