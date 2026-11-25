@@ -56,6 +56,7 @@ mod name_suggest;
 mod name_waiting;
 mod network_switch;
 mod new_identity;
+mod no_identity;
 mod notes;
 mod onboarding;
 mod paid_once;

@@ -13,7 +13,6 @@ pub mod new_model;
 
 use std::collections::HashMap;
 
-use super::*;
 use crate::components::{Assets, ButtonKind, button, button_enabled, page_header, section_label};
 use crate::context::Ctx;
 use crate::screens::txt;
@@ -357,18 +356,14 @@ fn home(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState) {
             None,
         );
     });
-    // AC-A2: without an identity, only why and the way to one.
-    if wallet.identity.is_none() {
-        crate::components::notice(
-            ui,
-            a,
-            "identity",
-            p.accent,
-            tr!("The Workshop needs an identity with credits."),
-        );
-        if button(ui, a, tr!("Create an identity"), ButtonKind::Primary, None).clicked() {
-            cx.go(Screen::CreateIdentity);
-        }
+    // AC-A2, BUG-262: without an identity, only why and the way to one — the empty state of
+    // every screen that needs one.
+    if crate::screens::no_identity::empty_state(
+        ui,
+        a,
+        cx,
+        crate::screens::no_identity::Needs::Workshop,
+    ) {
         return;
     }
     identity_row(ui, a, cx, &wallet);

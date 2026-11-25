@@ -104,6 +104,9 @@ pub(super) struct DevState {
     /// FEAT-0048: the pool's states for «Create an identity» (`create-identity-pool-*`,
     /// `create-identity-core`), put into each snapshot.
     pool_identity_preset: Option<&'static str>,
+    /// BUG-262 (`no-identity-*`): the wallet with no identity, in each snapshot; the Workshop's
+    /// on the advanced level.
+    no_identity_preset: Option<&'static str>,
     /// `--screen contact-accept` / `contact-resend` (BUG-249 r3): «Accept the request» over the
     /// demo's incoming request, «Send the requests again» over its first contact, once the
     /// snapshot has them.
@@ -310,6 +313,16 @@ impl DevState {
             contact_preset: ["contact-accept", "contact-resend"]
                 .into_iter()
                 .find(|name| dev.preset(name)),
+            no_identity_preset: [
+                "no-identity-contacts",
+                "no-identity-tokens",
+                "no-identity-collection",
+                "no-identity-workshop",
+                "no-identity-apps",
+                "no-identity-identity",
+            ]
+            .into_iter()
+            .find(|name| dev.preset(name)),
             pool_identity_preset: CORE_FRAMES
                 .into_iter()
                 .find(|name| dev.preset(name))
@@ -502,6 +515,19 @@ impl App {
     }
 
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if let Some(which) = self.dev.no_identity_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            if which == "no-identity-workshop" {
+                s.advanced_features = true;
+            }
+            if let Some(w) = s.wallet.as_mut() {
+                w.identity = None;
+                w.identities.clear();
+                w.unfinished_identity = None;
+                w.identity_search = evolite_api::IdentitySearch::Done;
+            }
+        }
         if let Some(which) = self.dev.pool_identity_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -1636,6 +1662,7 @@ impl App {
         let workshop = [
             "advanced-workshop",
             "workshop",
+            "no-identity-workshop",
             "workshop-identities-long",
             "workshop-new",
             "workshop-review",

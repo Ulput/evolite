@@ -144,6 +144,17 @@ pub fn is_dash_name(input: &str) -> bool {
 }
 
 pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut CollectionState) {
+    // BUG-262: no identity — its empty state; NFTs are held by an identity.
+    ui.spacing_mut().item_spacing.y = 20.0;
+    if super::no_identity::page(
+        ui,
+        a,
+        cx,
+        tr!("Collection"),
+        super::no_identity::Needs::Collection,
+    ) {
+        return;
+    }
     let p = a.p;
     let wallet = cx.wallet();
     let nfts = &wallet.nfts;

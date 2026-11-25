@@ -741,53 +741,21 @@ fn searching_for_identity(ui: &mut Ui, a: &mut Assets) {
 /// what an identity is, what it takes against what Core has, «Create an identity» and, after a
 /// finished search, «Search again». `search_again`: «Search again» of a failed search clicked.
 fn no_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &Wallet, search_again: bool) {
-    let p = a.p;
     let done = wallet.identity_search == IdentitySearch::Done;
-    ui.add(
-        crate::components::para(
-            tr!(
-                "No identity yet. It is made from DASH on Core: a name, keys and credits for apps."
-            ),
-            BODY.size,
-            BODY.weight,
-            p.muted,
-        )
-        .line_height(BODY.line),
+    // BUG-262: the empty state of every screen that needs an identity; a creation cut short has
+    // its own «Continue creating» above. «Search again» after a finished search stays: an
+    // identity may have been made elsewhere (BUG-9).
+    crate::screens::no_identity::draw(
+        ui,
+        a,
+        cx,
+        crate::screens::no_identity::Needs::Identity,
+        false,
     );
-    // What it takes, against what there is: the name and the creation, plus any credits. Only
-    // once the search is done — an identity may yet be found (CS-4) — and red only once the
-    // sync has counted Core: a zero before it is not known (the designer's improvement 1).
-    let least = wallet.fees.identity_fees_on_top(true) + wallet.fees.identity_amount_least(true);
-    // «Core has … now» only when Core is checked now (BUG-80): not known yet there is no
-    // amount to say, and the last checked one is not what Core has now.
-    if let (true, CardAmount::Now(core)) = (done, CardAmount::core(&wallet.balances)) {
-        let counted = cx.snap.sync.stage == evolite_api::SyncStage::Done;
-        ui.add(crate::components::para(
-            &format!(
-                tr!("At least ≈ {} is needed (name and creation) plus any amount for credits; Core has {} now."),
-                dash(least),
-                crate::format::balance(core)
-            ),
-            13.0,
-            Weight::Regular,
-            if core > least || !counted {
-                p.muted
-            } else {
-                p.danger
-            },
-        ));
-    }
     let mut again = search_again;
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        if button(ui, a, tr!("Create an identity"), ButtonKind::Primary, None).clicked() {
-            cx.go(Screen::CreateIdentity);
-        }
-        // An identity made elsewhere (Jembe, Dash Evo Tool) after the last search.
-        if done && button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked() {
-            again = true;
-        }
-    });
+    if done && button(ui, a, tr!("Search again"), ButtonKind::Secondary, None).clicked() {
+        again = true;
+    }
     if again {
         cx.send(Command::FindIdentities);
     }

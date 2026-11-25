@@ -324,6 +324,16 @@ pub fn tokens(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut TokensState
         mainnet(ui, a);
         return;
     }
+    // BUG-262: no identity — its empty state, not «Send» on tokens no identity holds.
+    if crate::screens::no_identity::page(
+        ui,
+        a,
+        cx,
+        tr!("Tokens"),
+        crate::screens::no_identity::Needs::Tokens,
+    ) {
+        return;
+    }
     let wallet = cx.wallet();
     let search = wallet.tokens.search.clone();
     let busy = matches!(

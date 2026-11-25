@@ -203,6 +203,9 @@ impl Launch {
 #[cfg(all(test, feature = "dev-tools"))]
 #[rustfmt::skip]
 pub const PRESETS: &[&str] = &[
+    // BUG-262: each screen that needs an identity, in a wallet with none.
+    "no-identity-contacts", "no-identity-tokens", "no-identity-collection", "no-identity-workshop",
+    "no-identity-apps", "no-identity-identity",
     "create", "verify", "password", "restore", "dashpay", "sync", "sync-nodes",
     "overview", "hidden", "units", "remind", "wallet-menu", "wallet-switch", "overview-syncing", "sync-platform", "sync-platform-short", "sync-stale-30", "sync-stale-60",
     "activity", "activity-card", "activity-filters", "activity-filters-empty", "activity-long-note",
@@ -448,6 +451,12 @@ fn dev_args<'a>(
         (None, Some("names-set-aside")) => Screen::Identity,
         (None, Some("apps-set-aside")) => Screen::Apps,
         (None, Some("contacts-set-aside")) => Screen::Contacts,
+        (None, Some("no-identity-contacts")) => Screen::Contacts,
+        (None, Some("no-identity-tokens")) => Screen::Tokens,
+        (None, Some("no-identity-collection")) => Screen::Collection,
+        (None, Some("no-identity-workshop")) => Screen::Workshop,
+        (None, Some("no-identity-apps")) => Screen::Apps,
+        (None, Some("no-identity-identity")) => Screen::Identity,
         (None, Some("address-book-set-aside")) => Screen::Send,
         (
             None,

@@ -229,44 +229,6 @@ fn hidden_balances_read_dots_in_the_dialogs() {
     );
 }
 
-/// «Core has {} now» under «No identity yet» hides the Core balance too.
-#[test]
-fn the_core_balance_without_an_identity_hides() {
-    let (_turn, mut kit) = demo_app("identity", "en");
-    settle(&mut kit);
-    let core = crate::format::amount(
-        kit.state()
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.wallet.as_ref())
-            .expect("the demo wallet")
-            .balances
-            .core,
-    );
-    show_wallet_edited(
-        &mut kit,
-        3,
-        "no identity",
-        |w| {
-            w.identity = None;
-            w.unfinished_identity = None;
-        },
-        |_| true,
-    );
-    assert!(
-        shows(&kit, &format!("Core has {core} now")),
-        "seen at first"
-    );
-    kit.state_mut().settings.flip_hide_amounts();
-    kit.run_steps(3);
-    assert!(!shows(&kit, &core), "the Core balance is hidden");
-    let masked = crate::format::mask(&core);
-    assert!(
-        shows(&kit, &format!("Core has {masked} now")),
-        "«••••» instead"
-    );
-}
-
 /// The designer's decision for the found wallet: its balances follow the setting, and an eye
 /// on the screen shows them — a person knows the wallet by them.
 #[test]

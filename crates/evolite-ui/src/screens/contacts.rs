@@ -257,6 +257,17 @@ fn when_line(c: &Contact, now: DateTime<Local>) -> (&'static str, String) {
 }
 
 pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsState) {
+    // BUG-262: no identity — its empty state, not «Add a contact» and «My QR» that cannot act.
+    ui.spacing_mut().item_spacing.y = 22.0;
+    if super::no_identity::page(
+        ui,
+        a,
+        cx,
+        tr!("Contacts"),
+        super::no_identity::Needs::Contacts,
+    ) {
+        return;
+    }
     let p = a.p;
     state.ask = crate::components::password_asked(cx.snap);
     let wallet = cx.wallet();

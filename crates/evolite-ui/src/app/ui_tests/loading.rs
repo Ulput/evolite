@@ -59,9 +59,9 @@ fn says_start(kit: &Kit, part: &str) -> bool {
     .is_some()
 }
 
-/// №2, CS-4.1: while identities are looked for, no «At least ≈ … is needed» and no buttons — one
-/// may yet be found; once the search is done it shows, in red only for a Core the sync has
-/// counted. A failed search is not done either: no amount line.
+/// №2, CS-4.1: while identities are looked for, no money line and no buttons — one may yet be
+/// found; once the search is done, the empty state with «Create an identity» and «Search again»
+/// (BUG-262: no «At least ≈ … is needed» from Core any more). A failed search is not done either.
 #[test]
 fn identity_says_nothing_of_money_while_it_searches() {
     let (_turn, mut kit) = demo_app("identity", "en");
@@ -98,7 +98,16 @@ fn identity_says_nothing_of_money_while_it_searches() {
         "no money line after a failed search"
     );
     with_wallet(&mut kit, |w| none_yet(w, IdentitySearch::Done));
-    assert!(says_start(&kit, "At least ≈ "), "after the search");
+    // BUG-262: after the search, the empty state — no money line at all (creation is from the
+    // pool by default, FEAT-0048).
+    assert!(
+        says_start(&kit, "You have no identity yet"),
+        "after the search"
+    );
+    assert!(
+        !says_start(&kit, "At least ≈ "),
+        "no money line after it either"
+    );
     assert!(!says_start(
         &kit,
         "Looking for this phrase's identity on Platform"

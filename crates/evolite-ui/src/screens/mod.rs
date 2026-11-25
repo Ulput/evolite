@@ -12,6 +12,7 @@ pub mod fund_address;
 pub mod identity;
 pub mod message;
 pub mod mixed_lock;
+pub mod no_identity;
 pub mod onboarding;
 pub mod pause;
 pub mod receive;

@@ -258,6 +258,11 @@ fn app_card(
 }
 
 pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequests) {
+    // BUG-262: no identity — its empty state; an app signs in as an identity.
+    ui.spacing_mut().item_spacing.y = 22.0;
+    if super::no_identity::page(ui, a, cx, tr!("Apps"), super::no_identity::Needs::Apps) {
+        return;
+    }
     let p = a.p;
     let wallet = cx.wallet();
     let name = wallet.identity.as_ref().and_then(|i| i.name());

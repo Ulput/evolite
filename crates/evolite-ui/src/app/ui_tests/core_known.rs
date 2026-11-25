@@ -84,10 +84,10 @@ fn top_up_does_not_measure_against_core_not_known() {
     });
 }
 
-/// Identity without an identity: «на Core сейчас …» only when Core is checked now — never «на
-/// Core сейчас 0» before the first check, nor an old amount as «now».
+/// Identity without an identity (BUG-262): the empty state, «У вас пока нет личности», and no
+/// Core amount at all — creation is from the pool by default (FEAT-0048), whatever Core is.
 #[test]
-fn identity_says_what_core_has_only_when_checked_now() {
+fn identity_without_one_says_no_core_amount() {
     let (_turn, mut kit) = demo_app("identity", "ru");
     let no_identity = |as_of: Option<CoreAsOf>| {
         move |s: &mut Snapshot| {
@@ -98,23 +98,16 @@ fn identity_says_what_core_has_only_when_checked_now() {
             w.identity_search = evolite_api::IdentitySearch::Done;
         }
     };
-    let now_line = "на Core сейчас";
-    shown_with(&mut kit, no_identity(None), "Core checked: the line", |k| {
-        shows(k, now_line)
-    });
-    shown_with(
-        &mut kit,
-        no_identity(Some(CoreAsOf::NotYet)),
-        "Core not known: no line",
-        |k| shows(k, "Личности ещё нет") && !shows(k, now_line),
-    );
     let at = chrono::Local::now().timestamp() - 120;
-    shown_with(
-        &mut kit,
-        no_identity(Some(CoreAsOf::Checked(at))),
-        "Core checked earlier: no line",
-        |k| shows(k, "Личности ещё нет") && !shows(k, now_line),
-    );
+    for (as_of, what) in [
+        (None, "Core checked"),
+        (Some(CoreAsOf::NotYet), "Core not known"),
+        (Some(CoreAsOf::Checked(at)), "Core checked earlier"),
+    ] {
+        shown_with(&mut kit, no_identity(as_of), what, |k| {
+            shows(k, "У вас пока нет личности") && !shows(k, "на Core сейчас")
+        });
+    }
 }
 
 /// Private pool → «Скрыть средства» from Core: the source says «Ещё не знаем», and no «От … до …»
