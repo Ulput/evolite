@@ -101,6 +101,8 @@ struct RowKeys {
     cancel: Option<egui::Id>,
     /// Its last enabled primary button.
     primary: Option<egui::Id>,
+    /// Its last enabled primary or danger button: what the row does (BUG-274).
+    act: Option<egui::Id>,
 }
 
 fn row_keys_id() -> egui::Id {
@@ -121,16 +123,23 @@ fn row_button(ui: &Ui, id: egui::Id, kind: ButtonKind, enabled: bool) {
         // the summary in instead of pressing it.
         ButtonKind::Danger if enabled && super::summary_unseen(ctx) => {
             row.danger = true;
+            row.act = Some(id);
             if ctx.memory(|m| m.has_focus(id)) && crate::a11y::confirm_key_pressed(ctx) {
                 crate::a11y::swallow_confirm_keys(ctx);
                 super::show_summary(ctx);
             }
         }
-        ButtonKind::Danger => row.danger = true,
+        ButtonKind::Danger => {
+            row.danger = true;
+            if enabled {
+                row.act = Some(id);
+            }
+        }
         // BUG-249: the summary out of sight: Enter, or the primary's own keys, bring it in
         // instead of pressing.
         ButtonKind::Primary if enabled && super::summary_unseen(ctx) => {
             row.primary = Some(id);
+            row.act = Some(id);
             let enter = crate::a11y::dialog_submit(ctx);
             let keys = ctx.memory(|m| m.has_focus(id)) && crate::a11y::confirm_key_pressed(ctx);
             if enter || keys {
@@ -140,6 +149,7 @@ fn row_button(ui: &Ui, id: egui::Id, kind: ButtonKind, enabled: bool) {
         }
         ButtonKind::Primary if enabled => {
             row.primary = Some(id);
+            row.act = Some(id);
             if !row.destructive && crate::a11y::dialog_submit(ctx) {
                 ctx.memory_mut(|m| m.request_focus(id));
             }
@@ -187,6 +197,12 @@ fn row_of_buttons<R>(ui: &mut Ui, kind: Row, add: impl FnOnce(&mut Ui) -> R) -> 
         }
         row
     });
+    // BUG-274: a row's act on (its primary or danger button) — in a dialog that spends, what
+    // the test of every paying dialog looks for. Not only a `Row::Spend`: a key change or App
+    // Connect pays from a destructive row, with the password above it.
+    if let Some(act) = row.as_ref().and_then(|r| r.act) {
+        super::note_spend_ready(&ctx, act);
+    }
     if let Some(row) = row {
         let destructive = marked || row.danger;
         crate::a11y::dialog_destructive(&ctx, destructive);

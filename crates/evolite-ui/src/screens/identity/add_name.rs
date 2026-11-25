@@ -51,6 +51,10 @@ pub(super) fn add_name_dialog(
     // Kept credits not checked in this run claim no lack (BUG-116).
     let short = read && wallet.balances.credits_checked && credits < needed;
     let sent = form.review.is_some() && matches!(form.result, Some(Ok(())));
+    // BUG-274: «Register» went through — the dialog says so and closes with «Done»; the form
+    // (the same name «available», its new price, «Register») is not shown again for a name just
+    // bought.
+    let written = form.review.is_none() && matches!(form.result, Some(Ok(())));
     let title = if sent {
         format!(
             tr!("The request for @{label} is in the vote"),
@@ -115,7 +119,7 @@ pub(super) fn add_name_dialog(
             // the fund «not returned»; the form's costs when «Register» pays at once.
             if part == Part::Summary {
                 match form.review {
-                    _ if sent => {}
+                    _ if sent || written => {}
                     Some(r) => {
                         review_summary(ui, a, wallet, &me, form, r);
                         // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
@@ -141,6 +145,13 @@ pub(super) fn add_name_dialog(
                         if button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked() {
                             close = true;
                         }
+                    });
+                    return close;
+                }
+                if written {
+                    let mut close = false;
+                    button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
                     });
                     return close;
                 }
@@ -182,6 +193,10 @@ pub(super) fn add_name_dialog(
             }
             if sent {
                 sent_body(ui, a, wallet, &me, form);
+                return false;
+            }
+            if written {
+                name_answer(ui, a, form);
                 return false;
             }
             if let Some(r) = form.review {

@@ -56,6 +56,7 @@ mod network_switch;
 mod new_identity;
 mod notes;
 mod onboarding;
+mod paid_once;
 mod passphrase;
 mod password_reveal;
 mod pause;

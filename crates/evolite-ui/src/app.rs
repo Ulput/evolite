@@ -104,6 +104,15 @@ pub struct App {
     /// The screenshot tools' state (`dev-tools`).
     #[cfg(feature = "dev-tools")]
     dev: dev::DevState,
+    /// The last spend's answer and whether it went through: the test of every paying dialog
+    /// (BUG-274) tells a success from a refusal by it.
+    #[cfg(test)]
+    pub last_done: Option<(String, bool)>,
+    /// The demo has no wallet behind most spends and refuses them («NotAvailable»): on, such a
+    /// refusal reaches the screens as the spend gone through — the test of every paying dialog
+    /// (BUG-274) sees what each does after a success.
+    #[cfg(test)]
+    pub pretend_paid: bool,
     /// When the core was last told the person is here (for its auto-lock).
     touched: Option<std::time::Instant>,
     /// The system's "show animations", and when it was read.
@@ -323,6 +332,10 @@ impl App {
             identity_keys: Default::default(),
             #[cfg(feature = "dev-tools")]
             dev: dev::DevState::new(&launch.dev, launch.screen),
+            #[cfg(test)]
+            last_done: None,
+            #[cfg(test)]
+            pretend_paid: false,
             system_motion: None,
             #[cfg(feature = "dev-tools")]
             onboarding: launch.dev.onboarding.take(),
@@ -768,6 +781,48 @@ impl App {
     /// Hands each answer from the core to whoever asked.
     fn take_events(&mut self, ctx: &egui::Context) {
         for event in self.core.events() {
+            #[cfg(test)]
+            let event = match event {
+                Event::Done {
+                    what,
+                    result: Err(evolite_api::CoreError::NotAvailable(_)),
+                    ask,
+                } if self.pretend_paid => Event::Done {
+                    what,
+                    result: Ok(()),
+                    ask,
+                },
+                Event::Sent {
+                    id,
+                    result: Err(evolite_api::CoreError::NotAvailable(_)),
+                } if self.pretend_paid => Event::Sent {
+                    id,
+                    result: Ok(evolite_api::SentPayment {
+                        txid: "demo".into(),
+                        amount: 0,
+                        fee: 0,
+                        relayed: true,
+                    }),
+                },
+                other => other,
+            };
+            #[cfg(test)]
+            match &event {
+                Event::Done { what, result, .. } => {
+                    self.last_done = Some((
+                        format!("{what:?} {:?}", result.as_ref().err()),
+                        result.is_ok(),
+                    ));
+                }
+                Event::Sent { result, .. } => {
+                    self.last_done =
+                        Some((format!("Send {:?}", result.as_ref().err()), result.is_ok()));
+                }
+                Event::AddressFunded { .. } => {
+                    self.last_done = Some(("FundAddress".into(), true));
+                }
+                _ => {}
+            }
             match &event {
                 Event::Snapshot(snapshot) => {
                     self.follow_open_wallet(snapshot);

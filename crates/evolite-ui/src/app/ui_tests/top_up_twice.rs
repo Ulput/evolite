@@ -104,8 +104,9 @@ fn a_failed_top_up_gives_the_form_back() {
     assert!(!button(&kit, &top_up_label()).accesskit_node().is_disabled());
 }
 
-/// AC-T4: the pool's two windows keep no armed button after a success. «Shield» or «Unshield» is
-/// off on the same amount once it is done, and a new amount typed makes the next one.
+/// AC-T4: the pool's two windows keep no armed button after a success. BUG-274 (the class: one
+/// rule for every dialog that pays): once it is done the window shows its answer and «Done» —
+/// no «Shield» or «Unshield» in it at all, on or off; the next move is the window opened again.
 #[test]
 fn a_pool_move_done_is_not_offered_again_on_the_same_amount() {
     use crate::screens::shielded::PoolMove;
@@ -123,16 +124,28 @@ fn a_pool_move_done_is_not_offered_again_on_the_same_amount() {
             }
         }
         kit.run_steps(3);
+        // The page has a button of that name too; the window adds its own.
+        let named = |kit: &Kit| kit.query_all_by_role_and_label(Role::Button, name).count();
         let armed = |kit: &Kit| {
-            // The window's own button: the lowest of that name (the page has one too).
             kit.query_all_by_role_and_label(Role::Button, name)
                 .max_by(|a, b| a.rect().top().total_cmp(&b.rect().top()))
                 .is_some_and(|b| !b.accesskit_node().is_disabled())
         };
+        let before = named(&kit);
         assert!(armed(&kit), "{preset}: on before");
         kit.state_mut().pool.result = Some((move_, Ok(())));
         kit.run_steps(3);
-        assert!(!armed(&kit), "{preset}: off once done, on the same amount");
+        assert_eq!(
+            named(&kit),
+            before - 1,
+            "{preset}: the window's own button gone once done"
+        );
+        assert!(
+            kit.query_all_by_role_and_label(Role::Button, "Done")
+                .next()
+                .is_some(),
+            "{preset}: «Done» instead"
+        );
         drop(turn);
     }
 }

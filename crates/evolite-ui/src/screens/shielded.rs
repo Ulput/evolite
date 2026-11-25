@@ -623,6 +623,24 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
         |ui, a, part| {
             let p = a.p;
             let busy = state.progress.is_some();
+            // BUG-274: gone through — the answer and «Done», no form and no «Shield» for the
+            // same move again (one rule for every dialog that pays).
+            if matches!(result_of(&state.result, PoolMove::Shield), Some(Ok(()))) {
+                return match part {
+                    Part::Summary => false,
+                    Part::Footer => {
+                        let mut close = false;
+                        button_row(ui, |ui| {
+                            close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
+                        });
+                        close
+                    }
+                    _ => {
+                        shield_answer(ui, a, state);
+                        false
+                    }
+                };
+            }
             // BUG-249: what is agreed to, pinned over the password: the fees, what is left and
             // what arrives.
             if part == Part::Summary {
@@ -975,6 +993,24 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
         |ui, a, part| {
             let p = a.p;
             let busy = state.progress.is_some();
+            // BUG-274: gone through — the answer and «Done», no form and no «Unshield» for the
+            // same move again (one rule for every dialog that pays).
+            if matches!(result_of(&state.result, PoolMove::Unshield), Some(Ok(()))) {
+                return match part {
+                    Part::Summary => false,
+                    Part::Footer => {
+                        let mut close = false;
+                        button_row(ui, |ui| {
+                            close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
+                        });
+                        close
+                    }
+                    _ => {
+                        notice(ui, a, "confirmed", p.accent, unshielded(to));
+                        false
+                    }
+                };
+            }
             // BUG-249: what is agreed to, pinned over the password: the fee and what is left in
             // the pool.
             if part == Part::Summary {
@@ -1155,23 +1191,7 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                     &crate::text::failed(tr!("Not unshielded"), e),
                     crate::text::error_details(e).as_deref(),
                 ),
-                Some(Ok(())) => notice(
-                    ui,
-                    a,
-                    "confirmed",
-                    p.accent,
-                    match to {
-                        UnshieldTo::Identity => {
-                            tr!("Unshielded: the amount is in the identity's credits.")
-                        }
-                        UnshieldTo::PlatformAddress => {
-                            tr!("Unshielded: the amount is on your Platform address.")
-                        }
-                        UnshieldTo::Core => {
-                            tr!("Unshielded: the amount arrives on Core in a few minutes.")
-                        }
-                    },
-                ),
+                Some(Ok(())) => notice(ui, a, "confirmed", p.accent, unshielded(to)),
                 None => {}
             }
             planned = Some((left.is_some_and(|l| l >= 0), amount));
@@ -1187,6 +1207,15 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
 
 /// Whether a typed amount is measured against the balance (BUG-101): not while the move runs nor
 /// after it succeeded, when the balance is what it left behind.
+/// What an unshield that went through says, by where the amount went.
+fn unshielded(to: UnshieldTo) -> &'static str {
+    match to {
+        UnshieldTo::Identity => tr!("Unshielded: the amount is in the identity's credits."),
+        UnshieldTo::PlatformAddress => tr!("Unshielded: the amount is on your Platform address."),
+        UnshieldTo::Core => tr!("Unshielded: the amount arrives on Core in a few minutes."),
+    }
+}
+
 fn can_judge(busy: bool, result: Option<&Result<(), CoreError>>) -> bool {
     !busy && !matches!(result, Some(Ok(())))
 }

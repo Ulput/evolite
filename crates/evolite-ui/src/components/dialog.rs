@@ -199,6 +199,8 @@ pub(crate) struct DialogSeen {
     pub one_scroll: bool,
     /// BUG-249: a spend's row of buttons or password field is in it ([`note_spend`]).
     pub spends: bool,
+    /// BUG-274: where a spend's row has its primary on, ready to pay ([`note_spend_ready`]).
+    pub spend_ready: Option<Rect>,
     /// BUG-249: where its summary was drawn, when it has one, and whether it has been in sight
     /// since the dialog opened.
     pub summary: Option<(Rect, bool)>,
@@ -310,6 +312,7 @@ fn header_dialog(
         ui.data_mut(|d| {
             d.insert_temp(guard_id(), unseen);
             d.remove_temp::<bool>(spends_id());
+            d.remove_temp::<Option<egui::Id>>(spend_ready_id());
         });
         let (closed, summary_height) = middle(
             ui,
@@ -383,6 +386,10 @@ fn header_dialog(
                 spends: ui
                     .data(|d| d.get_temp::<bool>(spends_id()))
                     .unwrap_or(false),
+                spend_ready: ui
+                    .data(|d| d.get_temp::<Option<egui::Id>>(spend_ready_id()).flatten())
+                    .and_then(|b| ui.ctx().read_response(b))
+                    .map(|r| r.rect),
                 summary: summary
                     .then(|| {
                         ui.data(|d| {
@@ -533,6 +540,18 @@ fn middle(
 
 fn spends_id() -> egui::Id {
     egui::Id::new("evolite-dialog-spends")
+}
+
+fn spend_ready_id() -> egui::Id {
+    egui::Id::new("evolite-dialog-spend-ready")
+}
+
+/// A spend's row of buttons in the dialog being drawn has its primary `button` on (BUG-274: the
+/// test of every dialog that pays checks it is not on again after the payment went through).
+pub fn note_spend_ready(ctx: &egui::Context, button: egui::Id) {
+    if crate::a11y::in_dialog(ctx) {
+        ctx.data_mut(|d| d.insert_temp(spend_ready_id(), Some(button)));
+    }
 }
 
 /// A spend's row of buttons or password field was drawn in the dialog being drawn (BUG-249):

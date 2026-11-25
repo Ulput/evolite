@@ -103,23 +103,17 @@ fn an_unshield_at_work_is_not_told_it_is_too_much() {
     });
     assert!(!has_words(&kit, POOL_TOO_LITTLE), "said after it succeeded");
 
-    // A new amount typed after it: judged again, the old success gone.
-    let field = kit
-        .query_all_by_role(Role::TextInput)
+    // BUG-274: after it, the answer and «Done» — no amount to type over the success; «Done»
+    // closes the window and the old answer goes with it.
+    assert!(
+        kit.query_all_by_role(Role::TextInput).next().is_none(),
+        "no amount field over the success"
+    );
+    kit.query_all_by_role_and_label(Role::Button, "Done")
         .next()
-        .expect("the amount field");
-    field.click();
-    kit.run_steps(2);
-    kit.key_press_modifiers(egui::Modifiers::COMMAND, Key::A);
-    kit.run_steps(2);
-    kit.query_all_by_role(Role::TextInput)
-        .next()
-        .expect("the amount field")
-        .type_text("5");
-    kit.run_steps(2);
-    with_wallet(&mut kit, spent);
-    kit.run_steps(2);
-    assert!(has_words(&kit, POOL_TOO_LITTLE), "a new amount is judged");
+        .expect("«Done»")
+        .click();
+    kit.run_steps(3);
     assert!(kit.state().pool.result.is_none(), "the old answer is gone");
 }
 
