@@ -99,7 +99,11 @@ impl AppRequests {
                 if self.open.as_ref().is_none_or(|open| open.id != r.id) {
                     self.flow.forget();
                     self.connecting = None;
-                    self.body_to_end = false;
+                    // The dev presets' «at its end» is for the first request they open; only a
+                    // request that replaces an open one starts at its top.
+                    if self.open.is_some() {
+                        self.body_to_end = false;
+                    }
                 }
                 self.open = Some(r);
                 self.pasting = false;

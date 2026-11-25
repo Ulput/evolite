@@ -709,7 +709,7 @@ impl WorkshopState {
 /// The collection's name: its contract's description, or its short id when it has none.
 fn collection_name(c: &Collection) -> String {
     if c.description.trim().is_empty() {
-        super::tokens::state::short(&c.contract)
+        crate::text::whole(&c.contract)
     } else {
         c.description.clone()
     }

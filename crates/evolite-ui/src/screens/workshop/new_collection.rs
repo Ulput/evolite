@@ -657,7 +657,7 @@ fn review(
                     ui,
                     &p,
                     tr!("Belongs to"),
-                    &super::super::tokens::state::short(form.main.trim()),
+                    &crate::text::whole(form.main.trim()),
                     value.clone(),
                 );
             }

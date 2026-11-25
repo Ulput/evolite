@@ -435,7 +435,7 @@ pub fn identity_keys(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Keys
 pub fn identity_named(id: &Identity) -> String {
     let named = id
         .name()
-        .map_or_else(|| short_id(&id.id), |n| format!("@{n}"));
+        .map_or_else(|| crate::text::whole(&id.id), |n| format!("@{n}"));
     crate::i18n::own(&named)
 }
 

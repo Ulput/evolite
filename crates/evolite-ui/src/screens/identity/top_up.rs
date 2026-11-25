@@ -387,10 +387,20 @@ pub(super) fn unfinished_top_up_text(
         let explained =
             matches!(last, Some((_, Err(CoreError::NotAvailable(why)))) if why != TOP_UP_SETTLED);
         let text = if explained {
-            format!(
-                tr!("{} of the top-up are awaiting the ChainLock of their block."),
-                dash(unfinished.locked)
-            )
+            // FEAT-0051 R-7.
+            if crate::text::advanced() {
+                format!(
+                    tr!("{} of the top-up are awaiting the ChainLock of their block."),
+                    dash(unfinished.locked)
+                )
+            } else {
+                format!(
+                    tr!(
+                        "{} of the top-up are still waiting for final confirmation — usually a couple of minutes."
+                    ),
+                    dash(unfinished.locked)
+                )
+            }
         } else {
             format!(
                 tr!(

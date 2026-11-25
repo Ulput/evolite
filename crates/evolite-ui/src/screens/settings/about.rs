@@ -36,7 +36,12 @@ pub(super) fn notifications(ui: &mut Ui, a: &mut Assets, state: &mut SettingsSta
             ),
             (
                 tr!("Confirmations"),
-                tr!("InstantLock and ChainLock for your payments"),
+                // FEAT-0051 R-7: the Dash terms only for advanced users.
+                if crate::text::advanced() {
+                    tr!("InstantLock and ChainLock for your payments")
+                } else {
+                    ""
+                },
                 Control::Toggle(&mut locks),
             ),
             (

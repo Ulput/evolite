@@ -1711,6 +1711,8 @@ impl eframe::App for App {
             self.core.send(Command::AdvancedFeatures { on });
         }
         crate::format::set_display(self.settings.display(snapshot.fiat.as_ref()));
+        // FEAT-0051 R-1: the statuses' words follow the mode, every frame.
+        crate::text::set_advanced(self.settings.is_on("advanced"));
         if let Some((now, ask)) = self.rate_to_ask(snapshot) {
             self.rate_asked = Some(now);
             self.core.send(ask);

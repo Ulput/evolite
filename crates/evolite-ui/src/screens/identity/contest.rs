@@ -152,7 +152,7 @@ pub fn check_line(
                 .find(|i| i.slot == slot)
                 .map(|i| match &i.name {
                     Some(name) => format!("@{}", crate::i18n::own(name)),
-                    None => text::short_id(&i.id),
+                    None => crate::text::whole(&i.id),
                 })
                 .unwrap_or_default();
             (

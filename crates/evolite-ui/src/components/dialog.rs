@@ -181,6 +181,14 @@ pub fn dialog_middle_at_end(ctx: &egui::Context, id: &str) {
     ctx.data_mut(|d| d.insert_temp(egui::Id::new(id).with("to-end"), true));
 }
 
+/// BUG-249: whether the dialog `id`'s summary scrolls with its middle this frame (the window
+/// too low for both to stay put). A body that keeps one line of consent in sight draws it in its
+/// footer then (App Connect, FEAT-0051 r2), and leaves it out of the scrolled summary.
+pub fn dialog_summary_scrolls(ctx: &egui::Context, id: &str) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(id).with("one-now")))
+        .unwrap_or(false)
+}
+
 /// The dialog drawn last (for tests).
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 #[derive(Clone, Debug)]
@@ -302,6 +310,7 @@ fn header_dialog(
         // BUG-249: too low a window for the summary to stay put over a middle of a few lines —
         // the summary scrolls with the middle, under the header; the footer stays pinned (r4).
         let one = one_scroll(ui, id);
+        ui.data_mut(|d| d.insert_temp(id.with("one-now"), one));
         // BUG-249: in the one scroll, the summary out of sight last frame holds the primary
         // button back ([`summary_unseen`]).
         let unseen = one

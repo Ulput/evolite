@@ -1419,7 +1419,7 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                         if sent.txid.is_empty() {
                             String::new()
                         } else {
-                            format!(" {}", short_address(&sent.txid))
+                            format!(" {}", crate::text::whole(&sent.txid))
                         }
                     ),
                 ),
@@ -1434,7 +1434,12 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                         if withdrawal {
                             tr!("Platform accepted the withdrawal from the pool. The money arrives at the Core address in a few blocks, when the masternodes pay it out.")
                         } else {
-                            tr!("Platform accepted the transfer from the pool.")
+                            // FEAT-0051 R-7.
+                            if crate::text::advanced() {
+                                tr!("Platform accepted the transfer from the pool.")
+                            } else {
+                                tr!("The transfer from the pool is completed.")
+                            }
                         },
                     )
                 }
@@ -1449,7 +1454,12 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                         if withdrawal {
                             tr!("Platform accepted the credit withdrawal. The money arrives at the Core address in a few blocks, when the masternodes pay it out.")
                         } else {
-                            tr!("Credits sent: Platform confirmed the transfer with a proof.")
+                            // FEAT-0051 R-7.
+                            if crate::text::advanced() {
+                                tr!("Credits sent: Platform confirmed the transfer with a proof.")
+                            } else {
+                                tr!("Credits sent.")
+                            }
                         },
                     )
                 }
@@ -1461,7 +1471,7 @@ fn payment_answer(ui: &mut Ui, a: &mut Assets, form: &SendForm, v: &FormView) {
                     &format!(
                         tr!("Payment sent, the network accepted it. Fee {} · {}"),
                         crate::format::amount(sent.fee),
-                        short_address(&sent.txid)
+                        crate::text::whole(&sent.txid)
                     ),
                 ),
                 Some(Err(e @ CoreError::NotAvailable(_))) => {
@@ -1494,7 +1504,7 @@ pub(super) fn summary_card(ui: &mut Ui, p: &crate::theme::Palette, v: &FormView,
     let own_to = v.fund_own.then(|| {
         format!(
             tr!("own {}"),
-            crate::i18n::own(&crate::text::short_address(&v.own_platform_address))
+            crate::i18n::own(&crate::text::whole(&v.own_platform_address))
         )
     });
     let summary_to = own_to.as_ref().unwrap_or(summary_to);

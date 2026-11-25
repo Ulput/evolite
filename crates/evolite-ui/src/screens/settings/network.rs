@@ -62,7 +62,12 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
             ),
             (
                 tr!("Platform (DAPI)"),
-                tr!("Answers are verified with GroveDB proofs"),
+                // FEAT-0051 R-7: the Dash terms only for advanced users.
+                if crate::text::advanced() {
+                    tr!("Answers are verified with GroveDB proofs")
+                } else {
+                    ""
+                },
                 Control::Value(&platform_nodes, false),
             ),
         ],

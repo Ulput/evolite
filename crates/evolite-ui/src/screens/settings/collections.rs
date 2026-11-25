@@ -98,7 +98,7 @@ pub(super) fn collections_dialog(
                 for id in &added {
                     ui.horizontal(|ui| {
                         ui.label(crate::components::txt(
-                            &crate::i18n::own(&crate::text::middle_fit(id, &|s: &str| {
+                            &crate::i18n::own(&crate::components::fit_id(id, &|s: &str| {
                                 s.chars().count() <= 24
                             })),
                             12.0,

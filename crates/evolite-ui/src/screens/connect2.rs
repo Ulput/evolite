@@ -185,7 +185,7 @@ pub fn key_words(
         return None;
     }
     let own = enc.contract == app_id;
-    let other = text::short_address(&enc.contract);
+    let other = text::whole(&enc.contract);
     let title = match (enc.encryption, own) {
         (true, true) => format!(
             tr!("Get your private encryption key for the {} contract"),
@@ -375,6 +375,67 @@ fn permanent(ui: &mut Ui, a: &mut Assets, identity: &str) {
         });
 }
 
+/// FEAT-0051 r2 (the architect): V1's warning in one amber line, pinned with what is agreed to
+/// — the password gives it; the whole warning ([`permanent`]) stays in the middle.
+fn irreversible_line(ui: &mut Ui, a: &mut Assets, identity: &str) {
+    let p = a.p;
+    ui.horizontal_top(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add(a.icons.icon("warning", attention_color(&p), &p, 16.0));
+        ui.add(
+            egui::Label::new(txt(
+                &format!(
+                    tr!("Irreversible: {} will stop opening in older apps"),
+                    identity
+                ),
+                13.0,
+                Weight::Medium,
+                attention_color(&p),
+            ))
+            .wrap(),
+        );
+    });
+}
+
+/// FEAT-0051 r3: the footer's one line of consent in a low window — amber, 28 high, 16 icon,
+/// 12 Medium. Too long, only the names in it are shortened in their middle, the app's first,
+/// then the @name; what is given and «irreversible» never (the designer). Shortened: whole under
+/// the pointer.
+fn consent_line(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    (app, who): (&str, &str),
+    line: &dyn Fn(&str, &str) -> String,
+) {
+    let p = a.p;
+    let color = attention_color(&p);
+    ui.horizontal(|ui| {
+        ui.set_min_height(28.0);
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.add(a.icons.icon(icon, color, &p, 16.0));
+        let font = crate::theme::sans(12.0, Weight::Medium);
+        let room = ui.available_width();
+        let fits = |s: &str| crate::components::text_width(ui, s, font.clone()) <= room;
+        let said = line(app, who);
+        let (mut app_shown, mut who_shown) = (app.to_owned(), who.to_owned());
+        if !fits(&said) {
+            app_shown = text::middle_fit(app, &|s: &str| fits(&line(s, who)), text::NAME_ENDS);
+        }
+        if !fits(&line(&app_shown, who)) {
+            who_shown =
+                text::middle_fit(who, &|s: &str| fits(&line(&app_shown, s)), text::NAME_ENDS);
+        }
+        let shown = line(&app_shown, &who_shown);
+        let shortened = shown != said;
+        let resp =
+            ui.add(egui::Label::new(egui::RichText::new(shown).font(font).color(color)).wrap());
+        if shortened {
+            resp.on_hover_text(said);
+        }
+    });
+}
+
 /// The renewal note in place of the warning (R2).
 fn renewal_note(ui: &mut Ui, a: &mut Assets, app: &str, old: &Renewal) {
     let p = a.p;
@@ -452,19 +513,29 @@ pub fn request(
         |ui, a, part| {
             let p = a.p;
             ui.spacing_mut().item_spacing.y = 12.0;
-            // BUG-249: what is agreed to, pinned over the password, a line each: the rights as
-            // chosen above (the primary key's and the optional ones kept), each encryption key
-            // the app gets, the limit and the period's end, and what adding the keys costs. The
-            // choices themselves, who the app is and the explanations stay in the middle.
+            // BUG-249 r3 and F1: pinned over the password, a line each — each encryption key the
+            // app gets, the limit, the period's end, what adding the keys costs and who pays. The
+            // rights with their heading, who the app is and the explanations scroll in the middle
+            // (FEAT-0051, 2026-11-25: the heading no longer parted from its list).
+            // r2 (the architect): over the key lines, V1's «Irreversible» in one amber line, the
+            // whole warning left in the middle. In a window too low for the summary to stay put
+            // (BUG-249's one scroll) the amounts scroll and one line of consent stays in the
+            // footer: V1's when there is one, else the keys the app gets.
+            let v1 = renews.is_none() && *breaks_old_clients;
+            let scrolls = crate::components::dialog_summary_scrolls(ui.ctx(), "app-connect-v2");
             if part == Part::Summary {
-                summary(
-                    ui,
-                    a,
-                    state,
-                    (sessions, limits, app),
-                    &keys,
-                    now.timestamp(),
-                );
+                if !scrolls {
+                    // A line over the pinned part, the middle's end apart from it (the designer).
+                    crate::components::divider(ui, &p);
+                    if v1 {
+                        irreversible_line(ui, a, identity);
+                    }
+                }
+                // Out of the scrolled summary when the footer keeps them in sight.
+                let pinned_keys = scrolls && !v1;
+                let keys_here: &[(&'static str, String, String)] =
+                    if pinned_keys { &[] } else { &keys };
+                summary(ui, a, state, limits, keys_here, now.timestamp());
                 kv_row(
                     ui,
                     &p,
@@ -490,6 +561,48 @@ pub fn request(
                 return false;
             }
             if part == Part::Footer {
+                // r2: the one line of consent, in sight with the password when the summary
+                // scrolls.
+                if scrolls && state.consent == Consent::Asking {
+                    // r3 (the designer, the architect: F1): one amber line, the key the app gets
+                    // always in it — with V1 too, «irreversible» beside it; only V1, its line.
+                    let t = |s: String| crate::i18n::t(&s).into_owned();
+                    let n = keys.len();
+                    let line = |app: &str, who: &str| -> String {
+                        let mut parts = Vec::new();
+                        if n == 1 {
+                            parts.push(t(format!(
+                                tr!("Gives your private encryption key for {}"),
+                                app
+                            )));
+                        } else if n > 1 {
+                            parts.push(t(text::plural_in(
+                                n as u32,
+                                tr!("Gives your private encryption keys for {} contract"),
+                                tr!("Gives your private encryption keys for {} contracts"),
+                            )));
+                        }
+                        if v1 {
+                            parts.push(t(if n == 0 {
+                                format!(
+                                    tr!("Irreversible: {} will stop opening in older apps"),
+                                    who
+                                )
+                            } else {
+                                format!(tr!("irreversible for {}"), who)
+                            }));
+                        }
+                        parts.join(" · ")
+                    };
+                    let icon = if n == 0 { "warning" } else { "key" };
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 6.0;
+                        crate::components::divider(ui, &p);
+                        if v1 || n > 0 {
+                            consent_line(ui, a, icon, (app, identity), &line);
+                        }
+                    });
+                }
                 // Pinned: the password and the buttons (asked always: this cannot be undone). The
                 // app asks, not the person: Enter in the field never connects (rule b′, BUG-30).
                 if state.consent == Consent::Asking {
@@ -588,19 +701,17 @@ pub fn request(
                                 Weight::Regular,
                                 p.muted,
                             ));
-                            let owner = owner_name
-                                .as_ref()
-                                .map_or_else(|| text::short_address(owner), |n| format!("@{n}"));
-                            ui.label(txt(
-                                &format!(
-                                    tr!("contract {} · owner {}"),
-                                    text::short_address(app_id),
-                                    owner
-                                ),
-                                12.0,
-                                Weight::Regular,
-                                p.muted,
-                            ));
+                            // FEAT-0051 UC-4: what the person signs in to, in full, in mono, with
+                            // nothing to copy — the contract and its owner.
+                            ui.label(txt(tr!("contract"), 12.0, Weight::Regular, p.muted));
+                            crate::components::full_id(ui, a, app_id, false);
+                            ui.label(txt(tr!("owner"), 12.0, Weight::Regular, p.muted));
+                            match owner_name {
+                                Some(n) => {
+                                    ui.label(txt(&format!("@{n}"), 13.0, Weight::Medium, p.text));
+                                }
+                                None => crate::components::full_id(ui, a, owner, false),
+                            }
                         });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                             crate::components::chip(
@@ -742,37 +853,28 @@ pub fn request(
     pick
 }
 
-/// BUG-249: the request's summary: what the app will be able to do as chosen, the encryption
-/// keys whose private key it gets ([`key_words`]), its limit and its period's end ("—" while
-/// the choice is not one the wallet takes).
+/// BUG-249 and F1: the request's pinned summary — the encryption keys whose private key the app
+/// gets ([`key_words`]: the password is the consent to give them), its limit and its period's
+/// end ("—" while the choice is not one the wallet takes; a limit says nothing without its
+/// term, and a renewal changes the term). The rights as chosen, under their heading, stay in
+/// the middle with their choices (the designer and the architect, FEAT-0051, 2026-11-25).
 fn summary(
     ui: &mut Ui,
     a: &mut Assets,
     state: &AppRequests,
-    (sessions, limits, app): (&[SessionOffer], &SessionLimits, &str),
+    limits: &SessionLimits,
     keys: &[(&'static str, String, String)],
     now: Timestamp,
 ) {
     let p = a.p;
-    ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        for (i, offer) in sessions.iter().enumerate() {
-            if offer.primary || state.choice.kept.get(i).copied().unwrap_or(false) {
-                can_line(
-                    ui,
-                    a,
-                    "check",
-                    &binding_words(&offer.binding, app),
-                    None,
-                    false,
-                );
+    if !keys.is_empty() {
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            for (icon, title, _) in keys {
+                can_line(ui, a, icon, title, None, false);
             }
-        }
-        for (icon, title, _) in keys {
-            can_line(ui, a, icon, title, None, false);
-        }
-    });
-    let value = mono(13.0, Weight::Medium);
+        });
+    }
     kv_row(
         ui,
         &p,
@@ -781,7 +883,7 @@ fn summary(
             .choice
             .limit(limits)
             .map_or_else(|| "—".to_owned(), dash),
-        value.clone(),
+        mono(13.0, Weight::Medium),
     );
     kv_row(
         ui,
@@ -791,7 +893,7 @@ fn summary(
             .choice
             .end(limits, now)
             .map_or_else(|| "—".to_owned(), text::date_long),
-        value,
+        mono(13.0, Weight::Medium),
     );
 }
 

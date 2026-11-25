@@ -91,10 +91,18 @@ pub fn changes(
                         },
                         amount(a)
                     ),
-                    body: format!(
-                        tr!("{} · the payment is confirmed and cannot be undone"),
-                        crate::text::activity_title(a)
-                    ),
+                    // FEAT-0051 R-7.
+                    body: if crate::text::advanced() {
+                        format!(
+                            tr!("{} · the payment is confirmed and cannot be undone"),
+                            crate::text::activity_title(a)
+                        )
+                    } else {
+                        format!(
+                            tr!("{} · the payment is completed and cannot be undone"),
+                            crate::text::activity_title(a)
+                        )
+                    },
                 })
             }
             _ => {}

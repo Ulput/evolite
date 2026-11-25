@@ -27,7 +27,7 @@ use crate::components::{
     page_header, pill, text_field,
 };
 use crate::context::Ctx;
-use crate::text::{name_problem, short_address};
+use crate::text::name_problem;
 use crate::theme::{Weight, mono, sans};
 use egui::{Align, Layout, Margin, Stroke, Ui, vec2};
 use evolite_api::{

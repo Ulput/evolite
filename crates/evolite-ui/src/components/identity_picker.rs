@@ -153,7 +153,7 @@ fn identity_pill(
     let shown = if fits(&own) {
         own.clone()
     } else {
-        crate::text::middle_fit(&own, &fits)
+        crate::text::middle_fit(&own, &fits, crate::text::NAME_ENDS)
     };
     let hover = match &choice.name {
         Some(_) => format!("{own}\n{}", crate::i18n::t(&choice.id)),

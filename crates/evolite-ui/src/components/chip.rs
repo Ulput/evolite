@@ -176,6 +176,38 @@ pub fn status_chip(ui: &mut Ui, a: &mut Assets, proof: Proof) -> Response {
     status_chip_of(ui, a, proof, false)
 }
 
+/// FEAT-0051 R-2: the seal beside a status evolite checked itself ([`crate::text::checked`]),
+/// 16 px centred on `center`: the seal muted, its check accent (the designer, 2026-11-22). Its
+/// hint on hover; no Tab stop — the line's name says «cryptographically checked» (R-3). Where
+/// it stands, or `None` without a seal: nothing is drawn and no room taken.
+pub fn proof_seal_at(
+    ui: &mut Ui,
+    a: &mut Assets,
+    proof: Proof,
+    center: egui::Pos2,
+) -> Option<Rect> {
+    let hint = crate::text::checked_hint(proof)?;
+    let p = a.p;
+    let rect = Rect::from_center_size(center, vec2(16.0, 16.0));
+    a.icons.icon("proof", p.muted, &p, 16.0).paint_at(ui, rect);
+    let id = ui
+        .id()
+        .with(("proof-seal", rect.min.x as i32, rect.min.y as i32));
+    ui.interact(rect, id, Sense::hover())
+        .on_hover_text(crate::i18n::t(hint).into_owned());
+    Some(rect)
+}
+
+/// [`proof_seal_at`] in a layout: 16 × 16 taken where the layout puts it, only when there is a
+/// seal.
+pub fn proof_seal(ui: &mut Ui, a: &mut Assets, proof: Proof) {
+    if !crate::text::checked(proof) {
+        return;
+    }
+    let (rect, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
+    proof_seal_at(ui, a, proof, rect.center());
+}
+
 /// The words of a status chip; `core`: it speaks only of the Core transaction (FEAT-0016).
 pub fn status_words(proof: Proof, core: bool) -> String {
     let (_, label) = crate::text::proof(proof);

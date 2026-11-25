@@ -300,7 +300,7 @@ fn token_kv(ui: &mut Ui, p: &crate::theme::Palette, info: &TokenInfo) {
         &crate::i18n::own(&format!(
             "{} · {} · {}",
             state::name(info),
-            state::short(&info.token_id),
+            crate::text::whole(&info.token_id),
             issuer(info)
         )),
         sans(13.0, Weight::Medium),

@@ -688,7 +688,7 @@ fn given_tile(n: &Numbers) -> (String, Option<String>) {
             let to = if to.starts_with('@') {
                 crate::i18n::own(to)
             } else {
-                super::super::tokens::state::short(to)
+                crate::text::whole(to)
             };
             format!(tr!("last: {}, {}"), crate::text::when(*at, n.now), to)
         }

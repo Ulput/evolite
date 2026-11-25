@@ -274,7 +274,7 @@ fn every_key_the_app_gets_is_said() {
         title,
         format!(
             "Get your private decryption key for another contract, {}",
-            text::short_address(OTHER)
+            text::whole(OTHER)
         )
     );
     for words in [

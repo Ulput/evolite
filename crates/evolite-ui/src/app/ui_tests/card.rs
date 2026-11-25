@@ -51,12 +51,10 @@ fn a_transfer_between_own_addresses_shows_both_addresses_and_the_fee() {
         "a «Moved» row"
     );
     shown(&mut kit, &format!("Fee: {}", format::amount(226)));
+    // FEAT-0051 R-2: what the seal says in plain words, the block for advanced users.
     shown(
         &mut kit,
-        &format!(
-            "ChainLock in block {}: the quorum signature is checked",
-            group_thousands(1_283_402)
-        ),
+        "Cryptographically checked: evolite checked the signature itself.",
     );
     assert!(!any_starts(&kit, "Where:"), "the chain is in the header");
     assert!(
@@ -80,10 +78,7 @@ fn a_payment_out_comes_from_this_wallet_and_its_note_sits_over_the_txid() {
     assert!(from.top() < to.top());
     let proof = shown(
         &mut kit,
-        &format!(
-            "ChainLock in block {}: the quorum signature is checked",
-            group_thousands(1_284_101)
-        ),
+        "Cryptographically checked: evolite checked the signature itself.",
     );
     let note = shown(
         &mut kit,
@@ -153,7 +148,7 @@ fn a_name_says_its_identity_and_copies_its_document_id() {
     );
     shown(
         &mut kit,
-        "Proved by Platform: the answer matches the GroveDB proof",
+        "Cryptographically checked: evolite checked the answer itself.",
     );
     shown(&mut kit, "7Yd3kQw9nV2mRt6pLx4Hs8Fc1Bz5Jg3AeU6tNq2PvWk");
     assert!(!any_starts(&kit, "Where:"));
@@ -199,7 +194,7 @@ fn a_withdrawal_not_paid_waits_and_opens_nothing() {
 fn back_to_the_withdrawal() -> String {
     format!(
         "Credit withdrawal to {} · {} · ",
-        crate::text::short_address("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c"),
+        crate::text::whole("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c"),
         crate::text::signed_amount(-40_000_000)
     )
 }
@@ -993,7 +988,8 @@ fn a_lock_platform_proved_used_says_so_and_offers_no_continue() {
         &kit,
         "Platform has proved that these DASH were used."
     ));
-    assert!(any_starts(&kit, "Core · Final"));
+    // FEAT-0051 R-1: «Completed» in plain words.
+    assert!(any_starts(&kit, "Core · Completed"));
     assert!(!any_starts(&kit, "Continue on the Identity screen"));
     assert!(
         !any_starts(&kit, "Open in Identity"),
@@ -1012,7 +1008,7 @@ fn a_lock_without_a_record_says_so_and_offers_no_continue() {
     let (_turn, mut kit) = demo_app("activity-card-lock-unknown", "en");
     shown(&mut kit, "Credits: no record");
     assert!(any_starts(&kit, "This top-up was made on another computer"));
-    assert!(any_starts(&kit, "Core · In a block"));
+    assert!(any_starts(&kit, "Core · Completed"));
     assert!(!any_starts(&kit, "Continue on the Identity screen"));
     press(&mut kit, "Open Identity");
     wait_for(&mut kit, "the Identity screen", |kit| {
@@ -1025,7 +1021,7 @@ fn a_lock_without_a_record_says_so_and_offers_no_continue() {
 fn only_a_lock_not_added_is_red_but_every_lock_not_added_names_core() {
     let (_turn, mut kit) = demo_app("activity-card-lock-not-added", "en");
     shown(&mut kit, "Credits: not added");
-    assert!(any_starts(&kit, "Core · Final"));
+    assert!(any_starts(&kit, "Core · Completed"));
     assert!(any_starts(&kit, "Continue on the Identity screen"));
     assert!(!any_starts(&kit, "Open Identity"));
 }

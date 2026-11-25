@@ -745,6 +745,8 @@ fn contacts_explanation_in_arabic_reads_down_from_its_first_row() {
 #[test]
 fn the_synced_block_line_keeps_its_dot_with_chainlock() {
     let (_turn, mut kit) = demo_app("contacts", "ar");
+    // FEAT-0051 R-7: the block and «ChainLock» are on the card for advanced users.
+    kit.state_mut().settings.set("advanced", true);
     kit.set_size(egui::vec2(1600.0, 1000.0));
     kit.run_steps(6);
     let galley = painted_galleys(&kit)
@@ -1393,6 +1395,11 @@ fn the_balance_says_it_may_be_incomplete_during_a_contacts_rescan() {
     );
     // QA (bug221-1): no «Final» beside the total, and the Core card says it too.
     assert!(!has_text(&kit, "Final"), "not final during the rescan");
+    // FEAT-0051: nor «Completed», its plain word.
+    assert!(
+        !has_text(&kit, "Completed"),
+        "not completed during the rescan"
+    );
     assert!(
         has_words(&kit, "· may be incomplete"),
         "the Core card's line"

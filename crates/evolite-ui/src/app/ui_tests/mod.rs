@@ -67,6 +67,7 @@ mod password_reveal;
 mod pause;
 mod phrase_tree;
 mod phrase_words;
+mod plain_statuses;
 mod pool_levels;
 mod pool_moves;
 mod qr;

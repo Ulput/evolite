@@ -278,7 +278,7 @@ fn taker_text(t: &Taker, page: &TokenPage) -> String {
         Taker::NoOne => tr!("nobody").into(),
         Taker::ContractOwner if page.owner_is_me => tr!("the contract owner — you").into(),
         Taker::ContractOwner => tr!("the contract owner").into(),
-        Taker::Identity(id) => crate::i18n::own(&state::short(id)),
+        Taker::Identity(id) => crate::i18n::own(&crate::text::whole(id)),
         Taker::MainGroup => tr!("the main group").into(),
         Taker::Group(n) => format!(tr!("group {}"), n),
     }
@@ -343,7 +343,7 @@ fn change_text(change: &SettingChange, page: &TokenPage, decimals: u8) -> String
         }
         SettingChange::NewTokensTo(to) => to.as_ref().map_or_else(
             || tr!("none").to_string(),
-            |id| crate::i18n::own(&state::short(id)),
+            |id| crate::i18n::own(&crate::text::whole(id)),
         ),
         SettingChange::ChooseDestination(b) | SettingChange::TradeMode(b) => on(*b),
         SettingChange::Names(names) => names_text(names),
@@ -410,7 +410,7 @@ fn setting_value(s: &SettingView, page: &TokenPage, name: &str, decimals: u8) ->
             .map_or_else(|| tr!("none").to_string(), |m| state::written(m, decimals)),
         SettingField::NewTokensTo => page.new_tokens_to.as_ref().map_or_else(
             || tr!("none").to_string(),
-            |id| crate::i18n::own(&state::short(id)),
+            |id| crate::i18n::own(&crate::text::whole(id)),
         ),
         SettingField::ChooseDestination => if page.choose_destination {
             tr!("On")
@@ -557,7 +557,7 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
             } else {
                 format!(
                     tr!("Contract owner: {}"),
-                    crate::i18n::own(&state::short(&page.owner))
+                    crate::i18n::own(&crate::text::whole(&page.owner))
                 )
             };
             ui.add(para(&owner, 13.0, Weight::Regular, p.muted));
@@ -695,7 +695,7 @@ pub fn page_screen(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut Token
                             ui.horizontal(|ui| {
                                 ui.add(a.icons.icon("lock", p.muted, &p, 16.0));
                                 ui.label(txt(
-                                    &crate::i18n::own(&state::short(who)),
+                                    &crate::i18n::own(&crate::text::whole(who)),
                                     13.0,
                                     Weight::Medium,
                                     p.text,
@@ -1278,7 +1278,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                         }
                         IssuerWindow::Destroy(w) => format!(
                             tr!("I understand: the funds of {} disappear for good"),
-                            crate::i18n::own(&state::short(w))
+                            crate::i18n::own(&crate::text::whole(w))
                         ),
                         IssuerWindow::Pause => tr!(
                             "I understand: nobody can transfer the token until the pause is lifted"
@@ -1405,7 +1405,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                                 ui,
                                 &p,
                                 tr!("To"),
-                                &crate::i18n::own(&state::short(to)),
+                                &crate::i18n::own(&crate::text::whole(to)),
                                 value.clone(),
                             );
                         }
@@ -1473,7 +1473,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                         ui,
                         &p,
                         tr!("Identity"),
-                        &crate::i18n::own(&state::short(w)),
+                        &crate::i18n::own(&crate::text::whole(w)),
                         value.clone(),
                     );
                     if danger {
@@ -1586,7 +1586,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     ui.label(txt(
                     &format!(
                         tr!("Everyone sees the price. Buyers pay in credits, which go to the contract owner — {}."),
-                        crate::i18n::own(&state::short(&page.owner))
+                        crate::i18n::own(&crate::text::whole(&page.owner))
                     ),
                     12.0,
                     Weight::Regular,

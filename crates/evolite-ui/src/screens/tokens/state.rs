@@ -82,17 +82,6 @@ pub fn typed(input: &str, decimals: u8) -> Result<TokenAmount, AmountError> {
     parse_amount(&format!("{whole}.{fraction}"), decimals)
 }
 
-/// «7Hq2…9fLm»: an id in a row, as the mockups write it.
-pub fn short(id: &str) -> String {
-    let chars: Vec<char> = id.chars().collect();
-    if chars.len() <= 10 {
-        return id.to_owned();
-    }
-    let head: String = chars[..4].iter().collect();
-    let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}…{tail}")
-}
-
 /// Paused or frozen: the rows that go last.
 fn held(row: &TokenRow) -> bool {
     row_reason(row).is_some()
@@ -320,12 +309,6 @@ mod tests {
             row_reason(&unread).is_some_and(|r| r.contains("paused")),
             "paused first"
         );
-    }
-
-    #[test]
-    fn short_ids_as_the_mockups_write_them() {
-        assert_eq!(short("7Hq2abcdefghijklmnopqrstuvwxyz9fLm"), "7Hq2…9fLm");
-        assert_eq!(short("abc"), "abc");
     }
 
     #[test]

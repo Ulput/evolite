@@ -279,7 +279,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                                 // The name is asked of the network before the review (R-3).
                                 resolve = Some(to);
                             } else {
-                                form.recipient = Some((state::short(&to), to));
+                                form.recipient = Some((crate::text::whole(&to), to));
                                 form.review = true;
                             }
                         }
@@ -487,10 +487,10 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                 );
             } else {
                 let (to_name, to_id) = form.recipient.clone().unwrap_or_default();
-                let to_line = if to_name == state::short(&to_id) {
+                let to_line = if to_name == crate::text::whole(&to_id) {
                     to_name.clone()
                 } else {
-                    format!("{to_name} · {}", state::short(&to_id))
+                    format!("{to_name} · {}", crate::text::whole(&to_id))
                 };
                 kv_row(
                     ui,
@@ -505,7 +505,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
                     tr!("Token id"),
                     &crate::i18n::own(&format!(
                         "{} · {}",
-                        state::short(&row.info.token_id),
+                        crate::text::whole(&row.info.token_id),
                         issuer(&row.info)
                     )),
                     value.clone(),

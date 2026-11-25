@@ -113,7 +113,7 @@ impl CoinPick {
             .find(|c| c.outpoint == outpoint)
             .map_or_else(
                 || short_outpoint(outpoint),
-                |c| crate::text::short_address(&c.address),
+                |c| crate::text::whole(&c.address),
             )
     }
 
@@ -729,7 +729,7 @@ fn coin_row(
                     &tick,
                     egui::WidgetType::Checkbox,
                     on,
-                    &format!("{shown} · {}", crate::text::short_address(&coin.address)),
+                    &format!("{shown} · {}", crate::text::whole(&coin.address)),
                 );
                 ui.vertical(|ui| {
                     ui.spacing_mut().item_spacing.y = 2.0;
@@ -744,7 +744,7 @@ fn coin_row(
                     ui.label(crate::components::fig_txt(
                         &format!(
                             "{} · {} · {when}",
-                            crate::text::short_address(&coin.address),
+                            crate::text::whole(&coin.address),
                             whose(coin)
                         ),
                         mono(12.0, Weight::Regular),
@@ -829,7 +829,7 @@ fn input_line(ui: &mut Ui, p: &crate::theme::Palette, coin: &Coin, note: Option<
                 egui::Label::new(crate::components::fig_txt(
                     &format!(
                         "{} · {}",
-                        crate::text::short_address(&coin.address),
+                        crate::text::whole(&coin.address),
                         note.map_or_else(|| whose(coin), |n| crate::i18n::t(n).into_owned())
                     ),
                     mono(12.0, Weight::Regular),

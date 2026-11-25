@@ -182,18 +182,31 @@ fn total_block(
                 return;
             }
             let updated = cx.now.format("%H:%M");
+            // FEAT-0051 R-7: plain words unless the advanced ones are asked for.
+            let advanced = crate::text::advanced();
             let (proof, line) = if all_proved {
                 (
                     Proof::ChainLock,
-                    format!(tr!("All confirmed · updated {updated}"), updated = updated),
+                    if advanced {
+                        format!(tr!("All confirmed · updated {updated}"), updated = updated)
+                    } else {
+                        format!(tr!("All completed · updated {updated}"), updated = updated)
+                    },
                 )
             } else {
                 (
                     Proof::Mempool,
-                    format!(
-                        tr!("Some payments are unconfirmed · updated {updated}"),
-                        updated = updated
-                    ),
+                    if advanced {
+                        format!(
+                            tr!("Some payments are unconfirmed · updated {updated}"),
+                            updated = updated
+                        )
+                    } else {
+                        format!(
+                            tr!("Some payments are pending · updated {updated}"),
+                            updated = updated
+                        )
+                    },
                 )
             };
             status_chip(ui, a, proof);

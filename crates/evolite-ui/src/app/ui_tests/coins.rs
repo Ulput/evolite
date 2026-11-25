@@ -77,7 +77,8 @@ fn a_ticked_coin_gone_is_said_and_apply_waits() {
     // Named by its address, as the rows are; the row is marked and shown first (the designer).
     assert!(shows(
         &kit,
-        "The coin yMrD…wvXQ is already spent, perhaps by a payment from another device"
+        // FEAT-0051 R-4: the address whole in a sentence.
+        "The coin yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ is already spent, perhaps by a payment from another device"
     ));
     assert!(shows(&kit, "already spent"));
     assert!(button(&kit, "Apply").accesskit_node().is_disabled());
@@ -176,7 +177,7 @@ fn a_coin_not_to_sign_for_says_so_and_cannot_be_ticked() {
                 "{} {} · {}",
                 crate::format::number(coin.value, false),
                 crate::format::unit_name(),
-                crate::text::short_address(&coin.address)
+                crate::text::whole(&coin.address)
             ),
         )
     };

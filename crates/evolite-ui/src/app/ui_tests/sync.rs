@@ -213,7 +213,8 @@ fn the_rail_mark_moves_while_it_syncs_and_stands_full_when_done() {
     shows(&mut kit, SyncStage::Done, Some(1.0), "done", |_| true);
     assert_eq!(rail_mark(&kit), (RailMark::Done, false));
     assert!(
-        rail_status(&kit).starts_with("Synced · block "),
+        // FEAT-0051 R-7: the block's number is the advanced user's; «Synced» either way.
+        rail_status(&kit).starts_with("Synced"),
         "{}",
         rail_status(&kit)
     );
@@ -295,7 +296,7 @@ fn the_full_menu_keeps_its_sync_card() {
 fn the_keyboard_on_the_rail_mark_shows_its_words() {
     let (_turn, mut kit) = demo_app("overview", "en");
     assert!(!has_text(&kit, "Synced"), "no words before the focus comes");
-    tab_to(&mut kit, "Synced · block ");
+    tab_to(&mut kit, "Synced");
     kit.run_steps(2);
     assert!(has_text(&kit, "Synced"), "the tooltip's first line");
 }

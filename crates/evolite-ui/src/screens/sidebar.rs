@@ -436,6 +436,25 @@ pub(crate) fn card_words(
             bar: Bar::Running,
         };
     }
+    // FEAT-0051 R-7: in plain words the card says only how the sync goes — no block, no
+    // ChainLock, those are for advanced users.
+    if status.stage == SyncStage::Done && !crate::text::advanced() {
+        let updated = status
+            .tip_at
+            .map(|at| reading(&format!(tr!("updated {}"), tip_time(at, now))).into_owned())
+            .unwrap_or_default();
+        return CardWords {
+            title: tr!("Synced").to_string(),
+            // BUG-155: when the tip came is the tooltip's, not the card's.
+            detail: String::new(),
+            detail_short: None,
+            stopped: false,
+            warning: false,
+            tip_title: tr!("Synced").to_string(),
+            tip_detail: updated,
+            bar: Bar::None,
+        };
+    }
     if status.stage == SyncStage::Done {
         let block = format!(tr!("block {}"), group_thousands(status.tip_height as i64));
         let mut tip = vec![reading(&block).into_owned()];
@@ -1582,6 +1601,8 @@ mod tests {
     /// that is too long; the tooltip adds when the tip came: the time today, the date before.
     #[test]
     fn synced_says_the_block_and_when_it_came() {
+        // FEAT-0051 R-7: the block and ChainLock are the advanced user's words.
+        crate::text::set_advanced(true);
         let mut s = on_platform(&[]);
         s.chainlocked = true;
         let today = at_three().timestamp() - 28 * 60;
@@ -1624,6 +1645,8 @@ mod tests {
     /// then «ChainLock»).
     #[test]
     fn in_arabic_the_time_stays_with_updated() {
+        // FEAT-0051 R-7: «ChainLock» on the card is the advanced user's.
+        crate::text::set_advanced(true);
         crate::i18n::set(crate::i18n::Lang::Ar);
         let mut s = on_platform(&[]);
         s.chainlocked = true;

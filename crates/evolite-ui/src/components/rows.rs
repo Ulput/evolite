@@ -125,6 +125,10 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     if let Some(neutral) = row.neutral {
         parts.push(spoken(neutral));
     }
+    // FEAT-0051 R-3: the seal is no Tab stop of its own; the line says it was checked.
+    if row.neutral.is_none() && row.proof.is_some_and(crate::text::checked) {
+        parts.push(spoken(crate::text::CHECKED));
+    }
     // The note in its quotes is read apart: a « · » of the person's own would split it from its
     // quotes in the line's pieces (FEAT-0003).
     if let Some(note) = row.note {
@@ -203,12 +207,20 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
         let mut chip_ui = ui.new_child(egui::UiBuilder::new().max_rect(chip_rect));
         status_chip_of(&mut chip_ui, a, proof, row.core_chip);
         text_right = chip_rect.left();
+        // FEAT-0051 R-2: the seal left of the chip, 8 apart; the chip keeps its place.
+        if let Some(seal) = proof_seal_at(ui, a, proof, pos2(chip_rect.left() - 8.0 - 8.0, cy)) {
+            text_right = seal.left();
+        }
     }
 
     let tx = boxr.right() + 14.0;
     let title_w = text_right - 14.0 - tx;
+    // FEAT-0051 R-5 (BUG-254's order): an id in the title whole when the line has room, else
+    // shortened in its middle to what the rest of the title leaves; the line's «…» below is
+    // only the last resort. The row's name keeps it whole.
+    let fitted = fit_title_id(ui, row.title, title_w);
     // In Arabic broken in reading order first (BUG-119), measured with its mono codes.
-    let title_text = lines_measured(row.title, &sans(14.0, Weight::SemiBold), title_w, |line| {
+    let title_text = lines_measured(&fitted, &sans(14.0, Weight::SemiBold), title_w, |line| {
         ui.painter()
             .layout_job(title_job(line, p.text, f32::INFINITY))
             .size()
@@ -219,6 +231,8 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     let title = ui
         .painter()
         .layout_job(row_title_job(&title_text, p.text, title_w));
+    // R-5: a title shortened — its id in the middle or its end with «…» — whole under the pointer.
+    let shortened = fitted != row.title || title.elided;
     ui.painter().galley(pos2(tx, cy - 17.0), title, p.text);
     // §8d-2 (the class sweep): the line under the title is cut with «…» to its room too, the
     // alert's words kept whole after it — a long one ran under the status chip (ru at 800).
@@ -284,7 +298,11 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
             );
         }
     }
-    resp
+    if shortened {
+        resp.on_hover_text(crate::i18n::t(row.title).into_owned())
+    } else {
+        resp
+    }
 }
 
 /// A note in its quotes (N14: the language's own), the person's words kept as they are.
@@ -323,6 +341,59 @@ fn note_job(shown: String, width: f32, color: Color32) -> egui::text::LayoutJob 
         overflow_character: Some('…'),
     };
     job
+}
+
+thread_local! {
+    /// R-5's risk (the architect): measured once per title, room and language, not each frame.
+    static FITTED: std::cell::RefCell<std::collections::HashMap<(String, u32, &'static str), String>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// FEAT-0051 R-5: `title` with its longest id (the mono span, 26+ characters) shortened in its
+/// middle so the title fits `width` on one line — whole when it fits. A title with no id, or
+/// one that fits, as it is.
+fn fit_title_id(ui: &Ui, title: &str, width: f32) -> String {
+    let key = (
+        title.to_owned(),
+        width.round() as u32,
+        crate::i18n::current().code(),
+    );
+    if let Some(hit) = FITTED.with(|f| f.borrow().get(&key).cloned()) {
+        return hit;
+    }
+    let measure = |t: &str| {
+        ui.painter()
+            .layout_job(title_job(t, Color32::WHITE, f32::INFINITY))
+            .size()
+            .x
+    };
+    let fitted = if measure(title) <= width {
+        title.to_owned()
+    } else {
+        match code_spans(title)
+            .into_iter()
+            .filter(|(s, code)| *code && s.chars().count() >= 26)
+            .max_by_key(|(s, _)| s.chars().count())
+        {
+            None => title.to_owned(),
+            Some((id, _)) => {
+                let at = title.find(id).unwrap_or(0);
+                let (before, after) = (&title[..at], &title[at + id.len()..]);
+                let short = super::fit_id(id, &|s: &str| {
+                    measure(&format!("{before}{s}{after}")) <= width
+                });
+                format!("{before}{short}{after}")
+            }
+        }
+    };
+    FITTED.with(|f| {
+        let mut f = f.borrow_mut();
+        if f.len() > 2048 {
+            f.clear();
+        }
+        f.insert(key, fitted.clone());
+    });
+    fitted
 }
 
 /// An operation's title as drawn: Inter, with the Dash addresses, short ids and txids in it

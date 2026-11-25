@@ -29,7 +29,7 @@ use crate::components::{
     notice, page_header, pill, text_action, text_field, two_columns,
 };
 use crate::context::Ctx;
-use crate::text::{self, group_thousands, short_id};
+use crate::text::{self, group_thousands};
 use crate::theme::Weight;
 use crate::theme::style;
 use crate::theme::type_scale::{AMOUNT_L, BODY, CAPTION, HEADING, SMALL, UI};
@@ -475,10 +475,16 @@ fn profile(
                     // SEC-12: the shared copy and «Copied», as every other copy control.
                     let what = ui.id().with("copy-identity-id");
                     let copied = crate::clipboard::just_copied(ui.ctx(), what);
+                    // FEAT-0051 R-5: whole when the header has room, else shortened in its
+                    // middle; whole on hover and for a screen reader.
+                    let room = ui.available_width() - 14.0 - 6.0 - 8.0;
+                    let font = style(UI.mono());
                     let label = if copied {
                         tr!("Copied").to_string()
                     } else {
-                        short_id(&id.id)
+                        crate::components::fit_id(&id.id, &|s: &str| {
+                            crate::components::text_width(ui, s, font.clone()) <= room
+                        })
                     };
                     // The words do not take the click for selecting text, and the row senses
                     // it under its own id, so a click on the ID copies as one on the icon
@@ -680,7 +686,7 @@ fn created_notice(
                 tr!(
                     "Actions now go from identity {} (no name). Without a name nobody finds it by @name; you can add a name any time."
                 ),
-                crate::i18n::own(&short_id(made))
+                crate::i18n::own(&crate::text::whole(made))
             ),
         ),
     };
@@ -1005,7 +1011,12 @@ fn names(
                             (
                                 "confirmed",
                                 p.accent,
-                                tr!("The name is confirmed by a Platform proof"),
+                                // FEAT-0051 R-7.
+                                if crate::text::advanced() {
+                                    tr!("The name is confirmed by a Platform proof")
+                                } else {
+                                    tr!("The name is checked")
+                                },
                             )
                         } else {
                             (

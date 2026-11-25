@@ -296,6 +296,12 @@ fn gap_above(kit: &Kit, under: &str, title: &str) -> f32 {
 fn the_line_under_each_key_is_as_close_to_its_title() {
     let (_turn, mut kit) = demo_app("apps", "en");
     open_request(&mut kit);
+    // FEAT-0051 UC-4: the contract and its owner whole make the body taller; both keys
+    // measured in sight, not clipped by the fold.
+    kit.query_by_role_and_label(Role::CheckBox, "Change your DashPay profile")
+        .expect("the optional key's checkbox")
+        .scroll_to_me();
+    kit.run_steps(3);
     let primary = gap_above(&kit, "fees come from", "Write to");
     let optional = gap_above(&kit, "up to ", "Change your DashPay profile");
     assert!(
@@ -345,4 +351,171 @@ fn each_visit_of_apps_reads_the_budgets_again() {
     wait_for(&mut kit, "the budgets asked on the second visit", |kit| {
         !kit.state().requests.budgets_asked.is_empty()
     });
+}
+
+/// The lines drawn with `words` in them: a label's node, not its text run too (audit F1).
+fn drawn(kit: &Kit, words: &str) -> Vec<egui::Rect> {
+    kit.query_all_by(|n| {
+        n.role() != Role::TextRun
+            && (n.label().is_some_and(|l| l.contains(words))
+                || n.value().is_some_and(|v| v.contains(words)))
+    })
+    .map(|n| n.rect())
+    .collect()
+}
+
+/// The open request with `keys` encryption keys the app gets (none added) and V1's warning or not.
+fn with_keys(kit: &mut Kit, keys: usize, v1: bool) {
+    const OTHERS: [&str; 3] = [
+        "9Mz3Rt6wQmRz8LpXcV4nB7sYd3Ke1JaPu5W2x",
+        "7Qw2Er5tYuIoPaSdFgHjKlZxCvBnM1234567a",
+        "4Ab5Cd6Ef7Gh8Jk9Lm1Np2Qr3St4Uv5Wx6Yz7b",
+    ];
+    if let Some(open) = kit.state_mut().requests.open.as_mut() {
+        let evolite_api::AppRequestKind::Connect2 {
+            encryption,
+            breaks_old_clients,
+            ..
+        } = &mut open.kind;
+        *encryption = OTHERS[..keys]
+            .iter()
+            .map(|c| evolite_api::EncryptionOffer {
+                contract: (*c).into(),
+                encryption: false,
+                given: true,
+                added: false,
+            })
+            .collect();
+        *breaks_old_clients = v1;
+    }
+}
+
+/// FEAT-0051 r2 (the architect): V1's «Irreversible» in one amber line in the pinned summary,
+/// once, over the key lines; the whole warning stays in the request.
+#[test]
+fn the_irreversible_line_is_pinned_once_over_the_keys() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    // Tall enough for the whole middle (see `a_key_the_app_gets_without_adding_one_is_said`).
+    kit.set_size(egui::vec2(1024.0, 2000.0));
+    open_request(&mut kit);
+    with_keys(&mut kit, 1, true);
+    kit.run_steps(4);
+    let seen = crate::components::dialog_seen(&kit.ctx).expect("the request dialog");
+    assert!(!seen.one_scroll, "the summary pinned");
+    let (summary, _) = seen.summary.expect("the request's summary");
+    let irreversible = drawn(&kit, "Irreversible: @");
+    let pinned: Vec<_> = irreversible
+        .iter()
+        .filter(|r| summary.expand(0.5).contains_rect(**r))
+        .collect();
+    assert_eq!(pinned.len(), 1, "once in the summary: {irreversible:?}");
+    assert_eq!(irreversible.len(), 1, "only in the summary");
+    assert!(
+        has_words(&kit, "This is permanent for"),
+        "the whole warning in the request"
+    );
+    let key = drawn(&kit, "Get your private decryption key for another contract")
+        .into_iter()
+        .find(|r| summary.expand(0.5).contains_rect(*r))
+        .expect("the key's line in the summary");
+    assert!(pinned[0].bottom() <= key.top() + 0.5, "over the key lines");
+}
+
+/// FEAT-0051 r3 (the designer, the architect: F1), BUG-249's one scroll in App Connect at
+/// 800 × 440: the amounts scroll, one amber line stays with the password — the key the app gets
+/// always in it (with V1, «irreversible» beside it); keys counted when there are several. A name
+/// too long is shortened, never what is given or «irreversible» (ru, de). The password and the
+/// buttons in the window, the middle at least 96 high.
+#[test]
+fn a_low_window_keeps_one_line_of_consent_with_the_password() {
+    const LONG: &str = "Yappr Social Network Extended Edition For Everyone Everywhere";
+    for (keys, v1, lang, long, words) in [
+        (
+            1,
+            false,
+            "en",
+            false,
+            &["Gives your private encryption key for Yappr"][..],
+        ),
+        (
+            3,
+            false,
+            "en",
+            false,
+            &["Gives your private encryption keys for 3 contracts"][..],
+        ),
+        (
+            1,
+            true,
+            "en",
+            false,
+            &[
+                "Gives your private encryption key for",
+                "irreversible for @satoshi",
+            ][..],
+        ),
+        (
+            1,
+            true,
+            "ru",
+            true,
+            &["закрытый ключ шифрования", "необратимо для"][..],
+        ),
+        (
+            1,
+            true,
+            "de",
+            true,
+            &["privaten Verschlüsselungsschlüssel", "unumkehrbar für"][..],
+        ),
+    ] {
+        let (_turn, mut kit) = demo_app("apps", lang);
+        open_request(&mut kit);
+        with_keys(&mut kit, keys, v1);
+        if long && let Some(open) = kit.state_mut().requests.open.as_mut() {
+            let evolite_api::AppRequestKind::Connect2 { label, .. } = &mut open.kind;
+            *label = LONG.into();
+        }
+        kit.set_size(egui::vec2(800.0, 440.0));
+        kit.run_steps(6);
+        let case = format!("{keys} keys, V1 {v1}, {lang}");
+        let seen = crate::components::dialog_seen(&kit.ctx).expect("the request dialog");
+        assert!(seen.one_scroll, "{case}: the summary scrolls");
+        let footer = seen.footer.expect("the footer");
+        let pinned: Vec<String> = kit
+            .query_all_by(|n| n.role() == Role::Label)
+            .filter(|n| footer.expand(0.5).contains_rect(n.rect()))
+            .filter_map(|n| n.value())
+            .filter(|v| words.iter().all(|w| v.contains(w)))
+            .collect();
+        assert_eq!(pinned.len(), 1, "{case}: one line with {words:?}");
+        if long {
+            assert!(
+                pinned[0].contains('…'),
+                "{case}: the name shortened: {}",
+                pinned[0]
+            );
+            assert!(!pinned[0].contains(LONG), "{case}: {}", pinned[0]);
+        }
+        let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 440.0));
+        let password = kit
+            .query_all_by_role(Role::PasswordInput)
+            .next()
+            .expect("the password field")
+            .rect();
+        assert!(window.contains_rect(password), "{case}: the password");
+        let buttons: Vec<_> = kit
+            .query_all_by_role(Role::Button)
+            .filter(|b| footer.expand(0.5).contains_rect(b.rect()))
+            .map(|b| b.rect())
+            .collect();
+        assert!(buttons.len() >= 2, "{case}: the buttons in the footer");
+        assert!(buttons.iter().all(|b| window.contains_rect(*b)), "{case}");
+        let middle = seen.scrolled.expect("the middle scrolls");
+        assert!(
+            middle.height() >= 96.0,
+            "{case}: the middle {} high",
+            middle.height()
+        );
+    }
 }

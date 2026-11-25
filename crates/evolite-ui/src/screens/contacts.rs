@@ -10,7 +10,7 @@ use crate::components::{
     page_header, text_field,
 };
 use crate::context::Ctx;
-use crate::text::{self, name_problem, plural, short_id};
+use crate::text::{self, name_problem, plural};
 use crate::theme::{Weight, mono, sans};
 use chrono::{DateTime, Local};
 use egui::{Align, Align2, Layout, Margin, Rect, Sense, Ui, pos2, vec2};
@@ -557,7 +557,7 @@ fn row(
     let id_rect = painter.text(
         pos2(handle.right() + 8.0, handle.center().y),
         Align2::LEFT_CENTER,
-        crate::i18n::t(&short_id(&c.identity_id)),
+        crate::i18n::t(&crate::text::whole(&c.identity_id)),
         mono(12.0, Weight::Regular),
         p.muted,
     );
@@ -712,7 +712,7 @@ fn profile_dialog(
                 };
                 ui.label(txt(&handle, 14.0, Weight::Medium, p.muted));
                 ui.label(
-                    egui::RichText::new(crate::i18n::t(&short_id(&c.identity_id)))
+                    egui::RichText::new(crate::i18n::t(&crate::text::whole(&c.identity_id)))
                         .font(mono(12.0, Weight::Regular))
                         .color(p.muted),
                 )
@@ -1627,7 +1627,7 @@ fn found_box(ui: &mut Ui, a: &mut Assets, found: &ResolvedName, asked: &mut Vec<
                 crate::components::para(
                     &format!(
                         tr!("identity {} · @{} verified by a Platform proof"),
-                        short_id(&found.identity_id),
+                        crate::text::whole(&found.identity_id),
                         found.name
                     ),
                     12.0,

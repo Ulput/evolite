@@ -69,7 +69,9 @@ pub(super) fn summary_recipient(typed: &str, known: bool) -> String {
         let head: String = typed.chars().take(NAME_SHOWN - 1).collect();
         return format!("{head}…");
     }
-    short_address(typed)
+    // BUG-32, BUG-39 №5: the summary's line is brief — the address at its least, 4…4, the
+    // whole one in the form above it (FEAT-0051 R-5's one way to shorten).
+    crate::components::fit_id(typed, &|_| false)
 }
 
 /// Whether `to` is an address of this wallet: the one to receive on now, its Platform address,
@@ -146,7 +148,7 @@ pub(super) fn address_book(
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(8.0, 8.0);
                 for e in offer {
-                    let label = format!("{} · {}", e.label, short_address(&e.address));
+                    let label = format!("{} · {}", e.label, crate::text::whole(&e.address));
                     if pill(ui, &p, &label, false)
                         .on_hover_text(crate::i18n::t(&e.address).into_owned())
                         .clicked()
@@ -311,9 +313,12 @@ pub(super) fn resolved(
                         ui.add(
                             egui::Label::new(txt(
                                 &if goes.is_empty() {
-                                    format!("identity {}", short_address(&c.identity_id))
+                                    format!("identity {}", crate::text::whole(&c.identity_id))
                                 } else {
-                                    format!("identity {} · {goes}", short_address(&c.identity_id))
+                                    format!(
+                                        "identity {} · {goes}",
+                                        crate::text::whole(&c.identity_id)
+                                    )
                                 },
                                 12.0,
                                 Weight::Regular,

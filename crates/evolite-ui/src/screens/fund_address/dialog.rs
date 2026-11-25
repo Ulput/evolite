@@ -33,17 +33,6 @@ pub(super) fn plan_of(form: &FundForm, wallet: &Wallet) -> Option<Result<FundPla
     Some(fund_plan(amount, false, spendable(wallet), &wallet.fees))
 }
 
-/// The address, shortened for a line of words: «tdash1qqmz…aznp».
-fn short(address: &str) -> String {
-    let chars: Vec<char> = address.chars().collect();
-    if chars.len() <= 16 {
-        return address.to_owned();
-    }
-    let head: String = chars[..10].iter().collect();
-    let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}…{tail}")
-}
-
 /// The dialog while `state.form` is open. Sends `FundAddress` from the review.
 pub fn fund_dialog(
     ui: &mut Ui,
@@ -212,7 +201,7 @@ pub fn fund_dialog(
                     crate::components::para(
                         &format!(
                             tr!("DASH from Core go to this wallet's Platform address: {}. From it you can pay to Platform addresses, top up identities and withdraw to Core."),
-                            crate::i18n::own(&short(&wallet.platform_address))
+                            crate::i18n::own(&crate::text::whole(&wallet.platform_address))
                         ),
                         13.0,
                         Weight::Regular,
@@ -312,19 +301,5 @@ pub fn fund_dialog(
     } else if close {
         state.form = None;
         state.flow.password.forget();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_address_is_shortened_in_words() {
-        assert_eq!(
-            short("tdash1qqmz8fh2wl5c9u4hyrq3m4n0t7k2vx6s4u6aznp"),
-            "tdash1qqmz…aznp"
-        );
-        assert_eq!(short("tdash1short"), "tdash1short");
     }
 }

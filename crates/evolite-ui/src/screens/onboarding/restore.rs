@@ -528,7 +528,7 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
         rows.push((
             "identity",
             // BUG-270: translated, as every row's title («Identity 8rd3…» stayed in Latin).
-            format!(tr!("Identity {}"), crate::text::short_address(id)),
+            format!(tr!("Identity {}"), crate::text::whole(id)),
             format!(tr!("DIP-13 keys · {} keys"), scan.identity_keys),
             Some(dash(scan.identity_credits)),
             false,

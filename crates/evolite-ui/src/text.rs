@@ -268,15 +268,11 @@ pub fn lookalike<'a>(address: &str, known: impl IntoIterator<Item = &'a str>) ->
 /// the installer shares).
 pub use crate::components::address_runs;
 
-/// "yXk3…9f2c": enough to compare by eye; a name stays as it is.
-pub fn short_address(s: &str) -> String {
-    if s.starts_with('@') || s.chars().count() <= 12 {
-        return s.to_string();
-    }
-    let chars: Vec<char> = s.chars().collect();
-    let head: String = chars[..4].iter().collect();
-    let tail: String = chars[chars.len() - 4..].iter().collect();
-    format!("{head}…{tail}")
+/// FEAT-0051 R-4/R-5: an address, an id, a txid whole — never shortened in words. Where it
+/// stands in a line that may be too narrow, the line fits it to its room
+/// (`components::fit_id`); a card shows it with `components::full_id`.
+pub fn whole(s: &str) -> String {
+    s.to_owned()
 }
 
 /// The English plural form for `n`: "1 payment", "3 payments". The pair is one catalog key
@@ -306,27 +302,29 @@ pub fn date_day(at: Timestamp, now: DateTime<Local>) -> String {
 }
 
 /// An identity in a line of History: its @name as the core gives it, a nameless one by its
-/// short ID (FEAT-0014, frame 11) — the core names it by its whole ID.
+/// whole ID (FEAT-0051 R-5: the line fits it to its room).
 pub(crate) fn identity_named(identity: &str) -> String {
     identity_in_line(identity)
 }
 
 fn identity_in_line(identity: &str) -> String {
-    if identity.starts_with('@') {
-        identity.to_owned()
-    } else {
-        short_id(identity)
-    }
+    // FEAT-0051 R-5: whole; the line shortens it in its middle to its room.
+    identity.to_owned()
 }
 
 /// The fewest characters kept at the end of a shortened @name: names often differ only there
 /// (`-1108b`, `-1108c`), the designer's rule for BUG-114.
 pub const NAME_END: usize = 6;
 
+/// An @name's ends for [`middle_fit`]: no least start, the end never shorter than [`NAME_END`].
+pub const NAME_ENDS: (usize, usize) = (0, NAME_END);
+
 /// `name` with its middle replaced by «…» so that it fits: as much of both ends as fits, the
-/// two halves balanced, the end never shorter than [`NAME_END`] (BUG-114; the activity card, BUG-265's identity
-/// picker). Its own-words marks stay.
-pub fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool) -> String {
+/// two halves balanced, never shorter than `ends` (start, end): an @name's [`NAME_ENDS`] (BUG-114;
+/// the activity card, BUG-265's identity picker), an id's 4…4 (FEAT-0051 R-5). The one way to
+/// shorten in the middle (the architect's condition, BUG-265). Its own-words marks stay.
+pub fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool, ends: (usize, usize)) -> String {
+    let (least_head, least_tail) = ends;
     let (open, close) = (name.starts_with('\u{2068}'), name.ends_with('\u{2069}'));
     let bare: Vec<char> = name
         .chars()
@@ -344,31 +342,31 @@ pub fn middle_fit(name: &str, fits: &impl Fn(&str) -> bool) -> String {
         out
     };
     let cut = |kept: usize| {
-        let tail = (kept / 2).max(NAME_END).min(kept);
+        let kept = kept.min(bare.len());
+        let tail = (kept / 2)
+            .max(least_tail)
+            .min(kept.saturating_sub(least_head));
         let head = kept - tail;
         let mut s: String = bare[..head].iter().collect();
         s.push('…');
         s.extend(&bare[bare.len() - tail..]);
         s
     };
-    for kept in (1..bare.len()).rev() {
+    // An id keeps both its ends; a name may lose its start but not its end.
+    let least = if least_head == 0 {
+        1
+    } else {
+        least_head + least_tail
+    };
+    for kept in (least..bare.len()).rev() {
         let s = wrap(cut(kept));
         if fits(&s) {
             return s;
         }
     }
-    wrap(cut(NAME_END.min(bare.len())))
-}
-
-/// "8rd3Ux7pQf…kV2mJ38R" for an identity ID.
-pub fn short_id(id: &str) -> String {
-    let chars: Vec<char> = id.chars().collect();
-    if chars.len() <= 20 {
-        return id.to_string();
-    }
-    let head: String = chars[..10].iter().collect();
-    let tail: String = chars[chars.len() - 8..].iter().collect();
-    format!("{head}…{tail}")
+    wrap(cut(
+        (least_head + least_tail).max(least_tail.min(bare.len()))
+    ))
 }
 
 /// "1 234 567": the interface language's separator between thousands.
@@ -471,17 +469,17 @@ fn issuer_title(token: &str, act: &evolite_api::tokens::TokenAct) -> String {
         TokenAct::Frozen { who } => format!(
             tr!("{token}: balance of {who} frozen"),
             token = token,
-            who = short_address(who)
+            who = who.to_string()
         ),
         TokenAct::Unfrozen { who } => format!(
             tr!("{token}: balance of {who} unfrozen"),
             token = token,
-            who = short_address(who)
+            who = who.to_string()
         ),
         TokenAct::Destroyed { who } => format!(
             tr!("{token}: frozen funds of {who} destroyed"),
             token = token,
-            who = short_address(who)
+            who = who.to_string()
         ),
         TokenAct::Paused => format!(tr!("{token} paused"), token = token),
         TokenAct::Resumed => format!(tr!("{token}: pause lifted"), token = token),
@@ -634,7 +632,7 @@ pub fn activity_title(a: &Activity) -> String {
         {
             format!(tr!("Sent to @{} · from mixed coins"), &to[1..])
         }
-        ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
+        ActivityKind::Sent { to } => format!(tr!("Sent {}"), to.to_string()),
         ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
         // BUG-194: one identity of this wallet paid another as a contact.
         ActivityKind::IdentityTransfer { .. } => tr!("Transfer between your identities").into(),
@@ -713,7 +711,7 @@ pub fn activity_title(a: &Activity) -> String {
             }
         }
         ActivityKind::TokenSent { to, .. } => {
-            format!(tr!("Token transfer to {}"), short_address(to))
+            format!(tr!("Token transfer to {}"), to.to_string())
         }
         // FEAT-0038 R-15: «Создана коллекция «{}»».
         ActivityKind::CollectionCreated { name } => {
@@ -729,7 +727,7 @@ pub fn activity_title(a: &Activity) -> String {
             let buyer = if buyer.starts_with('@') {
                 crate::i18n::own(buyer)
             } else {
-                short_address(buyer)
+                buyer.to_string()
             };
             match (model, serial) {
                 (Some(model), Some(serial)) => format!(
@@ -755,7 +753,7 @@ pub fn activity_title(a: &Activity) -> String {
             tr!("Received {amount} {token} from {from}"),
             amount = crate::screens::tokens::state::plain_written(amount),
             token = token,
-            from = short_address(from)
+            from = from.to_string()
         ),
         ActivityKind::TokenBalance {
             token,
@@ -795,7 +793,7 @@ pub fn activity_title(a: &Activity) -> String {
             token = token
         ),
         ActivityKind::CreditTransfer { to } => {
-            format!(tr!("Credit transfer to {}"), short_address(to))
+            format!(tr!("Credit transfer to {}"), to.to_string())
         }
         ActivityKind::Shielded { from: Some(from) } => {
             format!(tr!("Shielded from {from}"), from = from)
@@ -806,7 +804,7 @@ pub fn activity_title(a: &Activity) -> String {
         // FEAT-0049 r1 Must: out of the pool to one of the wallet's own Core addresses.
         ActivityKind::PoolToCore { .. } => tr!("From the pool to your Core balance").into(),
         ActivityKind::Withdrawal { to, .. } => {
-            format!(tr!("Credit withdrawal to {}"), short_address(to))
+            format!(tr!("Credit withdrawal to {}"), to.to_string())
         }
         ActivityKind::ContactRequest {
             to,
@@ -1080,19 +1078,99 @@ pub fn activity_icon(a: &Activity) -> &'static str {
     }
 }
 
-/// The status chip: icon and label. In plain words; the Dash term (InstantLock, ChainLock,
-/// mempool) is in [`proof_hint`], over the chip.
+thread_local! {
+    /// FEAT-0051: «Features for advanced users» as the app says it each frame (`set_advanced`).
+    static ADVANCED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// From the app, every frame: the mode the words follow (FEAT-0051 R-1; FEAT-0050's switch).
+pub fn set_advanced(on: bool) {
+    ADVANCED.with(|a| a.set(on));
+}
+
+/// Whether the words are the advanced user's (InstantLock, ChainLock…) or the plain ones.
+pub fn advanced() -> bool {
+    ADVANCED.with(std::cell::Cell::get)
+}
+
+/// The status chip: icon and label (FEAT-0051 R-1). Plain: «Completed» for every operation that
+/// went through — InstantLock, ChainLock, in a block, proved by Platform. Advanced: the Dash term
+/// in Latin letters (InstantLock, ChainLock). That evolite checked it is the seal beside it
+/// ([`checked`]), not a status; [`proof_hint`] says what the status means.
 pub fn proof(p: Proof) -> (&'static str, &'static str) {
+    let advanced = advanced();
     match p {
-        Proof::InstantLock => ("instantsend", tr!("Confirmed")),
-        Proof::InstantLockChecking => ("instantsend", tr!("Confirmed · checking")),
-        Proof::ChainLock => ("chainlock", tr!("Final")),
-        Proof::InBlock => ("confirmed", tr!("In a block")),
-        Proof::Proved => ("confirmed", tr!("Proved")),
+        Proof::InstantLock if advanced => ("instantsend", tr!("InstantLock")),
+        Proof::InstantLockChecking if advanced => ("instantsend", tr!("InstantLock · checking")),
+        Proof::ChainLock if advanced => ("chainlock", tr!("ChainLock")),
+        Proof::InBlock if advanced => ("confirmed", tr!("In a block")),
+        // The designer (2026-11-22): «Completed» with the check, for all of them.
+        Proof::InstantLock
+        | Proof::InstantLockChecking
+        | Proof::ChainLock
+        | Proof::InBlock
+        | Proof::Proved => ("check", tr!("Completed")),
+        Proof::Mempool if advanced => ("pending", tr!("Pending (mempool)")),
         Proof::Mempool => ("pending", tr!("Pending")),
         Proof::Sending => ("pending", tr!("Being sent")),
         Proof::Unconfirmed => ("warning", tr!("Not confirmed by the network")),
     }
+}
+
+/// FEAT-0051 R-2: evolite checked it itself — a Platform proof, or a Core InstantLock or ChainLock
+/// whose BLS signature it checked. Not an InstantLock still to be checked again, a payment only
+/// in a block, pending, being sent or not confirmed: the seal is not beside those.
+pub fn checked(p: Proof) -> bool {
+    matches!(p, Proof::Proved | Proof::InstantLock | Proof::ChainLock)
+}
+
+/// R-3: what a screen reader adds to a checked line's name; the seal is no Tab stop of its own.
+pub const CHECKED: &str = tr!("cryptographically checked");
+
+/// R-2: what the seal says — in plain words, that evolite checked the network itself (its
+/// signature for Core, its answer for Platform), and technically, what it checked. `None` where
+/// there is no seal ([`checked`]).
+pub fn checked_words(p: Proof) -> Option<(&'static str, &'static str)> {
+    if !checked(p) {
+        return None;
+    }
+    Some(match p {
+        Proof::Proved => (
+            tr!(
+                "Cryptographically checked: evolite checked the network's answer itself instead of trusting a node."
+            ),
+            tr!(
+                "The GroveDB proof is signed by a masternode quorum; evolite checked it against the quorum keys from Core."
+            ),
+        ),
+        Proof::ChainLock => (
+            tr!(
+                "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node."
+            ),
+            tr!("ChainLock: evolite checked the BLS signature of the masternode quorum."),
+        ),
+        _ => (
+            tr!(
+                "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node."
+            ),
+            tr!("InstantLock: evolite checked the BLS signature of the masternode quorum."),
+        ),
+    })
+}
+
+/// The card's one line for the seal (the designer's §6): what [`checked_words`] says, shorter —
+/// the whole sentence is the line's hint.
+pub fn checked_short(p: Proof) -> &'static str {
+    match p {
+        Proof::Proved => tr!("Cryptographically checked: evolite checked the answer itself."),
+        _ => tr!("Cryptographically checked: evolite checked the signature itself."),
+    }
+}
+
+/// R-2: the seal's hint, by mode: plain — that evolite checked the network itself; advanced — what
+/// it checked. `None` where there is no seal ([`checked`]).
+pub fn checked_hint(p: Proof) -> Option<&'static str> {
+    checked_words(p).map(|(plain, technical)| if advanced() { technical } else { plain })
 }
 
 /// What a status means, with its Dash term: the chip's tooltip.
@@ -1757,24 +1835,6 @@ mod tests {
     }
 
     #[test]
-    fn shortens_addresses_and_ids() {
-        assert_eq!(
-            short_address("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c"),
-            "yXk3…9f2c"
-        );
-        assert_eq!(short_address("@alice"), "@alice");
-        assert_eq!(
-            short_id("8rd3Ux7pQfZ2cW9yLmT4aB6nE1sK5gH3dR7vXkV2mJ38R"),
-            "8rd3Ux7pQf…kV2mJ38R"
-        );
-        // By characters, not bytes: text that is not Base58 does not split a letter.
-        assert_eq!(
-            short_id("identifier-not-from-the-core-1234"),
-            "identifier…ore-1234"
-        );
-    }
-
-    #[test]
     fn groups_thousands() {
         assert_eq!(group_thousands(120_000_000_000), "120,000,000,000");
         assert_eq!(group_thousands(12), "12");
@@ -1829,7 +1889,7 @@ mod lock_tests {
     }
 
     /// FEAT-0038 R-15: «Sold “{model}” no. {n} · @{name}»; without the number, or the model,
-    /// when the instance was deleted after the sale; a buyer without a name by a short id.
+    /// when the instance was deleted after the sale; a buyer without a name by its whole id.
     #[test]
     fn a_sale_is_named_with_what_is_known() {
         let sold = |model: Option<&str>, serial, buyer: &str| {
@@ -1854,7 +1914,8 @@ mod lock_tests {
         );
         assert_eq!(sold(None, None, "@alice"), "Sold an NFT · @alice");
         let id = "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5";
-        assert!(!sold(None, None, id).contains(id), "a long id is shortened");
+        // FEAT-0051 R-5: whole in the title; the line shortens it to its room.
+        assert!(sold(None, None, id).contains(id), "a long id is whole");
     }
 
     /// R-3а, BUG-57: the chip names Core for every lock not known to be added; only a lock not
@@ -1910,5 +1971,89 @@ mod lock_tests {
                 assert_eq!(list, "4–5, 11", "{lang:?}");
             }
         }
+    }
+
+    /// FEAT-0051 R-1 (AC-A1, the pure half): plain — «Completed» for every operation that went
+    /// through; advanced — the Dash terms in Latin letters; the rest the same in both.
+    #[test]
+    fn a_status_says_completed_in_plain_words_and_its_term_for_advanced_users() {
+        use evolite_api::Proof as P;
+        let label = |p: P, adv: bool| {
+            super::set_advanced(adv);
+            super::proof(p).1
+        };
+        for p in [
+            P::InstantLock,
+            P::InstantLockChecking,
+            P::ChainLock,
+            P::InBlock,
+            P::Proved,
+        ] {
+            assert_eq!(label(p, false), "Completed", "{p:?}");
+        }
+        assert_eq!(label(P::InstantLock, true), "InstantLock");
+        assert_eq!(
+            label(P::InstantLockChecking, true),
+            "InstantLock · checking"
+        );
+        assert_eq!(label(P::ChainLock, true), "ChainLock");
+        assert_eq!(label(P::InBlock, true), "In a block");
+        assert_eq!(label(P::Proved, true), "Completed");
+        assert_eq!(label(P::Mempool, false), "Pending");
+        assert_eq!(label(P::Mempool, true), "Pending (mempool)");
+        for adv in [false, true] {
+            assert_eq!(label(P::Sending, adv), "Being sent");
+            assert_eq!(label(P::Unconfirmed, adv), "Not confirmed by the network");
+        }
+        super::set_advanced(false);
+    }
+
+    /// FEAT-0051 R-2 (AC-A2, the pure half): the seal beside Proved, InstantLock and ChainLock
+    /// only — not an InstantLock still to be checked again, not a block without ChainLock — and
+    /// its hint by mode: Platform's answer, Core's signature, or what exactly was checked.
+    #[test]
+    fn the_seal_is_beside_what_evolite_checked_itself() {
+        use evolite_api::Proof as P;
+        for p in [P::Proved, P::InstantLock, P::ChainLock] {
+            assert!(super::checked(p), "{p:?}");
+        }
+        for p in [
+            P::InstantLockChecking,
+            P::InBlock,
+            P::Mempool,
+            P::Sending,
+            P::Unconfirmed,
+        ] {
+            assert!(!super::checked(p), "{p:?}");
+            assert_eq!(super::checked_hint(p), None, "{p:?}");
+        }
+        super::set_advanced(false);
+        assert!(
+            super::checked_hint(P::Proved)
+                .unwrap()
+                .contains("network's answer")
+        );
+        assert!(
+            super::checked_hint(P::ChainLock)
+                .unwrap()
+                .contains("network's signature")
+        );
+        super::set_advanced(true);
+        assert!(
+            super::checked_hint(P::Proved)
+                .unwrap()
+                .starts_with("The GroveDB proof")
+        );
+        assert!(
+            super::checked_hint(P::InstantLock)
+                .unwrap()
+                .starts_with("InstantLock:")
+        );
+        assert!(
+            super::checked_hint(P::ChainLock)
+                .unwrap()
+                .starts_with("ChainLock:")
+        );
+        super::set_advanced(false);
     }
 }

@@ -8,7 +8,6 @@ use crate::components::{
 };
 use crate::context::Ctx;
 use crate::format::DUFFS_PER_DASH;
-use crate::text::short_address;
 use crate::theme::{Weight, mono};
 use egui::{Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 use evolite_api::{
@@ -489,7 +488,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                 a,
                                 &TxRow {
                                     icon: "receive",
-                                    title: &short_address(&old.address),
+                                    title: &crate::text::whole(&old.address),
                                     detail: &detail,
                                     proof: None,
                                     amount: &shown,

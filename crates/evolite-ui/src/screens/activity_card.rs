@@ -563,6 +563,8 @@ struct Side {
     value: String,
     mono: bool,
     sub: Option<String>,
+    /// FEAT-0051 R-4: the id or address this side copies (the designer's §6: on its line).
+    copy: Option<String>,
 }
 
 impl Side {
@@ -571,6 +573,7 @@ impl Side {
             value: address.to_owned(),
             mono: true,
             sub: Some(tr!("this wallet's address").into()),
+            copy: Some(address.to_owned()),
         }
     }
 
@@ -580,29 +583,34 @@ impl Side {
             value: value.into(),
             mono: false,
             sub,
+            copy: None,
         }
     }
 
     /// An identity of this wallet: its name when it has one, and whose credits (mockups 03-05).
     fn identity(r: &IdentityRef) -> Self {
-        let short = text::short_address(&r.id);
+        let short = crate::text::whole(&r.id);
         let your = tr!("your identity");
         let credits = tr!("credits");
-        match &r.name {
+        let mut side = match &r.name {
             Some(name) => Side::words(
                 format!("{} · {your}", crate::i18n::own(&format!("@{name}"))),
                 Some(format!("{short} · {credits}")),
             ),
             None => Side::words(format!("{short} · {your}"), Some(credits.into())),
-        }
+        };
+        side.copy = Some(r.id.clone());
+        side
     }
 
     /// Who was on the other side, as the row names them: an address in mono.
     fn payee(who: &str, sub: Option<String>) -> Self {
+        let mono = !who.starts_with('@') && !who.contains('…');
         Side {
             value: who.to_owned(),
-            mono: !who.starts_with('@') && !who.contains('…'),
+            mono,
             sub,
+            copy: mono.then(|| who.to_owned()),
         }
     }
 }
@@ -626,6 +634,7 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
                 value: tr!("Core · this wallet").into(),
                 mono: false,
                 sub: (inputs > 0).then(|| text::plural(inputs, tr!("input"), tr!("inputs"))),
+                copy: None,
             };
             let to = counterparty(act).map(|(_, who, note)| Side {
                 mono: !who.starts_with('@'),
@@ -634,6 +643,7 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
                     text::book_label(act, book)
                         .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
                 }),
+                copy: (!who.starts_with('@')).then(|| who.clone()),
                 value: who,
             });
             (vec![from], to.into_iter().collect())
@@ -649,6 +659,7 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
                     tr!("{to} · a new address from the contact's key"),
                     to = named(to)
                 )),
+                copy: act.address.clone(),
             };
             (vec![Side::words(named(from), None)], vec![to])
         }
@@ -909,7 +920,7 @@ fn related_block(
 ) {
     let p = a.p;
     let to = match &act.kind {
-        ActivityKind::Withdrawal { to, .. } => text::short_address(to),
+        ActivityKind::Withdrawal { to, .. } => crate::text::whole(to),
         _ => String::new(),
     };
     match related {
@@ -1043,9 +1054,36 @@ const SIDE_ROWS: usize = 3;
 
 /// One line of the «From → To» panel, painted and named «label: value · line» for a screen
 /// reader (BUG-41); `label` only on a side's first line. The value wraps beside the label.
-fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
+fn side_row(ui: &mut Ui, a: &mut Assets, label: &str, side: &Side) {
+    let p = &a.p.clone();
     let width = ui.available_width();
-    let wrap = (width - SIDE_LABEL - SIDE_GAP).max(40.0);
+    // FEAT-0051, the designer's §6: «Copy» on the companion line, else the icon at the end of
+    // the value — the value's lines 28 narrower then, the companion's by the action's width.
+    let copy_room = if side.copy.is_some() && side.sub.is_none() {
+        28.0
+    } else {
+        0.0
+    };
+    let wrap = (width - SIDE_LABEL - SIDE_GAP - copy_room).max(40.0);
+    // The text action when the companion and it share the line; else (a long companion in
+    // uk, de…) the icon alone at the line's end, as without a companion: no line more.
+    let action_w = {
+        let font = sans(13.0, Weight::Medium);
+        14.0 + 16.0
+            + 6.0
+            + crate::components::text_width(ui, tr!("Copy"), font.clone())
+                .max(crate::components::text_width(ui, tr!("Copied"), font))
+    };
+    let sub_w = side.sub.as_deref().map(|s| {
+        crate::components::text_width(ui, &crate::i18n::t(s), sans(12.0, Weight::Regular))
+    });
+    let text_action = side.copy.is_some() && sub_w.is_some_and(|w| w + action_w <= wrap);
+    let action_room = match (&side.copy, sub_w) {
+        (Some(_), Some(_)) if text_action => action_w,
+        (Some(_), Some(_)) => 28.0,
+        _ => 0.0,
+    };
+    let sub_wrap = (wrap - action_room).max(40.0);
     let font = if side.mono {
         mono(13.0, Weight::Medium)
     } else {
@@ -1067,10 +1105,11 @@ fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
     } else {
         laid(&side.value, font, p.text)
     };
-    let sub = side
-        .sub
-        .as_deref()
-        .map(|s| laid(s, sans(12.0, Weight::Regular), p.muted));
+    let sub = side.sub.as_deref().map(|s| {
+        let font = sans(12.0, Weight::Regular);
+        let shown = crate::components::lines(&ctx, s, &font, sub_wrap);
+        crate::components::ids_galley(&painter, &shown, font, p.muted, sub_wrap)
+    });
     let height = value.size().y + sub.as_ref().map_or(0.0, |g| 2.0 + g.size().y);
     let (rect, resp) =
         ui.allocate_exact_size(egui::vec2(width, height.max(18.0)), egui::Sense::hover());
@@ -1101,9 +1140,49 @@ fn side_row(ui: &mut Ui, p: &crate::theme::Palette, label: &str, side: &Side) {
     }
     let x = rect.left() + SIDE_LABEL + SIDE_GAP;
     let sub_y = rect.top() + value.size().y + 2.0;
+    let last_row = value.rows.last().map(|r| r.rect());
+    let value_h = value.size().y;
     painter.galley(egui::pos2(x, rect.top()), value, p.text);
+    let sub_h = sub.as_ref().map(|g| g.size().y);
     if let Some(sub) = sub {
         painter.galley(egui::pos2(x, sub_y), sub, p.muted);
+    }
+    let Some(copy) = &side.copy else {
+        return;
+    };
+    let what = side.sub.as_deref().unwrap_or(label);
+    match sub_h {
+        // On the companion line, right-aligned to the block's edge (its 14 are the block's).
+        Some(h) if text_action => {
+            crate::components::copy_action_at(
+                ui,
+                a,
+                copy,
+                what,
+                rect.right(),
+                sub_y + h.min(18.0) / 2.0,
+            );
+        }
+        Some(h) => {
+            let at = egui::Rect::from_center_size(
+                egui::pos2(rect.right() - 12.0, sub_y + h.min(18.0) / 2.0),
+                egui::vec2(24.0, 24.0),
+            );
+            crate::components::copy_icon_at(ui, a, copy, what, at);
+        }
+        // No companion: the icon in 24 × 24 at the end of the value's last line.
+        None => {
+            let row = last_row.unwrap_or(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(0.0, 18.0),
+            ));
+            let y = rect.top() + value_h - row.height() / 2.0;
+            let at = egui::Rect::from_center_size(
+                egui::pos2(x + row.right() + 4.0 + 12.0, y),
+                egui::vec2(24.0, 24.0),
+            );
+            crate::components::copy_icon_at(ui, a, copy, what, at);
+        }
     }
 }
 
@@ -1114,6 +1193,7 @@ fn side_summaries(detail: &Detail, to: &[Side]) -> [Side; 2] {
         value: tr!("Core · this wallet").into(),
         mono: false,
         sub: Some(sub),
+        copy: None,
     };
     let addresses = to
         .iter()
@@ -1185,11 +1265,11 @@ fn detail_body(
                 {
                     if !all && side.len() > SIDE_ROWS {
                         held_back = true;
-                        side_row(ui, &p, label, &line);
+                        side_row(ui, a, label, &line);
                         continue;
                     }
                     for (i, s) in side.iter().enumerate() {
-                        side_row(ui, &p, if i == 0 { label } else { "" }, s);
+                        side_row(ui, a, if i == 0 { label } else { "" }, s);
                     }
                 }
                 if held_back {
@@ -1258,30 +1338,30 @@ fn detail_body(
             ),
         );
     }
-    match detail.confirm {
-        Some(confirm) => {
-            let (icon, said) = match confirm {
-                Confirm::InstantLock => (
-                    "instantsend",
-                    tr!("InstantSend: the quorum signature is checked").to_owned(),
-                ),
-                Confirm::ChainLock { block } => (
-                    "chainlock",
-                    format!(
-                        tr!("ChainLock in block {}: the quorum signature is checked"),
-                        text::group_thousands(block as i64)
-                    ),
-                ),
-            };
-            proof_line(ui, a, icon, &said);
-        }
-        None if act.proof == Proof::Proved && act.chain != Chain::Core => {
-            proof_line(
-                ui,
-                a,
-                "confirmed",
-                tr!("Proved by Platform: the answer matches the GroveDB proof"),
-            );
+    // FEAT-0051 R-2 (UC-2): what the seal says, in its place — and for advanced users what was
+    // checked under it, and the block.
+    let checked_proof = match detail.confirm {
+        // Not before its signature is checked again (BUG-173): no seal, no «checked».
+        Some(Confirm::InstantLock) if act.proof == Proof::InstantLockChecking => None,
+        Some(Confirm::InstantLock) => Some(Proof::InstantLock),
+        Some(Confirm::ChainLock { .. }) => Some(Proof::ChainLock),
+        None if act.proof == Proof::Proved && act.chain != Chain::Core => Some(Proof::Proved),
+        None => None,
+    };
+    match checked_proof {
+        Some(checked) => {
+            proof_line(ui, a, checked);
+            if let Some(Confirm::ChainLock { block }) = detail.confirm
+                && text::advanced()
+            {
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Block"),
+                    &text::group_thousands(block as i64),
+                    value,
+                );
+            }
         }
         // In a block not locked yet: the chip says so, the block is still worth a line.
         None => {
@@ -1313,13 +1393,47 @@ fn detail_body(
     }
 }
 
-/// What proved it, in words: accent, this is what was checked (AC-D3).
-fn proof_line(ui: &mut Ui, a: &mut Assets, icon: &str, said: &str) {
+/// What evolite checked itself (FEAT-0051 R-2, the designer 2026-11-22): the seal 16, then
+/// «Cryptographically checked:» SemiBold and the rest Regular, 13 / 20, wrapped; for advanced
+/// users the technical line under it, muted.
+fn proof_line(ui: &mut Ui, a: &mut Assets, proof: Proof) {
     let p = a.p;
+    let Some((full, technical)) = text::checked_words(proof) else {
+        return;
+    };
+    // The designer's §6: one line on the card; the whole sentence in its hint.
+    let plain = crate::i18n::t(text::checked_short(proof)).into_owned();
+    let full = crate::i18n::t(full).into_owned();
+    let (lead, rest) = match plain.split_once(':') {
+        Some((lead, rest)) => (format!("{lead}:"), rest.to_owned()),
+        None => (String::new(), plain.clone()),
+    };
     ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
-        ui.add(a.icons.icon(icon, p.accent, &p, 16.0));
-        ui.add(crate::components::para(said, 13.0, Weight::Regular, p.text));
+        ui.add(a.icons.icon("proof", p.muted, &p, 16.0));
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            let mut job = egui::text::LayoutJob::default();
+            // 13 on its own height, as the line it replaces: the card at 1024 × 768 had 3 px
+            // to spare in uk, and 13 / 20 made it scroll (AC-D7).
+            let format = |w: Weight, color| egui::TextFormat {
+                font_id: sans(13.0, w),
+                color,
+                ..Default::default()
+            };
+            job.append(&lead, 0.0, format(Weight::SemiBold, p.text));
+            job.append(&rest, 0.0, format(Weight::Regular, p.text));
+            job.wrap.max_width = ui.available_width();
+            ui.label(job).on_hover_text(full);
+            if text::advanced() {
+                ui.add(crate::components::para(
+                    technical,
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            }
+        });
     });
 }
 
@@ -1357,22 +1471,29 @@ fn shown_status(act: &Activity) -> Option<&'static str> {
     }
 }
 
-/// A label over a value in mono that wraps (an address, a txid), with an optional muted line.
-fn mono_block(
-    ui: &mut Ui,
-    p: &crate::theme::Palette,
-    label: &str,
-    value: &str,
-    note: Option<&str>,
-) {
+/// A label over a value (an address, an id) shown whole (FEAT-0051 R-4, `components::full_id`)
+/// with an optional muted line under it; «Copy» on the label's line, right-aligned (the
+/// designer's §6: no line of its own on a card).
+fn mono_block(ui: &mut Ui, a: &mut Assets, label: &str, value: &str, note: Option<&str>) {
+    let p = a.p;
+    // An @name is words, not an id: in Inter, nothing to copy (BUG-154's sweep).
+    let id = !value.starts_with('@') && !value.contains(' ');
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        field_label(ui, p, label);
-        ui.add(
-            crate::components::para(value, 12.0, Weight::Regular, p.text)
-                .font(mono(12.0, Weight::Regular))
-                .line_height(18.0),
-        );
+        let line = ui.horizontal(|ui| field_label(ui, &p, label)).response.rect;
+        if !id {
+            ui.label(txt(value, 13.0, Weight::Medium, p.text));
+        } else {
+            crate::components::copy_action_at(
+                ui,
+                a,
+                value,
+                label,
+                ui.max_rect().right(),
+                line.center().y,
+            );
+            crate::components::full_id(ui, a, value, false);
+        }
         if let Some(note) = note {
             ui.label(txt(note, 12.0, Weight::Regular, p.muted));
         }
@@ -1518,6 +1639,8 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
                     crate::components::amount_toggle(ui, a, true);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         crate::components::status_chip_of(ui, a, act.proof, text::core_chip(act));
+                        // FEAT-0051 R-2: the seal left of the chip, as in the line.
+                        crate::components::proof_seal(ui, a, act.proof);
                     });
                 });
                 if let Some(detail) = card_detail(act) {
@@ -1652,7 +1775,11 @@ fn fit_title(title: &str, width: f32, measure: impl Fn(&str) -> f32) -> Vec<Stri
         line = if fits(word) {
             word.to_owned()
         } else if is_name(word) {
-            crate::text::middle_fit(word, &fits)
+            crate::text::middle_fit(word, &fits, crate::text::NAME_ENDS)
+        } else if crate::components::address_like(word.trim_matches(['\u{2068}', '\u{2069}'])) {
+            // FEAT-0051 R-5 (the designer, 2026-11-25): an address shortened in its middle, not
+            // at its end; the card's field below has it whole.
+            crate::text::middle_fit(word, &fits, crate::components::ID_ENDS)
         } else {
             end_fit(word, "", &fits)
         };
@@ -1753,7 +1880,7 @@ fn plain_body(
             text::book_label(act, book)
                 .map(|l| format!(tr!("“{l}” · from the address book"), l = l))
         });
-        mono_block(ui, &p, label, &who, note.as_deref());
+        mono_block(ui, a, label, &who, note.as_deref());
     }
     if not_added {
         let creates = matches!(act.kind, ActivityKind::TopUp { creates: true, .. });
@@ -1857,7 +1984,7 @@ fn document_block(ui: &mut Ui, a: &mut Assets, act: &Activity, id: &str) {
     let p = a.p;
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        mono_block(ui, &p, tr!("Document ID"), id, None);
+        mono_block(ui, a, tr!("Document ID"), id, None);
         ui.add_space(4.0);
         let copy_id = egui::Id::new("copy-document").with(act.id);
         let label = if crate::clipboard::just_copied(ui.ctx(), copy_id) {
@@ -2256,6 +2383,20 @@ mod title_tests {
         assert_eq!(lines.len(), 2, "{lines:?}");
         assert!(lines.iter().all(|l| width(l) <= 10.0), "{lines:?}");
         assert!(lines[1].ends_with('…'), "{lines:?}");
+    }
+
+    /// FEAT-0051 R-5: an address too long for its line is shortened in its middle, balanced,
+    /// not cut at its end; the title stays at two lines.
+    #[test]
+    fn an_address_too_long_is_shortened_in_its_middle() {
+        let to = "yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5aG9f2c";
+        let lines = fit(&format!("Credit withdrawal to {to}"), 22.0);
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(lines[0], "Credit withdrawal to");
+        let (head, tail) = lines[1].split_once('…').expect("shortened in its middle");
+        assert!(to.starts_with(head) && to.ends_with(tail), "{lines:?}");
+        assert!(head.chars().count() >= 4 && tail.chars().count() >= 4, "{lines:?}");
+        assert!(width(&lines[1]) <= 22.0, "{lines:?}");
     }
 
     /// The own-words marks around a name stay when it is shortened: Arabic keeps its order.

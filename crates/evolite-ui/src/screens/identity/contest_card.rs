@@ -202,10 +202,10 @@ pub(super) fn contest_card(
                     tr!("{name} · your identity"),
                     name = id
                         .name()
-                        .map_or_else(|| crate::text::short_id(&id.id), |n| format!("@{n}"))
+                        .map_or_else(|| crate::text::whole(&id.id), |n| format!("@{n}"))
                 )
             } else {
-                crate::text::short_id(who)
+                crate::text::whole(who)
             };
             let mut votes_text = crate::text::plural(*votes, tr!("vote"), tr!("votes"));
             if contest.winner.as_deref() == Some(who.as_str()) {

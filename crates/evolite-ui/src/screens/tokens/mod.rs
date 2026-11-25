@@ -184,7 +184,7 @@ pub(crate) fn shown_name(wallet: &Wallet) -> String {
             .or(i.names.iter().find(|n| n.state.owned()))
         {
             Some(n) => format!("@{}", n.label),
-            None => state::short(&i.id),
+            None => crate::text::whole(&i.id),
         },
         // BUG-265: no identity shown yet (the core still choosing one): the first of the list,
         // never an empty name («No tokens found for »).
@@ -194,7 +194,7 @@ pub(crate) fn shown_name(wallet: &Wallet) -> String {
             .map(|c| {
                 c.name
                     .as_ref()
-                    .map_or_else(|| state::short(&c.id), |n| format!("@{n}"))
+                    .map_or_else(|| crate::text::whole(&c.id), |n| format!("@{n}"))
             })
             .unwrap_or_default(),
     }
@@ -204,7 +204,7 @@ pub(crate) fn shown_name(wallet: &Wallet) -> String {
 pub(crate) fn issuer(info: &TokenInfo) -> String {
     match &info.issuer_name {
         Some(name) => format!("@{name}"),
-        None => state::short(&info.issuer),
+        None => crate::text::whole(&info.issuer),
     }
 }
 
@@ -224,7 +224,7 @@ pub(crate) fn id_line(info: &TokenInfo, by_hand: bool) -> String {
         crate::i18n::own(&issuer(info))
     ));
     // «id 7Hq2…q8Rs» one isolated left-to-right run, as @names are (BUG-119, design r3 R3-3).
-    let id = crate::i18n::own(&format!("id {}", state::short(&info.token_id)));
+    let id = crate::i18n::own(&format!("id {}", crate::text::whole(&info.token_id)));
     let mut line = format!("{id} · {issued}");
     if by_hand {
         line.push_str(" · ");

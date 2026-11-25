@@ -82,7 +82,7 @@ pub(super) fn page(
         ui.label(txt(
             &format!(
                 tr!("id {id} · by {name}"),
-                id = super::super::tokens::state::short(&c.contract),
+                id = crate::text::whole(&c.contract),
                 name = crate::i18n::own(&who)
             ),
             12.0,
@@ -271,7 +271,7 @@ fn about_window(ui: &mut Ui, a: &mut Assets, c: &Collection, name: &str) -> bool
                 ui,
                 &p,
                 tr!("Contract"),
-                &super::super::tokens::state::short(&c.contract),
+                &crate::text::whole(&c.contract),
                 value.clone(),
             );
             kv_row_fit(

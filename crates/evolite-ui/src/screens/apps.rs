@@ -179,7 +179,19 @@ fn app_card(
                         text::date_short(at, now)
                     ),
                     None => {
-                        let contract = format!(tr!("contract {}"), text::short_address(&app.id));
+                        // FEAT-0051 R-5: the contract whole when the line has room for it.
+                        let room = ui.available_width() - 140.0;
+                        let font = crate::theme::sans(12.0, crate::theme::Weight::Regular);
+                        let id = crate::components::fit_id(&app.id, &|s: &str| {
+                            let line = format!(
+                                "{} · {} · {}",
+                                crate::i18n::t(tr!("what the app calls itself")),
+                                crate::i18n::t(&format!(tr!("contract {}"), s)),
+                                who
+                            );
+                            crate::components::text_width(ui, &line, font.clone()) <= room
+                        });
+                        let contract = format!(tr!("contract {}"), id);
                         format!(
                             "{} · {} · {}",
                             crate::i18n::t(tr!("what the app calls itself")),

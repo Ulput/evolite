@@ -81,9 +81,21 @@ fn a_click_on_the_identity_id_copies_it() {
         .expect("the demo identity")
         .id
         .clone();
-    let short = crate::text::short_id(&id);
+    // FEAT-0051 R-5: whole when the header has room, else shortened in its middle — found by
+    // its ends either way.
+    let (head, tail) = (&id[..4], &id[id.len() - 4..]);
     // The pointer on the words, not an AccessKit action on the label.
-    let at = words(&kit, &short).rect().center();
+    let at = kit
+        .query_all_by(|n| {
+            n.role() == Role::Label
+                && n
+                    .value()
+                    .is_some_and(|v| v.starts_with(head) && v.ends_with(tail))
+        })
+        .next()
+        .expect("the identity's ID")
+        .rect()
+        .center();
     kit.hover_at(at);
     kit.step();
     kit.drag_at(at);
