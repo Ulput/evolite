@@ -167,6 +167,7 @@ impl ArtCache {
         rect: Rect,
         send: &mut impl FnMut(Command),
     ) {
+        picture_mark(ui, rect);
         match self.texture(ui, art, rect, send) {
             Prepared::Failed(why) => placeholder(ui, p, rect, tr!("Could not show it"), &why),
             Prepared::Waiting => placeholder(ui, p, rect, tr!("Drawing…"), ""),
@@ -193,6 +194,7 @@ impl ArtCache {
         rect: Rect,
         send: &mut impl FnMut(Command),
     ) -> Drawn {
+        picture_mark(ui, rect);
         match self.texture(ui, art, rect, send) {
             Prepared::Failed(why) => Drawn::Failed(why),
             Prepared::Waiting => Drawn::Waiting,
@@ -394,6 +396,22 @@ fn current(now_ms: u64, picture: &Picture, total: u64) -> (usize, Duration) {
 
 /// BUG-258: the words wrap to the box and are painted only when they fit in it — a small
 /// thumbnail is the box alone, never words over what is beside it.
+/// TEAM.md §8d-2 (BUG-277): in tests, an invisible rectangle where a picture goes, in paint
+/// order, so the class check finds words of the page drawn over a picture. A picture's own
+/// words (its stand-in) are clipped to it.
+#[cfg(test)]
+pub(crate) const PICTURE_MARK: f32 = 0.0277;
+
+#[cfg(test)]
+pub(crate) fn picture_mark(ui: &Ui, rect: Rect) {
+    let mut mark = egui::epaint::RectShape::filled(rect, 0, egui::Color32::TRANSPARENT);
+    mark.blur_width = PICTURE_MARK;
+    ui.painter().add(mark);
+}
+
+#[cfg(not(test))]
+pub(crate) fn picture_mark(_: &Ui, _: Rect) {}
+
 fn placeholder(ui: &Ui, p: &Palette, rect: Rect, title: &str, why: &str) {
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, CornerRadius::same(12), p.raised);

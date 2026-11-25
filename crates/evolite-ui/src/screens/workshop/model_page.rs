@@ -251,7 +251,7 @@ pub(super) fn page(
 
     // W7 (the customer's mockup of 2026-11-22): the picture half the width beside the name, the
     // rules, the supply and its bar, the actions and the numbers; prices, the recent events and
-    // the note below. Narrower than 900: one column, the picture the whole width.
+    // the note below. Narrower than [`WIDE`]: one column, the picture the whole width.
     let width = ui.available_width();
     let wide = width >= WIDE;
     let (mine_copies, mine_all) = state.instances(cx, contract, model_id, false, now, again);
@@ -277,11 +277,9 @@ pub(super) fn page(
         for_sale: counts.as_ref().map(|_| for_sale),
         free,
         sold: counts.as_ref().and_then(|c| c.sold),
-        sold_for: about_here
-            .iter()
-            .filter(|act| matches!(act.kind, evolite_api::ActivityKind::NftSold { .. }))
-            .map(|act| act.amount.abs())
-            .sum(),
+        // BUG-276: from the same sales as the count (their prices), on every copy — not History,
+        // which has only the sales this copy saw.
+        sold_for: counts.as_ref().and_then(|c| c.sold_for),
         who,
         given,
         now: cx.now,
@@ -422,8 +420,10 @@ pub(super) fn page(
     }
 }
 
-/// W7: content at least this wide has two columns, the picture beside the rest.
-const WIDE: f32 = 900.0;
+/// W7: content at least this wide has two columns, the picture beside the rest. BUG-277: the
+/// mockup has two at 1024 (the content 868 wide there, a column of 422 beside the picture) and
+/// one at 800 (644); 900 gave one column at 1024.
+const WIDE: f32 = 760.0;
 /// Between the picture and its column.
 const GAP: f32 = 24.0;
 /// The picture's height in one column.
@@ -441,7 +441,7 @@ struct Numbers {
     for_sale: Option<u64>,
     free: Option<u64>,
     sold: Option<u32>,
-    sold_for: Duffs,
+    sold_for: Option<Duffs>,
     who: String,
     /// «Given» as read (the architect, 2026-11-22); `None` before.
     given: Option<evolite_api::workshop::Given>,
@@ -466,6 +466,7 @@ fn picture(
     rect: egui::Rect,
 ) {
     let p = a.p;
+    crate::art::picture_mark(ui, rect);
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::same(16), p.raised);
     let (words, retry) = if model.art.is_empty() {
@@ -483,25 +484,31 @@ fn picture(
     };
     let inner = rect.shrink(24.0);
     let mut again = false;
-    ui.scope_builder(
+    // BUG-277: a child of its own, not `scope_builder`: that moved the page's cursor to the end
+    // of these words, inside the picture — in one column the name, the rules and the supply
+    // were drawn in the frame, in two the column beside it started 24 px early (BUG-276).
+    // Clipped to the picture: its words never leave it.
+    let mut child = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(inner)
             .layout(egui::Layout::top_down(egui::Align::Center)),
-        |ui| {
-            ui.spacing_mut().item_spacing.y = 8.0;
-            ui.add_space((inner.height() / 2.0 - 48.0).max(0.0));
-            ui.add(a.icons.icon("image", p.muted, &p, 32.0));
-            ui.add(crate::components::para(
-                &words,
-                13.0,
-                Weight::Regular,
-                p.muted,
-            ));
-            if retry {
-                again = crate::components::text_action(ui, a, "sync", tr!("Try again")).clicked();
-            }
-        },
     );
+    child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    {
+        let ui = &mut child;
+        ui.spacing_mut().item_spacing.y = 8.0;
+        ui.add_space((inner.height() / 2.0 - 48.0).max(0.0));
+        ui.add(a.icons.icon("image", p.muted, &p, 32.0));
+        ui.add(crate::components::para(
+            &words,
+            13.0,
+            Weight::Regular,
+            p.muted,
+        ));
+        if retry {
+            again = crate::components::text_action(ui, a, "sync", tr!("Try again")).clicked();
+        }
+    }
     if again {
         art.try_again(&model.art);
     }
@@ -613,10 +620,10 @@ fn tiles(ui: &mut Ui, a: &mut Assets, n: &Numbers) {
             .collect::<Vec<_>>()
             .join(" · ")
     });
-    let sold_parts = n.sold.filter(|s| *s > 0).map(|_| {
+    let sold_parts = n.sold.filter(|s| *s > 0).zip(n.sold_for).map(|(_, sum)| {
         format!(
             tr!("for {} · credits to {}"),
-            crate::format::amount(n.sold_for),
+            crate::format::amount(sum),
             crate::i18n::own(&n.who)
         )
     });

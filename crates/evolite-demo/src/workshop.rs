@@ -92,6 +92,8 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
                 }),
                 prices: vec![(100_000_000, 4)],
                 sold: Some(1),
+                // BUG-276: the one sale of the demo's History, at its price.
+                sold_for: Some(100_000_000),
                 issued: Some(13),
                 checked_at: AT,
             })

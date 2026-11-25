@@ -331,17 +331,27 @@ const WORKSHOP: [&str; 11] = [
 /// other words (BUG-258: the identity chips over «Credits @…», a summary's label over its sum).
 /// Horizontal clipping only: a scrolled page clips its words at the top and bottom by design.
 /// Words in a text field are left out: a long entry scrolls inside its field.
-fn text_trouble(kit: &Kit) -> Vec<String> {
-    /// A text, its row's ink, its clip and its layer: how many fills over the whole window were
-    /// painted before it (the page's ground, then a dialog's dimming over the page).
-    type Seen = (String, egui::Rect, egui::Rect, usize);
-    fn walk(
-        shape: &egui::Shape,
-        clip: egui::Rect,
-        screen: egui::Rect,
-        layer: &mut usize,
-        out: &mut Vec<Seen>,
-    ) {
+/// A text, its row's ink, its clip, its layer (how many fills over the whole window were
+/// painted before it: the page's ground, then a dialog's dimming over the page) and its place
+/// in the paint order.
+type Seen = (String, egui::Rect, egui::Rect, usize, usize);
+
+/// What [`painted`] finds, each with its place in the paint order: the rows of words, the
+/// pictures ([`crate::art::picture_mark`]: rect, clip, layer, place) and the filled grounds
+/// (rect, place) — a badge's or a tooltip's own ground over a picture.
+#[derive(Default)]
+struct Painted {
+    texts: Vec<Seen>,
+    pictures: Vec<(egui::Rect, egui::Rect, usize, usize)>,
+    grounds: Vec<(egui::Rect, usize)>,
+    order: usize,
+    layer: usize,
+}
+
+fn painted(kit: &Kit) -> Painted {
+    fn walk(shape: &egui::Shape, clip: egui::Rect, screen: egui::Rect, out: &mut Painted) {
+        out.order += 1;
+        let (layer, order) = (out.layer, out.order);
         match shape {
             // One entry a row of words, its glyphs' own extent: a label in a wrapping row is
             // laid out from the row's left edge, with leading space that is not ink.
@@ -349,24 +359,40 @@ fn text_trouble(kit: &Kit) -> Vec<String> {
                 let text = t.galley.text().to_owned();
                 for row in t.galley.rows.iter().filter(|r| !r.row.glyphs.is_empty()) {
                     let rect = row.rect_without_leading_space().translate(t.pos.to_vec2());
-                    out.push((text.clone(), rect, clip, *layer));
+                    out.texts.push((text.clone(), rect, clip, layer, order));
                 }
+            }
+            egui::Shape::Rect(r) if r.blur_width == crate::art::PICTURE_MARK => {
+                out.pictures.push((r.rect, clip, layer, order));
             }
             egui::Shape::Rect(r)
                 if r.fill.a() > 0 && r.rect.expand(1.0).contains_rect(screen.shrink(1.0)) =>
             {
-                *layer += 1;
+                out.layer += 1;
             }
-            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, screen, layer, out)),
+            egui::Shape::Rect(r) if r.fill.a() > 0 => {
+                out.grounds.push((r.rect.intersect(clip), order));
+            }
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, clip, screen, out)),
             _ => {}
         }
     }
     let screen = kit.ctx.content_rect();
-    let mut texts = Vec::new();
-    let mut layer = 0;
+    let mut out = Painted::default();
     for c in &kit.output().shapes {
-        walk(&c.shape, c.clip_rect, screen, &mut layer, &mut texts);
+        walk(&c.shape, c.clip_rect, screen, &mut out);
     }
+    out
+}
+
+/// Painted words cut by their clip, drawn over other words, or drawn over a picture.
+fn text_trouble(kit: &Kit) -> Vec<String> {
+    let Painted {
+        texts,
+        pictures,
+        grounds,
+        ..
+    } = painted(kit);
     let fields: Vec<egui::Rect> = kit
         .query_all_by(|n| n.role() == Role::TextInput || n.role() == Role::MultilineTextInput)
         .filter_map(|n| {
@@ -386,18 +412,38 @@ fn text_trouble(kit: &Kit) -> Vec<String> {
     };
     let texts: Vec<_> = texts
         .into_iter()
-        .filter(|(_, r, clip, _)| !in_field(r) && clip.intersects(*r))
+        .filter(|(_, r, clip, _, _)| !in_field(r) && clip.intersects(*r))
         .collect();
     let mut wrong = Vec::new();
-    for (text, r, clip, _) in &texts {
+    for (text, r, clip, _, _) in &texts {
         if r.right() > clip.right() + 1.0 || r.left() < clip.left() - 1.0 {
             wrong.push(format!("cut: «{text}» at {r:?} in {clip:?}"));
         }
     }
+    // BUG-277: words of the page over a picture of the same layer — a picture's own words (its
+    // stand-in, «loading», «could not show») are clipped to it, and words on a ground of their
+    // own painted over the picture (the «×N» badge, a tooltip) are read on that ground.
+    for (picture, picture_clip, layer, p_at) in &pictures {
+        let shown = picture.intersect(*picture_clip);
+        for (text, r, clip, l, t_at) in &texts {
+            let both = r.intersect(shown).intersect(*clip);
+            let on_own_ground = grounds
+                .iter()
+                .any(|(g, g_at)| p_at < g_at && g_at < t_at && g.expand(1.0).contains_rect(both));
+            if l == layer
+                && !on_own_ground
+                && !picture.expand(1.0).contains_rect(*clip)
+                && both.width() > 2.0
+                && both.height() > 3.0
+            {
+                wrong.push(format!("over a picture: «{text}» at {r:?} on {picture:?}"));
+            }
+        }
+    }
     // Words of one region and one layer only (the same clip, painted over the same fill): a
     // dialog's words over the dimmed page under it are not a collision.
-    for (i, (a, ra, ca, la)) in texts.iter().enumerate() {
-        for (b, rb, cb, lb) in &texts[i + 1..] {
+    for (i, (a, ra, ca, la, _)) in texts.iter().enumerate() {
+        for (b, rb, cb, lb, _) in &texts[i + 1..] {
             let both = ra.intersect(*rb).intersect(*ca);
             if ca == cb && la == lb && both.width() > 2.0 && both.height() > 3.0 && a != b {
                 wrong.push(format!("over: «{a}» and «{b}» at {both:?}"));
@@ -408,18 +454,121 @@ fn text_trouble(kit: &Kit) -> Vec<String> {
     wrong
 }
 
+/// The named widgets wholly below `window`: their names and boxes. From AccessKit, not the
+/// painted shapes — egui does not paint words outside what is shown.
+fn nodes_below(kit: &Kit, window: egui::Rect) -> Vec<(String, egui::Rect)> {
+    let ppp = kit.ctx.pixels_per_point();
+    kit.query_all_by(|n| n.bounding_box().is_some())
+        .filter_map(|n| {
+            let node = n.accesskit_node();
+            let name = node.label().or_else(|| node.value())?.to_owned();
+            let b = node.bounding_box()?;
+            let r = egui::Rect::from_min_max(
+                egui::pos2(b.x0 as f32 / ppp, b.y0 as f32 / ppp),
+                egui::pos2(b.x1 as f32 / ppp, b.y1 as f32 / ppp),
+            );
+            (!name.trim().is_empty() && r.top() > window.bottom() + 1.0).then_some((name, r))
+        })
+        .collect()
+}
+
+/// BUG-277 (TEAM.md §8d-2): widgets of the page below the window that the wheel does not bring
+/// into it — a page that does not scroll. Turns the wheel down over the page's middle, so it
+/// leaves the page scrolled to its end. Not with a dialog open: its page is dimmed under it.
+fn below_the_edge(kit: &mut Kit) -> Vec<String> {
+    let window = kit.ctx.content_rect();
+    if dialog_seen(&kit.ctx).is_some() || nodes_below(kit, window).is_empty() {
+        return Vec::new();
+    }
+    // The wheel over the page's middle and near its bottom (a list under a tall head starts
+    // below the middle), then over each column that still has something below (a rail or a
+    // side list scrolls on its own).
+    let mut columns = vec![window.center().x + 120.0];
+    for _ in 0..3 {
+        for x in std::mem::take(&mut columns) {
+            let mut places = Vec::new();
+            for y in [window.center().y, window.bottom() - 40.0] {
+                let at = egui::pos2(x, y);
+                places.push(at);
+                // A popup over the page (History's open filters) takes the wheel there: the page
+                // is turned too beside it, where a user would turn it.
+                if kit.ctx.layer_id_at(at).map(|l| l.order) != Some(egui::Order::Background) {
+                    places.extend(uncovered_beside(kit, window, at));
+                }
+            }
+            for at in places {
+                for _ in 0..40 {
+                    kit.input_mut().events.push(egui::Event::PointerMoved(at));
+                    kit.input_mut().events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -400.0),
+                        modifiers: egui::Modifiers::NONE,
+                        phase: egui::TouchPhase::Move,
+                    });
+                    kit.step();
+                }
+            }
+            quiet(kit, |_| {});
+        }
+        columns = nodes_below(kit, window)
+            .into_iter()
+            .map(|(_, r)| {
+                r.center()
+                    .x
+                    .clamp(window.left() + 1.0, window.right() - 1.0)
+            })
+            .collect();
+        columns.dedup_by(|a, b| (*a - *b).abs() < 40.0);
+        if columns.is_empty() {
+            break;
+        }
+    }
+    // The pointer leaves: no tooltip of where the wheel turned is left over the next look.
+    kit.input_mut().events.push(egui::Event::PointerGone);
+    quiet(kit, |_| {});
+    let mut left: Vec<String> = nodes_below(kit, window)
+        .into_iter()
+        .map(|(name, r)| format!("below the window, not scrolled to: «{name}» at {r:?}"))
+        .collect();
+    left.truncate(3);
+    left
+}
+
+/// The point nearest `at` on its row that no popup covers, if there is one.
+fn uncovered_beside(kit: &Kit, window: egui::Rect, at: egui::Pos2) -> Option<egui::Pos2> {
+    (1..40)
+        .flat_map(|k| [at.x - 20.0 * k as f32, at.x + 20.0 * k as f32])
+        .filter(|x| (window.left() + 1.0..window.right() - 1.0).contains(x))
+        .map(|x| egui::pos2(x, at.y))
+        .find(|p| kit.ctx.layer_id_at(*p).map(|l| l.order) == Some(egui::Order::Background))
+}
+
 /// The medium window: the rail layout, under 1280 wide — its ends and a middle.
 const WORKSHOP_WIDTHS: [f32; 3] = [1024.0, 1150.0, 1279.0];
+
+/// [`WORKSHOP_WIDTHS`] and (BUG-277)
+/// the narrow window and the wide one beside them, 800 × 440 as QA saw it.
+const WORKSHOP_SIZES: [(f32, f32); 5] = [
+    (800.0, 440.0),
+    (1024.0, 768.0),
+    (1150.0, 768.0),
+    (1279.0, 768.0),
+    (1280.0, 800.0),
+];
 
 fn workshop_at_1024(lang: &str) {
     let mut wrong = Vec::new();
     for preset in WORKSHOP {
-        for width in WORKSHOP_WIDTHS {
+        for (width, height) in WORKSHOP_SIZES {
             let (_turn, mut kit) = demo_app(preset, lang);
-            kit.set_size(egui::vec2(width, 768.0));
+            kit.set_size(egui::vec2(width, height));
             quiet(&mut kit, |_| {});
-            for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
-                wrong.push(format!("{preset} @{width}: {w}"));
+            let found = text_trouble(&kit)
+                .into_iter()
+                .chain(too_wide(&kit))
+                .chain(below_the_edge(&mut kit));
+            for w in found {
+                wrong.push(format!("{preset} @{width}x{height}: {w}"));
             }
         }
     }
@@ -446,6 +595,38 @@ fn the_workshop_wraps_at_1024_de() {
 #[test]
 fn the_workshop_wraps_at_1024_uk() {
     workshop_at_1024("uk");
+}
+
+#[test]
+fn the_workshop_wraps_at_1024_ar() {
+    workshop_at_1024("ar");
+}
+
+/// BUG-277: the model's page scrolls to its end — «Recent» under an 800 × 440 window comes into
+/// it with the wheel, the picture and the words beside it apart.
+#[test]
+fn the_model_page_scrolls_to_recent() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    kit.set_size(egui::vec2(800.0, 440.0));
+    quiet(&mut kit, |_| {});
+    let window = kit.ctx.content_rect();
+    let recent = |kit: &Kit| {
+        kit.query_all_by(|n| {
+            n.label()
+                .or_else(|| n.value())
+                .is_some_and(|l| l.eq_ignore_ascii_case("recent"))
+        })
+        .find_map(|n| n.accesskit_node().bounding_box())
+        .map(|b| b.y0 as f32 / kit.ctx.pixels_per_point())
+    };
+    let at_first = recent(&kit).expect("«Recent» laid out");
+    assert!(
+        at_first > window.bottom(),
+        "under the window first: {at_first}"
+    );
+    assert!(below_the_edge(&mut kit).is_empty(), "everything reached");
+    let scrolled = recent(&kit).expect("«Recent» laid out");
+    assert!(scrolled < window.bottom(), "in the window: {scrolled}");
 }
 
 /// The window sizes of the class sweep (TEAM.md §8d-2): the narrowest supported, the medium
@@ -475,7 +656,10 @@ fn every_preset_text(lang: &str) -> Vec<String> {
         for (w, h) in SWEEP_SIZES {
             kit.set_size(egui::vec2(w, h));
             quiet(&mut kit, |_| {});
-            for t in text_trouble(&kit) {
+            for t in text_trouble(&kit)
+                .into_iter()
+                .chain(below_the_edge(&mut kit))
+            {
                 wrong.push(format!("{preset} @{w}x{h}: {t}"));
             }
         }

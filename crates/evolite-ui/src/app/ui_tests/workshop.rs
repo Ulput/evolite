@@ -319,6 +319,22 @@ fn a_model_page_shows_its_numbers() {
     wait_for(&mut kit, "the gifts", |kit| has_words(kit, ", @alice"));
     assert!(has_words(&kit, "last: "));
     assert!(has_words(&kit, "— 4"), "the price group");
+    // BUG-276: the copy sold shows its price though History here has no sale (another copy, a
+    // cleared History): the sum is the core's, of the same sales as the count.
+    assert!(
+        !kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| w
+                .activity
+                .iter()
+                .any(|a| matches!(a.kind, evolite_api::ActivityKind::NftSold { .. }))),
+        "no sale in History"
+    );
+    wait_for(&mut kit, "the sold copy's price", |kit| {
+        has_words(kit, "for 1.0000 DASH · credits to")
+    });
     assert!(!button(&kit, "Give…").accesskit_node().is_disabled());
     assert!(!button(&kit, "Issue more").accesskit_node().is_disabled());
     // W7-5: ranges, no row a copy; «Prices» by price with its numbers.

@@ -169,275 +169,282 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
     // (BUG-74 №3, the designer's improvement 1 rule 9).
     let count = (!nfts.is_empty()).then(|| nfts.len().to_string());
     page_header(ui, a, tr!("Collection"), count.as_deref(), |_, _| {});
-    // Before the list: avatars ask too, and there may be no NFT here at all (BUG-95).
-    if let Some(why) = state.art.off.or(a.avatars.off) {
-        crate::components::notice(
-            ui,
-            a,
-            "warning",
-            p.muted,
-            crate::art::pictures_off_text(why),
-        );
-    }
-    // FEAT-0055: every identity's NFTs together; with several identities, «All» and each one
-    // to show only its own (the one picker, BUG-265). An identity gone shows all again. No
-    // filter while the wallet has no NFT at all: nothing to tell apart.
-    if state
-        .only
-        .as_ref()
-        .is_some_and(|only| !wallet.identities.iter().any(|i| &i.id == only))
-    {
-        state.only = None;
-    }
-    if wallet.identities.len() > 1
-        && (!nfts.is_empty() || state.only.is_some())
-        && let Some(only) = crate::components::identity_filter(
-            ui,
-            a,
-            wallet,
-            tr!("Identity"),
-            state.only.as_deref(),
-        )
-    {
-        state.only = only;
-    }
-    // r1: under one identity's chip its own list's state — another identity's failed read is
-    // not this one's; under «All» every list's together.
-    let status = state
-        .only
-        .as_ref()
-        .and_then(|only| {
-            wallet
-                .nfts_statuses
-                .iter()
-                .find(|(id, _)| id == only)
-                .map(|(_, s)| s)
-        })
-        .unwrap_or(&wallet.nfts_status);
-    let owned = |n: &Nft| state.only.as_ref().is_none_or(|only| &n.owner_id == only);
-    if !nfts.iter().any(owned) {
-        if empty(ui, a, status) {
-            cx.send(Command::RefreshNfts);
-        }
-        return;
-    }
-    // BUG-188 §5: the tab «Collection» (always chosen while «New» is not built), a divider,
-    // then the filters, each on and off again; none on is all of the Collection.
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        if pill(ui, &p, tr!("Collection"), true).clicked() {
-            state.filter = 0;
-        }
-        let (bar, _) = ui.allocate_exact_size(vec2(9.0, 20.0), Sense::hover());
-        ui.painter()
-            .vline(bar.center().x, bar.y_range(), Stroke::new(1.0, p.line));
-        for (k, label) in FILTERS.iter().enumerate() {
-            let filter = k + 1;
-            if pill(ui, &p, label, state.filter == filter).clicked() {
-                state.filter = if state.filter == filter { 0 } else { filter };
-            }
-        }
-    });
-    // The saved list is still here and the core asks again by itself: not an error (calm
-    // states CS-1); «Try again» asks now (CS-1a).
-    if let NftsStatus::Failed(why) = status {
-        crate::components::notice(
-            ui,
-            a,
-            "info",
-            p.muted,
-            &format!(
-                tr!(
-                    "The list may be out of date: it did not refresh from Dash Platform ({}). Your saved NFTs are still here."
-                ),
-                why
-            ),
-        );
-        if button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked() {
-            cx.send(Command::RefreshNfts);
-        }
-    }
-
-    let shown: Vec<usize> = (0..nfts.len())
-        .filter(|i| matches(state.filter, &nfts[*i]))
-        .filter(|i| owned(&nfts[*i]))
-        .collect();
-    // The panel follows the filter: a hidden NFT gives way to the first one shown.
-    if !shown.contains(&state.selected)
-        && let Some(first) = shown.first()
-    {
-        state.selected = *first;
-    }
-
-    let mut asked = Vec::new();
-    let asks: Vec<bool> = nfts
-        .iter()
-        .map(|n| state.waits_for_consent(n, &wallet.trusted_issuers))
-        .collect();
-    // BUG-188: copies of one model are one tile «×N».
-    let groups = groups(nfts, &shown);
-    let selected = groups
-        .iter()
-        .position(|g| g.contains(&state.selected))
-        .map(|k| groups[k].clone());
-    // The card beside the grid only while the grid keeps four columns: content of 952 and
-    // wider (a window of 1280); narrower, it opens as a window over the grid (BUG-188).
-    let total = ui.available_width();
-    let side = total >= SIDE_FROM;
-    let grid_w = if side {
-        total - SIDE_W - SIDE_GAP
-    } else {
-        total
-    };
-    let mut clicked = false;
+    // BUG-277 (the class): everything under the header scrolls — ten identities' chips and the
+    // filters over the grid leave it no room at 800 × 600 otherwise.
+    // The page's width before its scroll bar: the columns and the side card are counted on it
+    // (BUG-188), as when only the grid scrolled.
+    let page_w = ui.available_width();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        let grid = |ui: &mut Ui,
-                    a: &mut Assets,
-                    state: &mut CollectionState,
-                    asked: &mut Vec<Command>|
-         -> bool {
-            let mut clicked = false;
-            // The scroll bar may take its 10 from the width: the columns are counted on the
-            // width the spec gives, the tiles share what is left (BUG-188).
-            let inner_w = ui.available_width().min(grid_w);
-            ui.set_width(inner_w);
-            ui.spacing_mut().item_spacing.y = 16.0;
-            if groups.is_empty() {
-                card(&p, Margin::symmetric(20, 32)).show(ui, |ui| {
-                    ui.set_width(inner(inner_w, 20));
-                    ui.vertical_centered(|ui| {
-                        ui.label(txt(tr!("Nothing with this filter"), 14.0, Weight::Regular, p.muted))
-                    });
-                });
-            } else {
-                let (cols, _) = tile_grid(grid_w);
-                let tile_w = tile_width(inner_w, cols);
-                ui.vertical(|ui| {
-                    ui.spacing_mut().item_spacing.y = TILE_GAP;
-                    for row in groups.chunks(cols) {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = TILE_GAP;
-                            for group in row {
-                                let first = group[0];
-                                let (tile, show) = nft_card(
-                                    ui,
-                                    a,
-                                    &mut state.art,
-                                    asked,
-                                    nfts,
-                                    group,
-                                    (group.contains(&state.selected), asks[first]),
-                                    tile_w,
-                                );
-                                if show {
-                                    state.shown.insert(nfts[first].id.clone());
-                                } else if tile.clicked() {
-                                    if !group.contains(&state.selected) {
-                                        state.page = 0;
-                                    }
-                                    state.selected = first;
-                                    clicked = true;
-                                }
-                            }
-                        });
-                    }
-                });
+        // Before the list: avatars ask too, and there may be no NFT here at all (BUG-95).
+        if let Some(why) = state.art.off.or(a.avatars.off) {
+            crate::components::notice(
+                ui,
+                a,
+                "warning",
+                p.muted,
+                crate::art::pictures_off_text(why),
+            );
+        }
+        // FEAT-0055: every identity's NFTs together; with several identities, «All» and each one
+        // to show only its own (the one picker, BUG-265). An identity gone shows all again. No
+        // filter while the wallet has no NFT at all: nothing to tell apart.
+        if state
+            .only
+            .as_ref()
+            .is_some_and(|only| !wallet.identities.iter().any(|i| &i.id == only))
+        {
+            state.only = None;
+        }
+        if wallet.identities.len() > 1
+            && (!nfts.is_empty() || state.only.is_some())
+            && let Some(only) = crate::components::identity_filter(
+                ui,
+                a,
+                wallet,
+                tr!("Identity"),
+                state.only.as_deref(),
+            )
+        {
+            state.only = only;
+        }
+        // r1: under one identity's chip its own list's state — another identity's failed read is
+        // not this one's; under «All» every list's together.
+        let status = state
+            .only
+            .as_ref()
+            .and_then(|only| {
+                wallet
+                    .nfts_statuses
+                    .iter()
+                    .find(|(id, _)| id == only)
+                    .map(|(_, s)| s)
+            })
+            .unwrap_or(&wallet.nfts_status);
+        let owned = |n: &Nft| state.only.as_ref().is_none_or(|only| &n.owner_id == only);
+        if !nfts.iter().any(owned) {
+            if empty(ui, a, status) {
+                cx.send(Command::RefreshNfts);
             }
+            return;
+        }
+        // BUG-188 §5: the tab «Collection» (always chosen while «New» is not built), a divider,
+        // then the filters, each on and off again; none on is all of the Collection.
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            if pill(ui, &p, tr!("Collection"), true).clicked() {
+                state.filter = 0;
+            }
+            let (bar, _) = ui.allocate_exact_size(vec2(9.0, 20.0), Sense::hover());
+            ui.painter()
+                .vline(bar.center().x, bar.y_range(), Stroke::new(1.0, p.line));
+            for (k, label) in FILTERS.iter().enumerate() {
+                let filter = k + 1;
+                if pill(ui, &p, label, state.filter == filter).clicked() {
+                    state.filter = if state.filter == filter { 0 } else { filter };
+                }
+            }
+        });
+        // The saved list is still here and the core asks again by itself: not an error (calm
+        // states CS-1); «Try again» asks now (CS-1a).
+        if let NftsStatus::Failed(why) = status {
             crate::components::notice(
                 ui,
                 a,
                 "info",
                 p.muted,
-                tr!("NFTs of evolite collections on Dash Platform: the picture is stored in the documents themselves — no outside servers — and drawn by its hash on this computer."),
+                &format!(
+                    tr!(
+                        "The list may be out of date: it did not refresh from Dash Platform ({}). Your saved NFTs are still here."
+                    ),
+                    why
+                ),
             );
-            clicked
+            if button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked() {
+                cx.send(Command::RefreshNfts);
+            }
+        }
+
+        let shown: Vec<usize> = (0..nfts.len())
+            .filter(|i| matches(state.filter, &nfts[*i]))
+            .filter(|i| owned(&nfts[*i]))
+            .collect();
+        // The panel follows the filter: a hidden NFT gives way to the first one shown.
+        if !shown.contains(&state.selected)
+            && let Some(first) = shown.first()
+        {
+            state.selected = *first;
+        }
+
+        let mut asked = Vec::new();
+        let asks: Vec<bool> = nfts
+            .iter()
+            .map(|n| state.waits_for_consent(n, &wallet.trusted_issuers))
+            .collect();
+        // BUG-188: copies of one model are one tile «×N».
+        let groups = groups(nfts, &shown);
+        let selected = groups
+            .iter()
+            .position(|g| g.contains(&state.selected))
+            .map(|k| groups[k].clone());
+        // The card beside the grid only while the grid keeps four columns: content of 952 and
+        // wider (a window of 1280); narrower, it opens as a window over the grid (BUG-188).
+        let total = page_w;
+        let side = total >= SIDE_FROM;
+        let grid_w = if side {
+            total - SIDE_W - SIDE_GAP
+        } else {
+            total
         };
-        if side {
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = SIDE_GAP;
-                ui.vertical(|ui| clicked = grid(ui, a, state, &mut asked));
-                if let Some(group) = &selected {
+        let mut clicked = false;
+        ui.scope(|ui| {
+            let grid = |ui: &mut Ui,
+                        a: &mut Assets,
+                        state: &mut CollectionState,
+                        asked: &mut Vec<Command>|
+             -> bool {
+                let mut clicked = false;
+                // The scroll bar may take its 10 from the width: the columns are counted on the
+                // width the spec gives, the tiles share what is left (BUG-188).
+                let inner_w = ui.available_width().min(grid_w);
+                ui.set_width(inner_w);
+                ui.spacing_mut().item_spacing.y = 16.0;
+                if groups.is_empty() {
+                    card(&p, Margin::symmetric(20, 32)).show(ui, |ui| {
+                        ui.set_width(inner(inner_w, 20));
+                        ui.vertical_centered(|ui| {
+                            ui.label(txt(tr!("Nothing with this filter"), 14.0, Weight::Regular, p.muted))
+                        });
+                    });
+                } else {
+                    let (cols, _) = tile_grid(grid_w);
+                    let tile_w = tile_width(inner_w, cols);
                     ui.vertical(|ui| {
-                        card(&p, Margin::same(20))
-                            .corner_radius(CornerRadius::same(18))
-                            .show(ui, |ui| {
-                                ui.set_width(inner(SIDE_W, 20));
-                                let picked = card_body(
-                                    ui,
-                                    a,
-                                    (&mut state.art, &mut asked),
-                                    (nfts, group, &asks),
-                                    (gift_fee, now, &mut state.page),
-                                    true,
-                                );
-                                state.gifting |= picked.gift;
-                                if let Some(issuer) = picked.trust {
-                                    // r1: kept by the wallet, not only this run.
-                                    asked.push(Command::TrustIssuer {
-                                        issuer: issuer.clone(),
-                                    });
-                                    state.trusted.insert(issuer);
+                        ui.spacing_mut().item_spacing.y = TILE_GAP;
+                        for row in groups.chunks(cols) {
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = TILE_GAP;
+                                for group in row {
+                                    let first = group[0];
+                                    let (tile, show) = nft_card(
+                                        ui,
+                                        a,
+                                        &mut state.art,
+                                        asked,
+                                        nfts,
+                                        group,
+                                        (group.contains(&state.selected), asks[first]),
+                                        tile_w,
+                                    );
+                                    if show {
+                                        state.shown.insert(nfts[first].id.clone());
+                                    } else if tile.clicked() {
+                                        if !group.contains(&state.selected) {
+                                            state.page = 0;
+                                        }
+                                        state.selected = first;
+                                        clicked = true;
+                                    }
                                 }
                             });
+                        }
                     });
                 }
-            });
-        } else {
-            clicked = grid(ui, a, state, &mut asked);
-        }
-    });
-    // Narrower than 952: the card is a window of 520, opened by a click on a tile (C4).
-    state.open = !side && (state.open || clicked);
-    if state.open
-        && let Some(group) = &selected
-    {
-        let nft = &nfts[group[0]];
-        let title = if group.len() > 1 {
-            format!(tr!("{name} · ×{n}"), name = nft.name, n = group.len())
-        } else {
-            nft.name.clone()
-        };
-        let mut picked = Picked::default();
-        let close = crate::components::dialog_with_header(
-            ui,
-            a,
-            "nft-card",
-            CARD_W,
-            |ui, _| {
-                ui.label(txt(&title, 20.0, Weight::Bold, p.text));
-            },
-            |ui, a| {
-                picked = card_body(
+                crate::components::notice(
                     ui,
                     a,
-                    (&mut state.art, &mut asked),
-                    (nfts, group, &asks),
-                    (gift_fee, now, &mut state.page),
-                    false,
+                    "info",
+                    p.muted,
+                    tr!("NFTs of evolite collections on Dash Platform: the picture is stored in the documents themselves — no outside servers — and drawn by its hash on this computer."),
                 );
-                picked.gift
-            },
-        );
-        state.gifting |= picked.gift;
-        if let Some(issuer) = picked.trust {
-            // r1: kept by the wallet, not only this run.
-            asked.push(Command::TrustIssuer {
-                issuer: issuer.clone(),
-            });
-            state.trusted.insert(issuer);
+                clicked
+            };
+            if side {
+                ui.horizontal_top(|ui| {
+                    ui.spacing_mut().item_spacing.x = SIDE_GAP;
+                    ui.vertical(|ui| clicked = grid(ui, a, state, &mut asked));
+                    if let Some(group) = &selected {
+                        ui.vertical(|ui| {
+                            card(&p, Margin::same(20))
+                                .corner_radius(CornerRadius::same(18))
+                                .show(ui, |ui| {
+                                    ui.set_width(inner(SIDE_W, 20));
+                                    let picked = card_body(
+                                        ui,
+                                        a,
+                                        (&mut state.art, &mut asked),
+                                        (nfts, group, &asks),
+                                        (gift_fee, now, &mut state.page),
+                                        true,
+                                    );
+                                    state.gifting |= picked.gift;
+                                    if let Some(issuer) = picked.trust {
+                                        // r1: kept by the wallet, not only this run.
+                                        asked.push(Command::TrustIssuer {
+                                            issuer: issuer.clone(),
+                                        });
+                                        state.trusted.insert(issuer);
+                                    }
+                                });
+                        });
+                    }
+                });
+            } else {
+                clicked = grid(ui, a, state, &mut asked);
+            }
+        });
+        // Narrower than 952: the card is a window of 520, opened by a click on a tile (C4).
+        state.open = !side && (state.open || clicked);
+        if state.open
+            && let Some(group) = &selected
+        {
+            let nft = &nfts[group[0]];
+            let title = if group.len() > 1 {
+                format!(tr!("{name} · ×{n}"), name = nft.name, n = group.len())
+            } else {
+                nft.name.clone()
+            };
+            let mut picked = Picked::default();
+            let close = crate::components::dialog_with_header(
+                ui,
+                a,
+                "nft-card",
+                CARD_W,
+                |ui, _| {
+                    ui.label(txt(&title, 20.0, Weight::Bold, p.text));
+                },
+                |ui, a| {
+                    picked = card_body(
+                        ui,
+                        a,
+                        (&mut state.art, &mut asked),
+                        (nfts, group, &asks),
+                        (gift_fee, now, &mut state.page),
+                        false,
+                    );
+                    picked.gift
+                },
+            );
+            state.gifting |= picked.gift;
+            if let Some(issuer) = picked.trust {
+                // r1: kept by the wallet, not only this run.
+                asked.push(Command::TrustIssuer {
+                    issuer: issuer.clone(),
+                });
+                state.trusted.insert(issuer);
+            }
+            if close || picked.gift {
+                state.open = false;
+            }
         }
-        if close || picked.gift {
-            state.open = false;
+        for command in asked {
+            cx.send(command);
         }
-    }
-    for command in asked {
-        cx.send(command);
-    }
 
-    #[cfg(demo_core)]
-    if state.gifting {
-        gift_dialog(ui, a, cx, state);
-    }
+        #[cfg(demo_core)]
+        if state.gifting {
+            gift_dialog(ui, a, cx, state);
+        }
+    });
 }
 
 fn edition(nft: &Nft) -> String {

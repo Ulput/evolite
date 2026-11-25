@@ -273,55 +273,56 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             }
         }
     });
-    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
-    crate::screens::set_aside::banners(
-        ui,
-        a,
-        cx,
-        &[
-            evolite_api::LocalFile::NameRequests,
-            evolite_api::LocalFile::TopUps,
-        ],
-    );
-    identity_choice(ui, a, cx, state, &mut asked);
-    top_up_status(ui, a, wallet, state, &mut asked);
-    if let Some(unfinished) = &wallet.unfinished_identity {
-        let p = a.p;
-        let text = match unfinished.locked {
-            Some(locked) => format!(
-                tr!(
-                    "Making the identity stopped: {} are locked on Core. Continue — no new money is needed."
-                ),
-                crate::format::amount(locked)
-            ),
-            None => {
-                tr!("The identity is made, but the name was not written. Continue to write it.")
-                    .into()
-            }
-        };
-        notice(ui, a, "warning", p.accent, &text);
-        if button(ui, a, tr!("Continue creating"), ButtonKind::Primary, None).clicked() {
-            cx.go(Screen::CreateIdentity);
-        }
-    }
-    let search_again = search_status(ui, a, &wallet.identity_search, has_identity);
-    let Some(identity) = &wallet.identity else {
-        // While the search runs an identity may yet be found: waiting, said neutrally, with
-        // nothing to do and no amounts (CS-4, BUG-74 №2).
-        if wallet.identity_search == IdentitySearch::Searching {
-            searching_for_identity(ui, a);
-        } else {
-            no_identity(ui, a, cx, wallet, search_again);
-        }
-        return;
-    };
-    if search_again {
-        asked.push(Command::FindIdentities);
-    }
-
+    // BUG-277 (the class): everything under the header scrolls — ten identities, a notice and
+    // a set-aside file over the cards leave them no room at 800 × 600 otherwise.
     let out = egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
+            // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+            crate::screens::set_aside::banners(
+                ui,
+                a,
+                cx,
+                &[
+                    evolite_api::LocalFile::NameRequests,
+                    evolite_api::LocalFile::TopUps,
+                ],
+            );
+            identity_choice(ui, a, cx, state, &mut asked);
+            top_up_status(ui, a, wallet, state, &mut asked);
+            if let Some(unfinished) = &wallet.unfinished_identity {
+                let p = a.p;
+                let text = match unfinished.locked {
+                    Some(locked) => format!(
+                        tr!(
+                            "Making the identity stopped: {} are locked on Core. Continue — no new money is needed."
+                        ),
+                        crate::format::amount(locked)
+                    ),
+                    None => {
+                        tr!("The identity is made, but the name was not written. Continue to write it.")
+                            .into()
+                    }
+                };
+                notice(ui, a, "warning", p.accent, &text);
+                if button(ui, a, tr!("Continue creating"), ButtonKind::Primary, None).clicked() {
+                    cx.go(Screen::CreateIdentity);
+                }
+            }
+            let search_again = search_status(ui, a, &wallet.identity_search, has_identity);
+            let Some(identity) = &wallet.identity else {
+                // While the search runs an identity may yet be found: waiting, said neutrally, with
+                // nothing to do and no amounts (CS-4, BUG-74 №2).
+                if wallet.identity_search == IdentitySearch::Searching {
+                    searching_for_identity(ui, a);
+                } else {
+                    no_identity(ui, a, cx, wallet, search_again);
+                }
+                return;
+            };
+            if search_again {
+                asked.push(Command::FindIdentities);
+            }
             ui.spacing_mut().item_spacing.y = 20.0;
             let total = ui.available_width();
             // Two rows of two cards on one grid, halves with a gap of 20 (design review
@@ -367,6 +368,10 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             });
         });
     crate::diagnostics::screen_offset(out.state.offset.y);
+    // No identity: nothing more (the search's own words are in the page).
+    let Some(identity) = &wallet.identity else {
+        return;
+    };
     if state.editing.is_some() {
         edit_profile(
             ui,

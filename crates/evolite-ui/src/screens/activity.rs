@@ -85,91 +85,102 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             );
         });
     });
-    // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
-    crate::screens::set_aside::banners(
-        ui,
-        a,
-        cx,
-        &[
-            evolite_api::LocalFile::Journal,
-            evolite_api::LocalFile::TopUps,
-            evolite_api::LocalFile::ContactAddresses,
-        ],
-    );
-    let total = wallet.activity.len();
-    let mut shown: Vec<usize> = h
-        .shown(&wallet.activity, &wallet.address_book, &cx.now)
-        .to_vec();
-    // FEAT-0019 T-1: «Tokens» opened asks for the newest page of the tokens' history, once; a
-    // token chosen in «Token: …» shows only its lines.
-    let on_tokens = h.filters.layer == activity_filters::TOKENS_LAYER;
-    if on_tokens && !h.tokens_open {
-        cx.send(Command::ReadTokenHistory {
-            token: h.token.as_ref().map(|(id, _)| id.clone()),
-            earlier: false,
-        });
+    // BUG-277 (the class): everything under the header scrolls — the filters open in German at
+    // 800 × 600 leave the list no room otherwise. The export's answer just come starts it again
+    // from its top (BUG-83).
+    let mut page = egui::ScrollArea::vertical().auto_shrink(false);
+    if export
+        || ui.data(|d| {
+            d.get_temp::<bool>(saved_id.with("restart"))
+                .unwrap_or(false)
+        })
+    {
+        page = page.vertical_scroll_offset(0.0);
     }
-    h.tokens_open = on_tokens;
-    if let Some((_, name)) = h.token.as_ref().filter(|_| on_tokens) {
-        shown.retain(|i| token_of(&wallet.activity[*i]) == Some(name.as_str()));
-    }
-    let export = run_export(ui, a, h, wallet, &shown, total, export);
-    let saved: Option<Result<(std::path::PathBuf, usize), String>> =
-        ui.data(|d| d.get_temp(saved_id));
-    // The export's answer has just appeared (or a new one came) above the list: the list
-    // starts again from its top, the first day and its first row right under the banner
-    // (BUG-83).
-    let shown_id = saved_id.with("shown");
-    let banner_new =
-        export || saved.is_some() && !ui.data(|d| d.get_temp(shown_id).unwrap_or(false));
-    ui.data_mut(|d| d.insert_temp(shown_id, saved.is_some()));
-    export_banner(ui, a, saved);
-    filter_row(ui, a, cx, h, &shown, total);
-    // E2 (FEAT-0003, AC-D6): the notes file did not open and was put aside, untouched; or it
-    // could not be read now and is left where it is, with no note saved over it (r1 must 1).
-    if let Some(error) = wallet.notes_error {
-        notes_problem(ui, a, error);
-    }
-    // The filters on, each with its cross, and how many lines they leave (UC-5).
-    let chips = h.filters.chips();
-    chips_row(ui, a, h, &chips, &shown, total);
-    if on_tokens {
-        token_picker(ui, a, cx, h);
-    }
-    let mut list = egui::ScrollArea::vertical().auto_shrink(false);
-    if banner_new {
-        list = list.vertical_scroll_offset(0.0);
-    }
-    let filtered = !chips.is_empty();
-    let out = list.show(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        if shown.is_empty() {
-            ui.add_space(40.0);
-            empty_list(ui, a, h, cx, filtered);
+    let out = page.show(ui, |ui| {
+        // BUG-204, BUG-212: the files of this screen that did not read and were set aside.
+        crate::screens::set_aside::banners(
+            ui,
+            a,
+            cx,
+            &[
+                evolite_api::LocalFile::Journal,
+                evolite_api::LocalFile::TopUps,
+                evolite_api::LocalFile::ContactAddresses,
+            ],
+        );
+        let total = wallet.activity.len();
+        let mut shown: Vec<usize> = h
+            .shown(&wallet.activity, &wallet.address_book, &cx.now)
+            .to_vec();
+        // FEAT-0019 T-1: «Tokens» opened asks for the newest page of the tokens' history, once; a
+        // token chosen in «Token: …» shows only its lines.
+        let on_tokens = h.filters.layer == activity_filters::TOKENS_LAYER;
+        if on_tokens && !h.tokens_open {
+            cx.send(Command::ReadTokenHistory {
+                token: h.token.as_ref().map(|(id, _)| id.clone()),
+                earlier: false,
+            });
         }
-        // A day's heading only above its lines: a day the filters empty has none (AC-D3).
-        let mut day = String::new();
-        for act in shown.iter().map(|i| &wallet.activity[*i]) {
-            operation_row(ui, a, cx, act, &mut day);
+        h.tokens_open = on_tokens;
+        if let Some((_, name)) = h.token.as_ref().filter(|_| on_tokens) {
+            shown.retain(|i| token_of(&wallet.activity[*i]) == Some(name.as_str()));
         }
-        // FEAT-0019 T-1: older pages of the tokens' history, and what History cannot know.
+        let export = run_export(ui, a, h, wallet, &shown, total, export);
+        let saved: Option<Result<(std::path::PathBuf, usize), String>> =
+            ui.data(|d| d.get_temp(saved_id));
+        // The export's answer has just appeared (or a new one came) above the list: the list
+        // starts again from its top, the first day and its first row right under the banner
+        // (BUG-83).
+        let shown_id = saved_id.with("shown");
+        let banner_new =
+            export || saved.is_some() && !ui.data(|d| d.get_temp(shown_id).unwrap_or(false));
+        ui.data_mut(|d| d.insert_temp(shown_id, saved.is_some()));
+        ui.data_mut(|d| d.insert_temp(saved_id.with("restart"), banner_new));
+        export_banner(ui, a, saved);
+        filter_row(ui, a, cx, h, &shown, total);
+        // E2 (FEAT-0003, AC-D6): the notes file did not open and was put aside, untouched; or it
+        // could not be read now and is left where it is, with no note saved over it (r1 must 1).
+        if let Some(error) = wallet.notes_error {
+            notes_problem(ui, a, error);
+        }
+        // The filters on, each with its cross, and how many lines they leave (UC-5).
+        let chips = h.filters.chips();
+        chips_row(ui, a, h, &chips, &shown, total);
         if on_tokens {
-            ui.add_space(12.0);
-            if text_action(ui, a, "activity", tr!("Show earlier")).clicked() {
-                cx.send(Command::ReadTokenHistory {
-                    token: h.token.as_ref().map(|(id, _)| id.clone()),
-                    earlier: true,
-                });
-            }
-            ui.add_space(8.0);
-            notice(
-                ui,
-                a,
-                "info",
-                a.p.muted,
-                tr!("For tokens without a transfer history evolite sees only a change of balance — where it came from is unknown. There are no tokens in the CSV: the export is DASH only."),
-            );
+            token_picker(ui, a, cx, h);
         }
+        let filtered = !chips.is_empty();
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            if shown.is_empty() {
+                ui.add_space(40.0);
+                empty_list(ui, a, h, cx, filtered);
+            }
+            // A day's heading only above its lines: a day the filters empty has none (AC-D3).
+            let mut day = String::new();
+            for act in shown.iter().map(|i| &wallet.activity[*i]) {
+                operation_row(ui, a, cx, act, &mut day);
+            }
+            // FEAT-0019 T-1: older pages of the tokens' history, and what History cannot know.
+            if on_tokens {
+                ui.add_space(12.0);
+                if text_action(ui, a, "activity", tr!("Show earlier")).clicked() {
+                    cx.send(Command::ReadTokenHistory {
+                        token: h.token.as_ref().map(|(id, _)| id.clone()),
+                        earlier: true,
+                    });
+                }
+                ui.add_space(8.0);
+                notice(
+                    ui,
+                    a,
+                    "info",
+                    a.p.muted,
+                    tr!("For tokens without a transfer history evolite sees only a change of balance — where it came from is unknown. There are no tokens in the CSV: the export is DASH only."),
+                );
+            }
+        });
     });
     crate::diagnostics::screen_offset(out.state.offset.y);
     card_window(ui, a, cx);

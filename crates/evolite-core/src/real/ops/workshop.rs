@@ -27,16 +27,16 @@ struct Sold {
 }
 
 impl WorkshopState {
-    /// How many of `model` in `contract` `identity` sold, of the sales read; `None` before any.
-    fn sold(&self, identity: &str, contract: &str, model: &str) -> Option<u32> {
+    /// How many of `model` in `contract` `identity` sold, of the sales read, and what they
+    /// brought (BUG-276: from the sales themselves, not History); `None` before any.
+    fn sold(&self, identity: &str, contract: &str, model: &str) -> Option<(u32, Duffs)> {
         let all = self.0.lock().unwrap_or_else(|e| e.into_inner());
         let sold = all.get(identity)?;
-        Some(
-            sold.sales
-                .iter()
-                .filter(|s| s.contract == contract && s.model_id.as_deref() == Some(model))
-                .count() as u32,
-        )
+        let these = sold
+            .sales
+            .iter()
+            .filter(|s| s.contract == contract && s.model_id.as_deref() == Some(model));
+        Some(these.fold((0, 0), |(n, sum), s| (n + 1, sum + s.price)))
     }
 
     fn cursor(&self, identity: &str) -> SalesCursor {
@@ -265,9 +265,13 @@ mod tests {
             SalesCursor::default(),
         );
         state.add("me", &[sale("p1", "m")], SalesCursor::default());
-        assert_eq!(state.sold("me", "c", "m"), Some(1));
-        assert_eq!(state.sold("me", "c", "n"), Some(1));
-        assert_eq!(state.sold("me", "x", "m"), Some(0));
+        assert_eq!(
+            state.sold("me", "c", "m"),
+            Some((1, 10)),
+            "one sale, its price"
+        );
+        assert_eq!(state.sold("me", "c", "n"), Some((1, 10)));
+        assert_eq!(state.sold("me", "x", "m"), Some((0, 0)));
         assert_eq!(state.sold("other", "c", "m"), None);
     }
 

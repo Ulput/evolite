@@ -1988,9 +1988,10 @@ impl eframe::App for App {
                                 &mut cx,
                                 &mut self.collection,
                             ),
-                            Screen::Tokens => {
+                            // BUG-277 (the class): a page taller than the window scrolls.
+                            Screen::Tokens => scrolled(ui, |ui| {
                                 screens::tokens::tokens(ui, a, &mut cx, &mut self.tokens)
-                            }
+                            }),
                             Screen::Workshop => screens::workshop::workshop(
                                 ui,
                                 a,
@@ -1998,12 +1999,14 @@ impl eframe::App for App {
                                 &mut self.workshop,
                                 &mut self.collection.art,
                             ),
-                            Screen::TokenPage => screens::tokens::manage::page_screen(
-                                ui,
-                                a,
-                                &mut cx,
-                                &mut self.tokens,
-                            ),
+                            Screen::TokenPage => scrolled(ui, |ui| {
+                                screens::tokens::manage::page_screen(
+                                    ui,
+                                    a,
+                                    &mut cx,
+                                    &mut self.tokens,
+                                )
+                            }),
                             Screen::Settings => {
                                 screens::settings::settings(ui, a, &mut cx, &mut self.settings)
                             }
@@ -2014,12 +2017,14 @@ impl eframe::App for App {
                                 &mut self.create_identity,
                                 &mut self.pool,
                             ),
-                            Screen::IdentityKeys => screens::identity::identity_keys(
-                                ui,
-                                a,
-                                &mut cx,
-                                &mut self.identity_keys,
-                            ),
+                            Screen::IdentityKeys => scrolled(ui, |ui| {
+                                screens::identity::identity_keys(
+                                    ui,
+                                    a,
+                                    &mut cx,
+                                    &mut self.identity_keys,
+                                )
+                            }),
                             // Drawn above, without the sidebar.
                             Screen::Welcome | Screen::Unlock | Screen::Onboarding(_) => {}
                             #[cfg(feature = "dev-tools")]
@@ -2287,6 +2292,15 @@ fn advanced_to_tell(
     }
     *asked = Some(wanted);
     Some(wanted)
+}
+
+/// A screen with no scroll area of its own, in one: its words below the window are reached by
+/// the wheel (BUG-277, the class of a page that does not scroll).
+fn scrolled(ui: &mut egui::Ui, page: impl FnOnce(&mut egui::Ui)) {
+    let out = egui::ScrollArea::vertical()
+        .auto_shrink(false)
+        .show(ui, page);
+    crate::diagnostics::screen_offset(out.state.offset.y);
 }
 
 #[cfg(test)]

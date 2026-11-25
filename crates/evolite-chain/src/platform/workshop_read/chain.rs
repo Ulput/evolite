@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256};
 
 use super::profile::{self, Limit, Profile};
 use super::{
-    DOCUMENT_HISTORY, GiftDoc, GivenRead, MAX_PAGES, PAGE, SalesCursor, count_mine, gift_of,
-    instances_by_id, mine_query, new_sales, pages, price_of, sale_of, sales_query, serial_of,
-    transfers_query,
+    DOCUMENT_HISTORY, GiftDoc, GivenRead, MAX_PAGES, PAGE, SalesCursor, count_mine,
+    duffs_of_credits, gift_of, instances_by_id, mine_query, new_sales, pages, price_of, sale_of,
+    sales_query, serial_of, transfers_query,
 };
 use crate::chain::Chain;
 
@@ -261,13 +261,13 @@ impl Chain {
 
     /// A model's numbers for `owner` (R-14): proved count by the countable index, else counted
     /// over the pages read; for sale over at most [`MAX_PAGES`] pages; sold from `sold`, the
-    /// sales already read for this model.
+    /// sales already read for this model: how many and what they brought.
     pub async fn workshop_counts(
         &self,
         contract: &str,
         model: &str,
         owner: &str,
-        sold: Option<u32>,
+        sold: Option<(u32, evolite_api::Duffs)>,
     ) -> Result<ModelCounts, String> {
         self.ready()?;
         let sdk = self.sdk().await?;
@@ -307,7 +307,8 @@ impl Chain {
                 complete,
             }),
             prices: prices.into_iter().collect(),
-            sold,
+            sold: sold.map(|(n, _)| n),
+            sold_for: sold.map(|(_, sum)| sum),
             issued,
             checked_at: evolite_common::wall_secs() as i64,
         })
@@ -520,7 +521,7 @@ impl Chain {
                 serial,
                 buyer: s.buyer,
                 buyer_name,
-                price: s.price as i64,
+                price: s.price,
                 at: (s.at_ms / 1000) as i64,
             });
         }
@@ -701,8 +702,7 @@ impl Chain {
                     edition: (serial_of(doc), model.supply),
                     owner: owner_name.into(),
                     owner_id: owner.into(),
-                    // 1 duff = 1 000 credits.
-                    price: price_of(doc).map(|credits| (credits / 1000) as evolite_api::Duffs),
+                    price: price_of(doc).map(duffs_of_credits),
                     chosen: by_issuer && chosen.contains(collection),
                 });
             }

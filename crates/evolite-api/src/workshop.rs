@@ -118,6 +118,9 @@ pub struct ModelCounts {
     /// as `for_sale`.
     pub prices: Vec<(Duffs, u32)>,
     pub sold: Option<u32>,
+    /// BUG-276: what those `sold` sales brought, from the same sales (their prices); `None`
+    /// with `sold`.
+    pub sold_for: Option<Duffs>,
     /// The highest number issued, by anyone's copy (W4 «выпущено {m} из {n}», FEAT-0038 R-6);
     /// `Some(0)`: none yet; `None`: not read.
     pub issued: Option<u32>,

@@ -230,7 +230,8 @@ fn a_sale_of_a_contract_not_read_waits_for_it() {
     assert_eq!(after.at_ms, 30);
 }
 
-/// A `purchase` document read into a sale: buyer is its owner.
+/// A `purchase` document read into a sale: buyer is its owner; its price, kept in credits, in
+/// duffs (BUG-276 r1: 100 000 000 000 credits are 1 DASH, not 1 000).
 #[test]
 fn a_purchase_document_is_a_sale() {
     let doc = Document::V0(DocumentV0 {
@@ -246,7 +247,7 @@ fn a_purchase_document_is_a_sale() {
                 "documentId".to_owned(),
                 Value::Identifier(id(2).to_buffer()),
             ),
-            ("price".to_owned(), Value::U64(5_000)),
+            ("price".to_owned(), Value::U64(100_000_000_000)),
         ]
         .into(),
         created_at: Some(1_700_000_000_000),
@@ -256,7 +257,7 @@ fn a_purchase_document_is_a_sale() {
     assert_eq!(s.buyer, id(8).to_string(Encoding::Base58));
     assert_eq!(s.contract, id(1).to_string(Encoding::Base58));
     assert_eq!(s.instance, id(2).to_string(Encoding::Base58));
-    assert_eq!((s.price, s.at_ms), (5_000, 1_700_000_000_000));
+    assert_eq!((s.price, s.at_ms), (100_000_000, 1_700_000_000_000));
 }
 
 /// A model document with its picture in `part0…` (or one `image`) and its `imageType`.

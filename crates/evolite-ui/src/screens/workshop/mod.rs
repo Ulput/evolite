@@ -314,15 +314,22 @@ pub fn workshop(
             ask: WorkshopAsk::Collections,
         });
     }
-    match state.page.clone() {
-        Page::Home => home(ui, a, cx, state),
-        Page::New => new_collection::page(ui, a, cx, state),
-        Page::Collection(contract) => collection_page::page(ui, a, cx, state, art, &contract),
-        Page::NewModel(_) => new_model::page(ui, a, cx, state, art),
-        Page::Model { contract, model } => {
-            model_page::page(ui, a, cx, state, art, &contract, &model)
-        }
-    }
+    // BUG-277: the Workshop's pages scroll — on none of them could the end of a long page be
+    // reached («Prices» and «Recent» under the window at 1024 and 800). A scroll of its own a
+    // page: each opens at its top.
+    let page = state.page.clone();
+    egui::ScrollArea::vertical()
+        .id_salt(("workshop-page", format!("{page:?}")))
+        .auto_shrink(false)
+        .show(ui, |ui| match page {
+            Page::Home => home(ui, a, cx, state),
+            Page::New => new_collection::page(ui, a, cx, state),
+            Page::Collection(contract) => collection_page::page(ui, a, cx, state, art, &contract),
+            Page::NewModel(_) => new_model::page(ui, a, cx, state, art),
+            Page::Model { contract, model } => {
+                model_page::page(ui, a, cx, state, art, &contract, &model)
+            }
+        });
 }
 
 /// «Credits @satoshi: 1.2000 DASH», or «—» while they are not read.

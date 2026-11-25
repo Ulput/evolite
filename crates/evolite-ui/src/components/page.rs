@@ -39,8 +39,6 @@ pub fn back_link(ui: &mut Ui, a: &mut Assets, place: &str) -> Response {
     resp.on_hover_cursor(CursorIcon::PointingHand)
 }
 
-/// Header: 28 Bold title, an optional mono count next to it, actions on the right (drawn right
-/// to left, so the primary one goes first). 41 px, as tall as a button.
 /// BUG-270: the size `text` (translated) is drawn Bold at, up to `size`, so that it fits in `width`
 /// on one line — never below `least`. A title is never broken inside a word for want of room.
 pub fn fitted_size(ui: &Ui, text: &str, size: f32, least: f32, width: f32) -> f32 {
@@ -52,6 +50,10 @@ pub fn fitted_size(ui: &Ui, text: &str, size: f32, least: f32, width: f32) -> f3
     }
 }
 
+/// Header: 28 Bold title, an optional mono count next to it, actions on the right (drawn right
+/// to left, so the primary one goes first). 41 px, as tall as a button. Where the title and the
+/// actions do not fit in one row (a long title in German at 800, BUG-277's scroll bar taking its
+/// 10), the actions go to a row of their own under it, at the right as well.
 pub fn page_header(
     ui: &mut Ui,
     a: &mut Assets,
@@ -60,25 +62,77 @@ pub fn page_header(
     actions: impl FnOnce(&mut Ui, &mut Assets),
 ) {
     let p = a.p;
-    ui.allocate_ui_with_layout(
-        vec2(ui.available_width(), 41.0),
-        Layout::left_to_right(Align::Center),
-        |ui| {
+    // The actions' width as the last frame drew them: they are drawn after the title.
+    let actions_id = ui.id().with("page-header-actions");
+    let actions_w = ui.data(|d| d.get_temp::<f32>(actions_id)).unwrap_or(0.0);
+    let title_w = ui
+        .painter()
+        .layout_no_wrap(
+            crate::i18n::t(title).into_owned(),
+            sans(28.0, Weight::Bold),
+            p.text,
+        )
+        .size()
+        .x;
+    let count_w = count.map_or(0.0, |count| {
+        10.0 + ui
+            .painter()
+            .layout_no_wrap(
+                crate::i18n::t(count).into_owned(),
+                mono(16.0, Weight::Medium),
+                p.muted,
+            )
+            .size()
+            .x
+    });
+    let one_row = actions_w == 0.0 || title_w + count_w + 20.0 + actions_w <= ui.available_width();
+    let title_row = |ui: &mut Ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        ui.label(txt(title, 28.0, Weight::Bold, p.text));
+        if let Some(count) = count {
+            ui.label(
+                egui::RichText::new(crate::i18n::t(count))
+                    .font(mono(16.0, Weight::Medium))
+                    .color(p.muted),
+            );
+        }
+    };
+    let drawn = |ui: &mut Ui, a: &mut Assets| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 10.0;
-            ui.label(txt(title, 28.0, Weight::Bold, p.text));
-            if let Some(count) = count {
-                ui.label(
-                    egui::RichText::new(crate::i18n::t(count))
-                        .font(mono(16.0, Weight::Medium))
-                        .color(p.muted),
-                );
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                actions(ui, a);
-            });
-        },
-    );
+            actions(ui, a);
+            ui.min_rect().width()
+        })
+        .inner
+    };
+    let width = if one_row {
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 41.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                title_row(ui);
+                drawn(ui, a)
+            },
+        )
+        .inner
+    } else {
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 41.0),
+            Layout::left_to_right(Align::Center),
+            title_row,
+        );
+        ui.add_space(8.0);
+        ui.allocate_ui_with_layout(
+            vec2(ui.available_width(), 41.0),
+            Layout::left_to_right(Align::Center),
+            |ui| drawn(ui, a),
+        )
+        .inner
+    };
+    if (width - actions_w).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(actions_id, width));
+        ui.ctx().request_repaint();
+    }
 }
 
 /// The wheel over the margins beside a screen's content scrolls the screen, as over the content

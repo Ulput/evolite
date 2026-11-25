@@ -134,6 +134,14 @@ pub fn mine_query(
         .with_where(equal("$ownerId", owner)))
 }
 
+/// A price Platform keeps in credits (`$price`, a `purchase`'s `price`) in duffs, as everything
+/// evolite shows: 1 duff = 1 000 credits (BUG-276 r1: a sale's price was taken as duffs, 1 000
+/// times too much in «Sold» and in its History line).
+pub fn duffs_of_credits(credits: u64) -> evolite_api::Duffs {
+    evolite_api::Duffs::try_from(credits / evolite_api::address_plan::CREDITS_PER_DUFF)
+        .unwrap_or(evolite_api::Duffs::MAX)
+}
+
 /// An instance's price for sale: `$price` above 0 (0 is not for sale, the architect's
 /// decision on R-14).
 pub fn price_of(doc: &Document) -> Option<u64> {
@@ -176,7 +184,8 @@ pub struct SaleDoc {
     pub contract: String,
     pub instance: String,
     pub buyer: String,
-    pub price: u64,
+    /// In duffs: the document keeps it in credits ([`duffs_of_credits`]).
+    pub price: evolite_api::Duffs,
     pub at_ms: u64,
 }
 
@@ -194,7 +203,7 @@ pub fn sale_of(doc: &Document) -> Option<SaleDoc> {
         contract: id("dataContractId")?,
         instance: id("documentId")?,
         buyer: doc.owner_id().to_string(Encoding::Base58),
-        price: props.get("price")?.to_integer::<u64>().ok()?,
+        price: duffs_of_credits(props.get("price")?.to_integer::<u64>().ok()?),
         at_ms: doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
     })
 }
