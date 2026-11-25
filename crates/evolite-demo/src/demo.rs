@@ -1430,7 +1430,12 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 chosen: false,
                 price: None,
             },
-        ],
+        ]
+        .into_iter()
+        // BUG-313: the Workshop's own collection's instances, from its one list: the Collection
+        // and the Workshop count the same NFTs.
+        .chain(crate::workshop::own_nfts("@satoshi", PEOPLE[0].id))
+        .collect(),
         nfts_status: NftsStatus::Ready,
         nfts_statuses: Vec::new(),
         added_collections: Vec::new(),

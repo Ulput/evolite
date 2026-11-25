@@ -94,10 +94,12 @@ async fn own_pass(
     chain: Arc<evolite_chain::chain::Chain>,
     scan: Arc<std::sync::Mutex<OwnScan>>,
     dirty: Arc<std::sync::atomic::AtomicBool>,
+    nfts: nfts::Nfts,
     identity: String,
 ) {
     let mut checked: BTreeMap<String, u64> =
         evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+            // default-ok: a cache (BUG-271): unread, the scan starts over, set aside
             .unwrap_or_default();
     let from = scan_from(checked.get(&identity).copied());
     let pass = {
@@ -112,13 +114,24 @@ async fn own_pass(
         // Read again: another identity's pass may have written its own since.
         let mut now: BTreeMap<String, u64> =
             evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+                // default-ok: a cache (BUG-271): unread, the scan starts over, set aside
                 .unwrap_or_default();
         now.insert(identity.clone(), *to);
         checked = now;
         let _ = evolite_local::json_file::save(&path, &checked);
     }
+    after_pass(&found, &nfts);
     // The snapshot says how it went.
     dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// BUG-306: a pass of any identity, shown or not, that found collections has the Collection's
+/// lists read again from them (read before, from fewer, a fresh copy's from none); one that
+/// found none leaves them be (review r1, Should 1: not every pass resets every list).
+fn after_pass(found: &Result<(usize, u64), String>, nfts: &nfts::Nfts) {
+    if matches!(found, Ok((n, _)) if *n > 0) {
+        nfts.collections_changed();
+    }
 }
 
 /// The core's clock for the passes' pauses: wall seconds.
@@ -162,6 +175,7 @@ impl Real {
                 self.chain.clone(),
                 self.own_scan.clone(),
                 self.dirty.clone(),
+                self.nfts.clone(),
                 identity.clone(),
             );
             if shown.as_deref() == Some(identity.as_str()) {
@@ -277,5 +291,25 @@ mod tests {
         assert_eq!(scan.status("me"), OwnSearch::Failed);
         scan.again("me", 2.0);
         assert!(scan.start("me", 2.0), "«Retry» starts it again");
+    }
+
+    /// BUG-306 (review r1): a pass of an identity that is not shown, which found collections,
+    /// has its list read again — and «Looking» till then; a pass that found none, or failed,
+    /// leaves the lists be.
+    #[test]
+    fn a_pass_that_found_collections_reads_the_collection_again() {
+        let nfts = nfts::Nfts::default();
+        let other = "not-shown";
+        let status = || nfts.shown(&[other.to_string()]).1;
+        assert!(nfts.due(other));
+        nfts.found(other, Ok(Vec::new()));
+        assert!(!nfts.due(other));
+        after_pass(&Ok((0, 7)), &nfts);
+        after_pass(&Err("no answer".into()), &nfts);
+        assert!(!nfts.due(other), "nothing found: left be");
+        assert_eq!(status(), NftsStatus::Ready);
+        after_pass(&Ok((2, 9)), &nfts);
+        assert_eq!(status(), NftsStatus::Loading, "looking again");
+        assert!(nfts.due(other), "read again");
     }
 }

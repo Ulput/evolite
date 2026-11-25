@@ -31,6 +31,9 @@ struct List {
     status: NftsStatus,
     asked: Option<Instant>,
     running: bool,
+    /// BUG-306: the identity's collections changed while its ask ran — that answer read the
+    /// old ones, so the list is asked again when it comes.
+    again: bool,
 }
 
 #[derive(Default)]
@@ -129,6 +132,23 @@ impl Nfts {
         }
     }
 
+    /// BUG-306: the identities' own collections were found (the Workshop's search ended): every
+    /// list is asked again at the next snapshot — one asked meanwhile, when its answer comes —
+    /// and an empty one stays «Looking» until then, not «no NFTs» read from no collections.
+    pub fn collections_changed(&self) {
+        let mut state = self.state();
+        for list in state.lists.values_mut() {
+            if list.running {
+                list.again = true;
+            } else {
+                list.asked = None;
+            }
+            if list.nfts.is_empty() {
+                list.status = NftsStatus::Loading;
+            }
+        }
+    }
+
     /// The answer to an ask for `owner`: the NFTs it holds (FEAT-0054: the evolite standard's,
     /// [`crate::chain::Chain::standard_nfts`]).
     pub fn found(&self, owner: &str, result: Result<Vec<Nft>, String>) {
@@ -144,6 +164,14 @@ impl Nfts {
                 list.status = NftsStatus::Ready;
             }
             Err(e) => list.status = NftsStatus::Failed(e),
+        }
+        // BUG-306: read from the collections known before the change: asked again now, and an
+        // empty answer is no «none» yet.
+        if std::mem::take(&mut list.again) {
+            list.asked = None;
+            if list.nfts.is_empty() {
+                list.status = NftsStatus::Loading;
+            }
         }
     }
 }
@@ -199,6 +227,31 @@ mod tests {
         nfts.found(owner, Err(no_answer().into()));
         assert_eq!(shown(), NftsStatus::Failed(no_answer().into()));
         assert!(!nfts.due(owner));
+    }
+
+    /// BUG-306: the own collections found after a list was read from none — the list is asked
+    /// again at once, stays «Looking» meanwhile; one asked while they were being found is asked
+    /// again when its (old) answer comes, and its empty answer is not «no NFTs».
+    #[test]
+    fn found_collections_ask_the_lists_again() {
+        let nfts = Nfts::default();
+        let owner = "owner";
+        let shown = || nfts.shown(&[owner.to_string()]).1;
+        assert!(nfts.due(owner));
+        nfts.found(owner, Ok(Vec::new()));
+        assert_eq!(shown(), NftsStatus::Ready, "read from no collections");
+        assert!(!nfts.due(owner));
+        nfts.collections_changed();
+        assert_eq!(shown(), NftsStatus::Loading, "still looking");
+        assert!(nfts.due(owner), "asked again at once");
+        // Changed again while that ask runs: its answer is from the old list.
+        nfts.collections_changed();
+        nfts.found(owner, Ok(Vec::new()));
+        assert_eq!(shown(), NftsStatus::Loading, "an old answer is no «none»");
+        assert!(nfts.due(owner), "asked again when it came");
+        nfts.found(owner, Ok(vec![nft("a")]));
+        assert_eq!(shown(), NftsStatus::Ready);
+        assert_eq!(nfts.shown(&[owner.to_string()]).0.len(), 1);
     }
 
     /// CS-1a: «Try again» asks at once, not after REFRESH; never a second ask beside a running

@@ -31,6 +31,31 @@ fn instances() -> Vec<Instance> {
         .collect()
 }
 
+/// BUG-313: the example collection's instances as the Collection shows them — the same list
+/// the Workshop counts ([`instances`]): «you have 12, 4 for sale» on both screens.
+pub fn own_nfts(owner: &str, owner_id: &str) -> Vec<evolite_api::Nft> {
+    instances()
+        .into_iter()
+        .map(|i| evolite_api::Nft {
+            id: i.id,
+            name: "Winter tram".into(),
+            description: "A tram in the snow, night".into(),
+            // The model's picture (BUG-312), as the Workshop draws it.
+            art: crate::demo::art("winter-tram"),
+            art_verified: true,
+            origin: evolite_api::NftOrigin::Release,
+            issuer: owner.into(),
+            contract: CONTRACT.into(),
+            edition: (Some(i.serial), 100),
+            owner: owner.into(),
+            owner_id: owner_id.into(),
+            price: i.price,
+            // The wallet's own collection: its pictures drawn without asking.
+            chosen: true,
+        })
+        .collect()
+}
+
 /// A model's picture's room in its write, in the demo (the real core measures it).
 pub const ROOM: usize = 19_000;
 
@@ -148,6 +173,34 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-313 (two sources of one number): the demo wallet's Collection holds as many of the
+    /// example model's NFTs, and as many for sale, as the Workshop counts.
+    #[test]
+    fn the_collection_and_the_workshop_count_the_same_nfts() {
+        let wallet = crate::demo::demo_wallet(0);
+        let mine: Vec<_> = wallet
+            .nfts
+            .iter()
+            .filter(|n| n.contract == CONTRACT)
+            .collect();
+        let WorkshopRead::Counts(counts) = read(
+            &WorkshopAsk::Counts {
+                contract: CONTRACT.into(),
+                model: MODEL.into(),
+            },
+            &[],
+        ) else {
+            panic!("counts");
+        };
+        assert_eq!(counts.mine, Some(Count::Proved(mine.len() as u64)));
+        let for_sale = mine.iter().filter(|n| n.price.is_some()).count() as u64;
+        assert!(
+            matches!(counts.for_sale, Some(Count::Counted { count, .. }) if count == for_sale),
+            "{:?} for sale, the Collection {for_sale}",
+            counts.for_sale
+        );
+    }
 
     /// BUG-312: every model of the demo has its picture, in the demo's gallery, and its numbers
     /// add up — issued = held + given + sold; the sale is in History, so «Recent» has it.

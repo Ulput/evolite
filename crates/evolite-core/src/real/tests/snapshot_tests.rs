@@ -624,6 +624,13 @@ fn the_collection_waits_for_the_search_of_ones_own_collections() {
         own,
     );
     assert_eq!(status, NftsStatus::Ready);
+    // The list's own failure, while the search still runs, stays its failure (r2, Should).
+    let (_, status, _) = own_search_held(
+        Vec::new(),
+        vec![("searching".to_string(), NftsStatus::Failed("x".into()))],
+        own,
+    );
+    assert_eq!(status, NftsStatus::Failed("x".into()));
     // No identity: no NFTs to look for.
     assert_eq!(
         own_search_held(Vec::new(), Vec::new(), own).1,
