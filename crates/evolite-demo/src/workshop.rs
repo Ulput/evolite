@@ -194,6 +194,7 @@ mod tests {
                 model: MODEL.into(),
             },
             &[],
+            true,
         ) else {
             panic!("counts");
         };

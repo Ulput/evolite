@@ -88,8 +88,7 @@ fn a_click_on_the_identity_id_copies_it() {
     let at = kit
         .query_all_by(|n| {
             n.role() == Role::Label
-                && n
-                    .value()
+                && n.value()
                     .is_some_and(|v| v.starts_with(head) && v.ends_with(tail))
         })
         .next()

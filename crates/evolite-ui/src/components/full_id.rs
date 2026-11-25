@@ -208,8 +208,7 @@ mod tests {
     #[test]
     fn an_isolated_id_is_shortened_by_its_own_characters() {
         let isolated = format!("\u{2068}{ID}\u{2069}");
-        let short =
-            crate::text::middle_fit(&isolated, &|s: &str| s.chars().count() <= 14, ID_ENDS);
+        let short = crate::text::middle_fit(&isolated, &|s: &str| s.chars().count() <= 14, ID_ENDS);
         assert!(
             short.starts_with('\u{2068}') && short.ends_with('\u{2069}'),
             "{short:?}"
@@ -217,7 +216,10 @@ mod tests {
         let bare = short.trim_matches(['\u{2068}', '\u{2069}']);
         let (head, tail) = bare.split_once('…').unwrap();
         assert!(ID.starts_with(head) && ID.ends_with(tail), "{bare}");
-        assert!(head.chars().count() >= 4 && tail.chars().count() >= 4, "{bare}");
+        assert!(
+            head.chars().count() >= 4 && tail.chars().count() >= 4,
+            "{bare}"
+        );
     }
 
     /// AC-A8: in an Arabic line a shortened id keeps its order and its brackets as drawn —

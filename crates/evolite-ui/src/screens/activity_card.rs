@@ -2395,7 +2395,10 @@ mod title_tests {
         assert_eq!(lines[0], "Credit withdrawal to");
         let (head, tail) = lines[1].split_once('…').expect("shortened in its middle");
         assert!(to.starts_with(head) && to.ends_with(tail), "{lines:?}");
-        assert!(head.chars().count() >= 4 && tail.chars().count() >= 4, "{lines:?}");
+        assert!(
+            head.chars().count() >= 4 && tail.chars().count() >= 4,
+            "{lines:?}"
+        );
         assert!(width(&lines[1]) <= 22.0, "{lines:?}");
     }
 

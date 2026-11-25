@@ -113,8 +113,7 @@ fn a_small_window_shortens_the_id_in_its_middle_and_says_it_whole() {
             kit.hover_at(at);
             wait_for(&mut kit, "the whole id under the pointer", |kit| {
                 kit.query_all_by(|n| {
-                    n.role() == Role::Label
-                        && n.value().is_some_and(|v| v.contains(TO))
+                    n.role() == Role::Label && n.value().is_some_and(|v| v.contains(TO))
                 })
                 .next()
                 .is_some()
