@@ -269,6 +269,54 @@ fn an_encryption_binding_needs_a_contract_that_keeps_a_current_key() {
     }
 }
 
+/// BUG-295: an encryption binding on DashPay — its rule Latest, the one the rule alone let pass —
+/// or on any other system contract is refused outright, whatever its rule; no key of it is ever
+/// sent, registered or made.
+#[test]
+fn no_encryption_binding_on_dashpay_or_any_system_contract() {
+    use dpp::system_data_contracts::SystemDataContract;
+    let primary = vec![binding(Bounds::SingleContract(APP), 1, 0)];
+    for system in SystemDataContract::ALL {
+        let contract = system.id().to_buffer();
+        for purpose in [EncPurpose::Encryption, EncPurpose::Decryption] {
+            let mut facts = facts();
+            facts.contract_owner.insert(contract, [0x33; 32]);
+            for rule in [Some(KeyRule::Latest), Some(KeyRule::Unique)] {
+                facts.key_rule.insert((contract, purpose), rule);
+                let asked = request(primary.clone(), vec![EncBinding { contract, purpose }]);
+                assert_eq!(
+                    check(&asked, &facts),
+                    refused(Part::EncBinding),
+                    "{system:?} {purpose:?} {rule:?}: refused"
+                );
+            }
+            let binding = EncBinding { contract, purpose };
+            assert_eq!(
+                enc_step(&binding, &[], None, |_| Some([0x02; 33])),
+                EncStep::Omit,
+                "{system:?}: nothing registered or sent"
+            );
+            assert!(
+                encryption_key(9, &binding, &[0x01; SLOT]).is_err(),
+                "{system:?}: no key made"
+            );
+        }
+    }
+    // DashPay's own rule is what let it through before.
+    let mut facts = facts();
+    facts
+        .key_rule
+        .insert((dashpay(), EncPurpose::Encryption), Some(KeyRule::Latest));
+    let dashpay_enc = request(
+        primary,
+        vec![EncBinding {
+            contract: dashpay(),
+            purpose: EncPurpose::Encryption,
+        }],
+    );
+    assert_eq!(check(&dashpay_enc, &facts), refused(Part::EncBinding));
+}
+
 /// Declining the primary binding declines the request; the others may be left out.
 #[test]
 fn the_primary_binding_cannot_be_left_out() {

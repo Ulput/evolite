@@ -177,6 +177,13 @@ pub fn check(request: &Request, facts: &Facts) -> Result<(), Refusal> {
         }
     }
     for binding in &request.enc {
+        // BUG-295: never an encryption key of a system contract — DashPay's rule is Latest, so
+        // the rule alone let an app take the identity's DashPay key (every contact request, the
+        // contacts' xpubs and so every payment) or put its own key in as the latest. Refused
+        // outright, with no tick and no consent; the others are never an app's own contract.
+        if is_system(&binding.contract) {
+            return invalid(Part::EncBinding);
+        }
         let rule = facts
             .key_rule
             .get(&(binding.contract, binding.purpose))
@@ -272,6 +279,10 @@ pub fn encryption_key(
     binding: &EncBinding,
     secret: &[u8; SLOT],
 ) -> Result<IdentityPublicKey, String> {
+    // BUG-295: [`check`] refuses it first; never made here either.
+    if is_system(&binding.contract) {
+        return Err("no encryption key of a system contract (BUG-295)".into());
+    }
     Ok(IdentityPublicKey::V0(IdentityPublicKeyV0 {
         id,
         purpose: purpose(binding.purpose),
@@ -309,6 +320,10 @@ pub fn enc_step(
     current: Option<&IdentityPublicKey>,
     mut ours: impl FnMut(u32) -> Option<[u8; 33]>,
 ) -> EncStep {
+    // BUG-295: [`check`] refuses it first; a system contract's key is never sent nor registered.
+    if is_system(&binding.contract) {
+        return EncStep::Omit;
+    }
     let wanted = purpose(binding.purpose);
     let bound_here = |k: &IdentityPublicKey| {
         k.purpose() == wanted
