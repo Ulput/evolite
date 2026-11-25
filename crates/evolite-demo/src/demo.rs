@@ -147,7 +147,7 @@ pub fn synced() -> SyncInfo {
 
 /// The pictures of the demo NFTs: three drawn for evolite and six of the samples made in
 /// Jembe (three still, three animated with CSS) and its 3D ring, by file name.
-const ART: [(&str, &[u8]); 10] = [
+const ART: [(&str, &[u8]); 11] = [
     ("jembe", include_bytes!("../assets/nft/jembe.svg")),
     ("chainlocks", include_bytes!("../assets/nft/chainlocks.svg")),
     ("genesis", include_bytes!("../assets/nft/genesis.svg")),
@@ -168,6 +168,11 @@ const ART: [(&str, &[u8]); 10] = [
         include_bytes!("../assets/nft/anon-hacker-flat.svg"),
     ),
     ("teddy", include_bytes!("../assets/nft/teddy-pink.svg")),
+    // BUG-312: the Workshop's example model, «Winter tram».
+    (
+        "winter-tram",
+        include_bytes!("../assets/nft/winter-tram.svg"),
+    ),
     // From an issuer the wallet does not know: shown only after "Show".
     (
         "glitch-skull",
@@ -181,7 +186,7 @@ const ART: [(&str, &[u8]); 10] = [
 ];
 
 /// The key of a demo picture by its file name.
-fn art(name: &str) -> String {
+pub(crate) fn art(name: &str) -> String {
     let (_, bytes) = ART
         .iter()
         .find(|(n, _)| *n == name)
@@ -905,6 +910,24 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Chain::Platform,
                     5 * day,
                     0,
+                    Proof::Proved,
+                )
+            },
+            // BUG-312: the Workshop's one sale (`workshop::read`, `Sales`), as a copy that read
+            // it keeps it — keyed by its purchase, the price in.
+            Activity {
+                at: crate::workshop::AT,
+                key: format!("nftsold:{}", crate::workshop::PURCHASE),
+                ..act(
+                    37,
+                    NftSold {
+                        model: Some("Winter tram".into()),
+                        serial: Some(crate::workshop::SOLD_SERIAL),
+                        buyer: "@alice".into(),
+                    },
+                    Chain::Platform,
+                    0,
+                    crate::workshop::PRICE,
                     Proof::Proved,
                 )
             },

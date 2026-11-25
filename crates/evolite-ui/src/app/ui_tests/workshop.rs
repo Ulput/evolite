@@ -153,7 +153,7 @@ fn a_collection_is_checked_signed_and_opened() {
 fn a_collection_page_shows_its_models_numbers() {
     let (_turn, mut kit) = demo_app("workshop-collection", "en");
     wait_for(&mut kit, "the numbers", |kit| {
-        painted_has(kit, "issued 13 of 100")
+        painted_has(kit, "issued 14 of 100")
     });
     assert!(painted_has(&kit, "Winter tram"));
     assert!(painted_has(&kit, "you have 12"));
@@ -304,8 +304,9 @@ fn a_model_page_shows_its_numbers() {
         has_text(kit, "You have") && has_text(kit, "12")
     });
     // W7-4 (the customer's mockup of 2026-11-22): numbers, not «issued» twice.
-    assert!(has_words(&kit, "supply 100 · numbers no. 1–13"));
-    assert!(has_words(&kit, "issued 13 of 100"));
+    // BUG-312: 14 issued — 12 held, one given, one sold.
+    assert!(has_words(&kit, "supply 100 · numbers no. 1–14"));
+    assert!(has_words(&kit, "issued 14 of 100"));
     // W7-3: the collection's rules; it is closed.
     for chip in ["transferable", "for sale", "only the author issues"] {
         assert!(painted_has(&kit, chip), "{chip}");
@@ -321,16 +322,15 @@ fn a_model_page_shows_its_numbers() {
     assert!(has_words(&kit, "— 4"), "the price group");
     // BUG-276: the copy sold shows its price though History here has no sale (another copy, a
     // cleared History): the sum is the core's, of the same sales as the count.
-    assert!(
-        !kit.state()
-            .snapshot
-            .as_ref()
-            .and_then(|s| s.wallet.as_ref())
-            .is_some_and(|w| w
-                .activity
-                .iter()
-                .any(|a| matches!(a.kind, evolite_api::ActivityKind::NftSold { .. }))),
-        "no sale in History"
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "History without the sale",
+        |w| {
+            w.activity
+                .retain(|a| !matches!(a.kind, evolite_api::ActivityKind::NftSold { .. }))
+        },
+        |kit| has_text(kit, "No events yet"),
     );
     wait_for(&mut kit, "the sold copy's price", |kit| {
         has_words(kit, "for 1.0000 DASH · credits to")
@@ -343,10 +343,9 @@ fn a_model_page_shows_its_numbers() {
     wait_for(&mut kit, "the prices' numbers", |kit| {
         has_words(kit, "4 copies · no. 3, 6, 9, 12")
     });
-    // The demo model has no picture: said so, never «No picture».
-    assert!(has_words(&kit, "Without a picture"));
+    // BUG-312: the demo model has its picture.
+    assert!(!has_words(&kit, "Without a picture"));
     assert!(has_words(&kit, "evolite picks the copy numbers itself"));
-    assert!(has_text(&kit, "No events yet"));
     // W7-7: the contract's id at the advanced level only.
     assert!(!has_text(&kit, "Contract id"));
     // W7-2: back to the collection by its name.
@@ -639,4 +638,20 @@ fn a_failed_read_of_the_model_page_says_so_and_waits() {
     click_words_of(&mut kit, "Retry");
     kit.run_steps(2);
     assert_eq!(asked(&kit), Some(2), "«Retry» asks at once");
+}
+
+/// BUG-312: the example model as the demo shows it — its picture drawn, not «Without a
+/// picture»; the sale of no. 14 in «Recent» from History (the gift has no History line yet:
+/// FEAT-0038 R-15).
+#[test]
+fn the_demo_model_has_its_picture_and_its_sale_in_recent() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    kit.set_size(egui::vec2(1280.0, 1600.0));
+    wait_for(&mut kit, "W7", |kit| has_text(kit, "You have"));
+    // Pictures are off in tests (`ArtOptions::off`): the model has one, it is not drawn here.
+    wait_for(&mut kit, "«Recent»", |kit| has_words(kit, "no. 14 · "));
+    assert!(!has_words(&kit, "Without a picture"));
+    assert!(!has_text(&kit, "No events yet"));
+    // Your numbers are an ask of their own: 13 and 14 are not held.
+    wait_for(&mut kit, "your numbers", |kit| has_words(kit, "no. 1–12"));
 }

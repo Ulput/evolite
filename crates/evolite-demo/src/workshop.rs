@@ -11,15 +11,22 @@ pub const MODEL: &str = "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5";
 /// BUG-266: a collection of this name is checked «not synced» the first time, as when the sync
 /// ends after the form was opened; the next check answers.
 pub const SYNC_PENDING: &str = "Sync pending";
-const AT: i64 = 1_763_600_000;
+pub(crate) const AT: i64 = 1_763_600_000;
+/// BUG-312: the example's numbers add up — 14 issued: 12 held (1–12), no. 13 given to @alice,
+/// no. 14 sold to @alice.
+const ISSUED: u32 = 14;
+/// The copy sold, its purchase and its price (1 DASH; the History line says the same).
+pub(crate) const SOLD_SERIAL: u32 = 14;
+pub(crate) const PURCHASE: &str = "demo-purchase-1";
+pub(crate) const PRICE: evolite_api::Duffs = 100_000_000;
 
-/// The example's instances: numbers 1–12, every third for sale at 0.001 DASH in credits.
+/// The example's instances: numbers 1–12, every third for sale at 1 DASH.
 fn instances() -> Vec<Instance> {
     (1..=12)
         .map(|n| Instance {
             id: format!("demo-instance-{n}"),
             serial: n,
-            price: (n % 3 == 0).then_some(100_000_000),
+            price: (n % 3 == 0).then_some(PRICE),
         })
         .collect()
 }
@@ -64,7 +71,8 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
                     id: MODEL.into(),
                     name: "Winter tram".into(),
                     description: "A tram in the snow, night".into(),
-                    art: String::new(),
+                    // BUG-312: the one model of the demo without a picture had none.
+                    art: crate::demo::art("winter-tram"),
                     supply: 100,
                 }],
                 checked_at: AT,
@@ -90,11 +98,11 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
                     documents: all.len() as u64,
                     complete: true,
                 }),
-                prices: vec![(100_000_000, 4)],
+                prices: vec![(PRICE, 4)],
                 sold: Some(1),
                 // BUG-276: the one sale of the demo's History, at its price.
-                sold_for: Some(100_000_000),
-                issued: Some(13),
+                sold_for: Some(PRICE),
+                issued: Some(ISSUED),
                 checked_at: AT,
             })
         }
@@ -123,16 +131,122 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
             this_computer_only: false,
         }),
         WorkshopAsk::Sales => WorkshopRead::Sales(vec![Sale {
-            purchase: "demo-purchase-1".into(),
+            purchase: PURCHASE.into(),
             contract: CONTRACT.into(),
-            instance: "demo-instance-13".into(),
+            instance: format!("demo-instance-{SOLD_SERIAL}"),
             model_id: Some(MODEL.into()),
             model: Some("Winter tram".into()),
-            serial: Some(13),
+            serial: Some(SOLD_SERIAL),
             buyer: "demo-buyer".into(),
             buyer_name: Some("alice".into()),
-            price: 100_000_000,
+            price: PRICE,
             at: AT,
         }]),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// BUG-312: every model of the demo has its picture, in the demo's gallery, and its numbers
+    /// add up — issued = held + given + sold; the sale is in History, so «Recent» has it.
+    #[test]
+    fn every_demo_model_has_a_picture_and_numbers_that_add_up() {
+        let gallery = crate::demo::demo_art();
+        let WorkshopRead::Collections(all) = read(&WorkshopAsk::Collections, &[]) else {
+            panic!("collections")
+        };
+        let models: Vec<_> = all
+            .iter()
+            .flat_map(|c| c.models.iter().map(move |m| (c, m)))
+            .collect();
+        assert!(!models.is_empty());
+        for (c, m) in models {
+            assert!(!m.art.is_empty(), "{}: no picture", m.name);
+            assert!(
+                gallery.contains_key(&m.art),
+                "{}: not in the gallery",
+                m.name
+            );
+            let ask = |ask| read(&ask, &[]);
+            let WorkshopRead::Counts(n) = ask(WorkshopAsk::Counts {
+                contract: c.contract.clone(),
+                model: m.id.clone(),
+            }) else {
+                panic!("counts")
+            };
+            let WorkshopRead::Given(g) = ask(WorkshopAsk::Given {
+                contract: c.contract.clone(),
+                model: m.id.clone(),
+            }) else {
+                panic!("given")
+            };
+            let held = match n.mine {
+                Some(Count::Proved(k)) => k,
+                other => panic!("{other:?}"),
+            };
+            let given = match g.count {
+                Count::Proved(k) => k,
+                other => panic!("{other:?}"),
+            };
+            let sold = u64::from(n.sold.unwrap());
+            assert_eq!(
+                u64::from(n.issued.unwrap()),
+                held + given + sold,
+                "{}: issued = held + given + sold",
+                m.name
+            );
+            let WorkshopRead::Sales(sales) = ask(WorkshopAsk::Sales) else {
+                panic!("sales")
+            };
+            let these: Vec<_> = sales
+                .iter()
+                .filter(|s| s.model_id.as_deref() == Some(&m.id))
+                .collect();
+            assert_eq!(
+                these.len() as u32,
+                n.sold.unwrap(),
+                "{}: the sales read",
+                m.name
+            );
+            assert_eq!(
+                these.iter().map(|s| s.price).sum::<evolite_api::Duffs>(),
+                n.sold_for.unwrap(),
+                "{}: «Sold» sums the sales",
+                m.name
+            );
+            let WorkshopRead::Instances(held_ones) = ask(WorkshopAsk::Instances {
+                contract: c.contract.clone(),
+                model: m.id.clone(),
+                for_sale: false,
+                after: None,
+            }) else {
+                panic!("instances")
+            };
+            for s in &these {
+                assert!(
+                    held_ones
+                        .instances
+                        .iter()
+                        .all(|i| Some(i.serial) != s.serial),
+                    "{}: no. {:?} sold and still held",
+                    m.name,
+                    s.serial
+                );
+            }
+            // The sale's line in History, the one «Recent» shows.
+            let wallet = crate::demo::demo_wallet(crate::demo::now());
+            for s in &these {
+                assert!(
+                    wallet.activity.iter().any(|a| a.key == format!("nftsold:{}", s.purchase)
+                        && matches!(&a.kind, evolite_api::ActivityKind::NftSold { model: Some(x), serial, .. }
+                            if *x == m.name && *serial == s.serial)
+                        && a.amount == s.price),
+                    "{}: the sale's History line",
+                    m.name
+                );
+            }
+        }
     }
 }
