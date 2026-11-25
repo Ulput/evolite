@@ -87,6 +87,40 @@ pub(in crate::real) fn scan_from(checked: Option<u64>) -> u64 {
     checked.map_or(1, |n| n.saturating_sub(RECHECK).max(1))
 }
 
+/// One identity's pass (BUG-271), its outcome kept: «checked up to nonce N» in `path`, done or
+/// failed in `scan`, and a new snapshot asked for.
+async fn own_pass(
+    path: std::path::PathBuf,
+    chain: Arc<evolite_chain::chain::Chain>,
+    scan: Arc<std::sync::Mutex<OwnScan>>,
+    dirty: Arc<std::sync::atomic::AtomicBool>,
+    identity: String,
+) {
+    let mut checked: BTreeMap<String, u64> =
+        evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+            .unwrap_or_default();
+    let from = scan_from(checked.get(&identity).copied());
+    let pass = {
+        let (chain, identity) = (chain.clone(), identity.clone());
+        async move { chain.find_own_contracts(&identity, from).await }
+    };
+    let found = within(OWN_SCAN_WAIT, pass).await;
+    scan.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .finish(&identity, found.is_ok(), now_secs());
+    if let Ok((_, to)) = &found {
+        // Read again: another identity's pass may have written its own since.
+        let mut now: BTreeMap<String, u64> =
+            evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+                .unwrap_or_default();
+        now.insert(identity.clone(), *to);
+        checked = now;
+        let _ = evolite_local::json_file::save(&path, &checked);
+    }
+    // The snapshot says how it went.
+    dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// The core's clock for the passes' pauses: wall seconds.
 fn now_secs() -> f64 {
     evolite_common::wall_secs() as f64
@@ -100,55 +134,75 @@ impl Real {
         if self.unlocked.is_none() || !self.chain.platform_ready() {
             return;
         }
-        let Some(identity) = self.tokens.shown_identity() else {
-            return;
-        };
-        let started = self
-            .own_scan
+        let shown = self.tokens.shown_identity();
+        // FEAT-0054 part 2: every identity of the wallet — the Collection shows them all — the
+        // one shown first; the others' passes answer no Workshop list.
+        let mut identities: Vec<String> = shown.iter().cloned().collect();
+        for id in self
+            .wallet_identities
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .start(&identity, now_secs());
-        if !started {
-            return;
+            .iter()
+        {
+            if !identities.contains(id) {
+                identities.push(id.clone());
+            }
         }
-        let path = self.paths.own_contracts.clone();
-        let (chain, scan, dirty) = (
-            self.chain.clone(),
-            self.own_scan.clone(),
-            self.dirty.clone(),
-        );
-        self.answer_later("task:own_contracts", async move {
-            let mut checked: BTreeMap<String, u64> =
-                evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
-                    // default-ok: a cache (BUG-271): unread, the scan starts over, set aside
-                    .unwrap_or_default();
-            let from = scan_from(checked.get(&identity).copied());
-            let pass = {
-                let (chain, identity) = (chain.clone(), identity.clone());
-                async move { chain.find_own_contracts(&identity, from).await }
-            };
-            let found = within(OWN_SCAN_WAIT, pass).await;
-            scan.lock().unwrap_or_else(|e| e.into_inner()).finish(
-                &identity,
-                found.is_ok(),
-                now_secs(),
+        for identity in identities {
+            let started = self
+                .own_scan
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .start(&identity, now_secs());
+            if !started {
+                continue;
+            }
+            let pass = own_pass(
+                self.paths.own_contracts.clone(),
+                self.chain.clone(),
+                self.own_scan.clone(),
+                self.dirty.clone(),
+                identity.clone(),
             );
-            if let Ok((_, to)) = &found {
-                checked.insert(identity.clone(), *to);
-                let _ = evolite_local::json_file::save(&path, &checked);
+            if shown.as_deref() == Some(identity.as_str()) {
+                let chain = self.chain.clone();
+                self.answer_later("task:own_contracts", async move {
+                    pass.await;
+                    let result = chain
+                        .workshop_collections(&identity)
+                        .await
+                        .map(WorkshopRead::Collections)
+                        .map_err(CoreError::Failed);
+                    Event::Workshop {
+                        ask: WorkshopAsk::Collections,
+                        result,
+                    }
+                });
+            } else {
+                tokio::spawn(pass);
             }
-            // The snapshot says how it went.
-            dirty.store(true, std::sync::atomic::Ordering::Relaxed);
-            let result = chain
-                .workshop_collections(&identity)
-                .await
-                .map(WorkshopRead::Collections)
-                .map_err(CoreError::Failed);
-            Event::Workshop {
-                ask: WorkshopAsk::Collections,
-                result,
-            }
-        });
+        }
+    }
+
+    /// FEAT-0054 part 2: the Collection's «Try again» — every identity's failed pass goes now.
+    pub(in crate::real) fn own_contracts_again_all(&self) {
+        let ids = self
+            .wallet_identities
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let mut scan = self.own_scan.lock().unwrap_or_else(|e| e.into_inner());
+        for id in ids {
+            scan.again(&id, now_secs());
+        }
+    }
+
+    /// FEAT-0054 part 2: what the Collection says of `identity`'s own collections' search.
+    pub(in crate::real) fn own_search_of(&self, identity: &str) -> OwnSearch {
+        self.own_scan
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .status(identity)
     }
 
     /// «Retry» or a new read of the Workshop's list: a failed pass for `identity` goes now.

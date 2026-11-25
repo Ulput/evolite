@@ -1529,10 +1529,7 @@ mod tests {
         };
         // The demo's partner issuer is trusted by the demo core only (FEAT-0054 r1); the real
         // core trusts no issuer out of the box.
-        assert_eq!(
-            state.waits_for_consent(&nft("jembe"), &[]),
-            !cfg!(demo_core)
-        );
+        assert_eq!(state.waits_for_consent(&nft("jembe"), &[]), !cfg!(demo_core));
         let stranger = nft("neon-forge");
         assert!(state.waits_for_consent(&stranger, &[]));
         // "Show" on this one.

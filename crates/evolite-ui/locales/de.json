@@ -10,7 +10,10 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "Kryptografisch geprüft: evolite hat die Signatur des Netzwerks selbst geprüft, statt einem Knoten zu vertrauen.",
   "Cryptographically checked: evolite checked the signature itself.": "Kryptografisch geprüft: evolite hat die Signatur des Netzwerks selbst geprüft.",
   "Gives your private encryption key for {}": "Gibt {} Ihren privaten Verschlüsselungsschlüssel",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"one": "Gibt Ihre privaten Verschlüsselungsschlüssel für {} Vertrag weiter", "other": "Gibt Ihre privaten Verschlüsselungsschlüssel für {} Verträge weiter"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "one": "Gibt Ihre privaten Verschlüsselungsschlüssel für {} Vertrag weiter",
+    "other": "Gibt Ihre privaten Verschlüsselungsschlüssel für {} Verträge weiter"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · wird geprüft",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock: evolite hat die BLS-Signatur des Masternode-Quorums geprüft.",
@@ -2110,7 +2113,6 @@
     "one": "{} Minute",
     "other": "{} Minuten"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: Empfangen, Senden, Verlauf, eigener Knoten. Platform: Identitäten, DPNS-Namen, Credits, Platform-Adresse. DashPay-Kontakte und -Profil, privater Pool, App-Anmeldung per App Connect v2 mit Ausgabelimit und Laufzeit, Jembe-NFT-Sammlung, Testnet und Mainnet (Beta), das Netz wird auf dem Anmeldebildschirm gewählt",
   "Giving, selling and receiving NFTs by link": "NFTs verschenken, verkaufen und per Link empfangen",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Meldet mit der Identität an, die unter „Arbeiten als“ gewählt ist; dort lässt sie sich ändern.",
   "The limit is less than the app needs": "Das Limit ist kleiner, als die App braucht",
@@ -2911,5 +2913,6 @@
   "Request sent": "Anfrage gesendet",
   "Request received": "Anfrage erhalten",
   "Time of the write in Platform": "Zeitpunkt des Eintrags in Platform",
-  "still looking for payments…": "Zahlungen werden noch gesucht…"
+  "still looking for payments…": "Zahlungen werden noch gesucht…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: Empfangen, Senden, Verlauf, eigener Knoten. Platform: Identitäten, DPNS-Namen, Credits, Platform-Adresse. DashPay-Kontakte und -Profil, privater Pool, App-Anmeldung per App Connect v2 mit Ausgabelimit und Laufzeit, NFT-Sammlungen nach dem evolite-Standard, Testnet und Mainnet (Beta), das Netz wird auf dem Anmeldebildschirm gewählt"
 }

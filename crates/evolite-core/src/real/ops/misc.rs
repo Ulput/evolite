@@ -2,6 +2,44 @@
 
 use crate::real::*;
 
+/// FEAT-0054 part 2 (the architect, r1 §8d-2): while an identity's own collections are still
+/// looked for (BUG-271), its list is «Loading», never «no NFTs»; a search that failed is said
+/// as a failure, with «Try again». The lists' states joined as `Nfts::shown` joins them.
+pub(in crate::real) fn own_search_held(
+    nfts: Vec<Nft>,
+    each: Vec<(String, NftsStatus)>,
+    own: impl Fn(&str) -> evolite_api::workshop::OwnSearch,
+) -> (Vec<Nft>, NftsStatus, Vec<(String, NftsStatus)>) {
+    use evolite_api::workshop::OwnSearch;
+    let each: Vec<(String, NftsStatus)> = each
+        .into_iter()
+        .map(|(id, status)| {
+            let held = match (own(&id), status) {
+                (OwnSearch::Done, s) => s,
+                (_, NftsStatus::Failed(why)) => NftsStatus::Failed(why),
+                (OwnSearch::Failed, _) => {
+                    NftsStatus::Failed(tr!("Could not find your collections").into())
+                }
+                (OwnSearch::Searching, _) => NftsStatus::Loading,
+            };
+            (id, held)
+        })
+        .collect();
+    if each.is_empty() {
+        return (nfts, NftsStatus::NoIdentity, each);
+    }
+    let failed = each.iter().find_map(|(_, s)| match s {
+        NftsStatus::Failed(why) => Some(why.clone()),
+        _ => None,
+    });
+    let status = match failed {
+        Some(why) => NftsStatus::Failed(why),
+        None if each.iter().any(|(_, s)| *s == NftsStatus::Loading) => NftsStatus::Loading,
+        None => NftsStatus::Ready,
+    };
+    (nfts, status, each)
+}
+
 impl Real {
     /// The NFTs of all the wallet's `identities` together as last found (FEAT-0055), and an ask
     /// in the background for each identity's list when it is due (proofs must be checkable
@@ -11,6 +49,10 @@ impl Real {
         identities: &[IdentityChoice],
     ) -> (Vec<Nft>, NftsStatus, Vec<(String, NftsStatus)>) {
         let owners: Vec<String> = identities.iter().map(|i| i.id.clone()).collect();
+        *self
+            .wallet_identities
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = owners.clone();
         // The collection's contract is on testnet only: nothing is asked where the network
         // matrix leaves it off (FEAT-0037).
         let here = evolite_api::features::on(
@@ -48,14 +90,33 @@ impl Real {
                     collections.push(added.clone());
                 }
             }
-            let chosen = chosen.clone();
+            let mut chosen = chosen.clone();
             let owner = owner.clone();
+            let search = self.nft_search.clone();
             tokio::spawn(async move {
                 // TECH-read-deadlines (audit Д9): the limit on a task of its own, not on a
                 // `poll` a stuck proof would block (`names::read_within`).
                 let read = {
                     let owner = owner.clone();
                     async move {
+                        // FEAT-0054 part 2: what came to the identity or it bought, from its
+                        // cursor on (a fresh copy from the start), kept by the wallet.
+                        let before =
+                            search.read(|all| all.get(&owner).cloned().unwrap_or_default());
+                        let found = chain.find_received(&owner, &before).await?;
+                        if found != before {
+                            let _ = search.update(|all| {
+                                all.insert(owner.clone(), found.clone());
+                                ((), true)
+                            });
+                        }
+                        for contract in found.contracts() {
+                            if !collections.contains(&contract) {
+                                collections.push(contract);
+                            }
+                        }
+                        // A purchase is a source the person chose: drawn at once (r1, answer 1).
+                        chosen.extend(found.bought.iter().cloned());
                         turn::timed(
                             "nft_read",
                             chain.standard_nfts(&owner, &name, &collections, &chosen),
@@ -76,7 +137,8 @@ impl Real {
                 refresh();
             });
         }
-        self.nfts.shown(&owners)
+        let (nfts, _, each) = self.nfts.shown(&owners);
+        own_search_held(nfts, each, |id| self.own_search_of(id))
     }
 
     /// FEAT-0054 «Add a collection by id»: the contract read with its proof and kept only when

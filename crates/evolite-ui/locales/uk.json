@@ -10,7 +10,12 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "Перевірено криптографічно: evolite сам перевірив підпис мережі й не покладається на слово вузла.",
   "Cryptographically checked: evolite checked the signature itself.": "Перевірено криптографічно: evolite сам перевірив підпис мережі.",
   "Gives your private encryption key for {}": "Віддає закритий ключ шифрування для {}",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"one": "Віддає закриті ключі шифрування для {} контракту", "few": "Віддає закриті ключі шифрування для {} контрактів", "many": "Віддає закриті ключі шифрування для {} контрактів", "other": "Віддає закриті ключі шифрування для {} контракту"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "one": "Віддає закриті ключі шифрування для {} контракту",
+    "few": "Віддає закриті ключі шифрування для {} контрактів",
+    "many": "Віддає закриті ключі шифрування для {} контрактів",
+    "other": "Віддає закриті ключі шифрування для {} контракту"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · перевіряється",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock: evolite перевірив BLS-підпис кворуму мастернод.",
@@ -2158,7 +2163,6 @@
     "one": "{} хвилину",
     "other": "{} хвилини"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: прийом, надсилання, історія, свій вузол. Platform: ідентичності, імена DPNS, кредити, адреса Platform. Контакти й профіль DashPay, приватний пул, вхід у застосунки за App Connect v2 з лімітом витрат і строком, колекція NFT Jembe, testnet і mainnet (бета), мережа обирається на екрані входу",
   "Giving, selling and receiving NFTs by link": "Дарування, продаж і отримання NFT за посиланням",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Вхід — ідентичність з «Працювати як»; змінити її можна там.",
   "The limit is less than the app needs": "Ліміт менший, ніж потрібно застосунку",
@@ -2991,5 +2995,6 @@
   "Request sent": "Ви надіслали запит",
   "Request received": "Запит отримано",
   "Time of the write in Platform": "Час запису в Platform",
-  "still looking for payments…": "ще шукаємо платежі…"
+  "still looking for payments…": "ще шукаємо платежі…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: прийом, надсилання, історія, свій вузол. Platform: ідентичності, імена DPNS, кредити, адреса Platform. Контакти й профіль DashPay, приватний пул, вхід у застосунки за App Connect v2 з лімітом витрат і строком, колекції NFT стандарту evolite, testnet і mainnet (бета), мережа обирається на екрані входу"
 }

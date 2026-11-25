@@ -103,6 +103,10 @@ impl Real {
             pool_history,
             address_book: address_book::AddressBook::new(paths.address_book.clone()),
             added_collections: evolite_local::json_file::Store::new(paths.collections.clone()),
+            nft_search: Arc::new(evolite_local::json_file::Store::new(
+                paths.nft_search.clone(),
+            )),
+            wallet_identities: Default::default(),
             trusted_issuers: evolite_local::json_file::Store::new(paths.trusted_issuers.clone()),
             paths,
             chain: Arc::new(Chain::default()),

@@ -10,6 +10,7 @@
 mod chain;
 pub mod model_cache;
 pub mod profile;
+pub mod search;
 
 pub use chain::{model_of, model_picture};
 

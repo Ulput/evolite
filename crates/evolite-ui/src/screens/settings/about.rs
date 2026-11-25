@@ -194,7 +194,7 @@ pub(super) fn about(
             (
                 tr!("Implemented"),
                 tr!(
-                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen"
+                    "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen"
                 ),
                 Control::Text("", false),
             ),

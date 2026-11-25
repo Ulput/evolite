@@ -17,7 +17,7 @@ pub(super) mod kept_locks;
 pub(super) mod keyed;
 mod local_files;
 pub(super) mod lock_coins;
-mod misc;
+pub(in crate::real) mod misc;
 pub(super) mod mixed;
 mod mixed_lock;
 mod name_contests;

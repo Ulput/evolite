@@ -591,3 +591,76 @@ async fn a_collection_added_by_id_is_read_back_by_a_new_run() {
     let third = core_at(&dir, TEST_WALLET);
     assert!(third.added_collections.read(Clone::clone).is_empty());
 }
+
+/// FEAT-0054 part 2 (the architect, r1 §8d-2): while an identity's own collections are still
+/// looked for, its list is «Loading», never «no NFTs»; a search that failed says so («Try
+/// again»); done, the list's own state. Joined as the Collection shows them.
+#[test]
+fn the_collection_waits_for_the_search_of_ones_own_collections() {
+    use crate::real::ops::misc::own_search_held;
+    use evolite_api::workshop::OwnSearch;
+    let each = vec![
+        ("searching".to_string(), NftsStatus::Ready),
+        ("done".to_string(), NftsStatus::Ready),
+    ];
+    let own = |id: &str| match id {
+        "searching" => OwnSearch::Searching,
+        "failed" => OwnSearch::Failed,
+        _ => OwnSearch::Done,
+    };
+    let (_, status, held) = own_search_held(Vec::new(), each, own);
+    assert_eq!(status, NftsStatus::Loading, "not «no NFTs» while searching");
+    assert_eq!(held[0].1, NftsStatus::Loading);
+    assert_eq!(held[1].1, NftsStatus::Ready);
+    let (_, status, _) = own_search_held(
+        Vec::new(),
+        vec![("failed".to_string(), NftsStatus::Ready)],
+        own,
+    );
+    assert!(matches!(status, NftsStatus::Failed(_)), "{status:?}");
+    let (_, status, _) = own_search_held(
+        Vec::new(),
+        vec![("done".to_string(), NftsStatus::Ready)],
+        own,
+    );
+    assert_eq!(status, NftsStatus::Ready);
+    // No identity: no NFTs to look for.
+    assert_eq!(
+        own_search_held(Vec::new(), Vec::new(), own).1,
+        NftsStatus::NoIdentity
+    );
+}
+
+/// FEAT-0054 part 2 (TEAM.md §8d-1, read back): an identity's search — its cursors and the
+/// contracts found — is the wallet's, so a new run on the same folder goes on from it; a fresh
+/// folder starts from nothing (the first pass reads from the start).
+#[tokio::test(flavor = "multi_thread")]
+async fn the_nft_search_is_read_back_by_a_new_run() {
+    use evolite_chain::workshop_read::search::{Found, Kind};
+    let dir = fresh_dir("nft-search");
+    let mut found = Found::default();
+    found.add(Kind::Received, [("CollA".to_string(), 40)]);
+    found.add(Kind::Bought, [("CollB".to_string(), 50)]);
+    {
+        let core = core_at(&dir, TEST_WALLET);
+        assert!(
+            core.nft_search.read(|all| all.is_empty()),
+            "a fresh folder: nothing"
+        );
+        core.nft_search
+            .update(|all| {
+                all.insert("Ident1".into(), found.clone());
+                ((), true)
+            })
+            .unwrap();
+    }
+    let again = core_at(&dir, TEST_WALLET);
+    let kept = again.nft_search.read(|all| all.get("Ident1").cloned());
+    assert_eq!(kept, Some(found));
+    let kept = kept.unwrap();
+    assert_eq!(
+        (kept.since(Kind::Received), kept.since(Kind::Bought)),
+        (40, 50)
+    );
+    assert_eq!(kept.contracts(), vec!["CollB", "CollA"]);
+}

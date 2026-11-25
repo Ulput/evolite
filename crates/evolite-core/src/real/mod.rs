@@ -295,6 +295,9 @@ pub struct Paths {
     pub auto_backup: PathBuf,
     /// BUG-271: up to which identity nonce each identity's own contracts were looked for.
     pub own_contracts: PathBuf,
+    /// FEAT-0054 part 2: by identity, where its search of DocumentHistory stands and the
+    /// contracts found ([`evolite_chain::workshop_read::search::Found`]).
+    pub nft_search: PathBuf,
     /// BUG-275: where each payout to the wallet came from, as proved, by the unlock's txid.
     pub pool_payouts: PathBuf,
     /// The person's payment notes, encrypted ([`notes::Notes`], FEAT-0003): only here; a
@@ -349,6 +352,7 @@ impl Paths {
             tokens: wallets.join("tokens.json"),
             auto_backup: wallets.join("auto-backup.json"),
             own_contracts: wallets.join("own-contracts.json"),
+            nft_search: wallets.join("nft-search.json"),
             pool_payouts: wallets.join("pool-payouts.json"),
             notes: wallets.join("notes.enc"),
         }
@@ -728,6 +732,15 @@ struct Real {
     address_book: address_book::AddressBook,
     /// FEAT-0054: the collections added by id by hand, whose NFTs the Collection shows too.
     added_collections: evolite_local::json_file::Store<Vec<String>>,
+    /// FEAT-0054 part 2: each identity's DocumentHistory search, kept by the wallet.
+    nft_search: Arc<
+        evolite_local::json_file::Store<
+            std::collections::BTreeMap<String, evolite_chain::workshop_read::search::Found>,
+        >,
+    >,
+    /// FEAT-0054 part 2: the wallet's identities as the last snapshot had them, for the own
+    /// collections' passes of every one (BUG-271's, one per identity).
+    wallet_identities: std::sync::Mutex<Vec<String>>,
     /// FEAT-0054 r1: «Always show from …», kept by the wallet.
     trusted_issuers: evolite_local::json_file::Store<Vec<String>>,
     /// The address shown in the last look before paying each contact (by identity): a payment

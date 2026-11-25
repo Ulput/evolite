@@ -724,6 +724,8 @@ impl Real {
             // Asked with the next snapshot (`shown_nfts`), as a due refresh is.
             Command::RefreshNfts => {
                 self.nfts.ask_now();
+                // FEAT-0054 part 2: a failed search of one's own collections goes again too.
+                self.own_contracts_again_all();
                 return (None, true);
             }
             Command::AddCollection { id } => Event::Done {

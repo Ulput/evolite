@@ -10,7 +10,9 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "Diperiksa secara kriptografis: evolite memeriksa sendiri tanda tangan jaringan, bukan memercayai satu node.",
   "Cryptographically checked: evolite checked the signature itself.": "Diperiksa secara kriptografis: evolite memeriksa sendiri tanda tangan jaringan.",
   "Gives your private encryption key for {}": "Memberikan kunci privat enkripsi Anda untuk {}",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"other": "Memberikan kunci privat enkripsi Anda untuk {} kontrak"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "other": "Memberikan kunci privat enkripsi Anda untuk {} kontrak"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · sedang diperiksa",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock: evolite memeriksa tanda tangan BLS dari kuorum masternode.",
@@ -273,7 +275,7 @@
   },
   "{} of the top-up are still waiting for final confirmation — usually a couple of minutes.": "{} dari isi ulang masih menunggu konfirmasi akhir — biasanya beberapa menit.",
   "{} record|{} records": {
-    "other": "{} catatan riwayat"
+    "other": "{} catatan"
   },
   "{} token|{} tokens": {
     "other": "{} token"
@@ -2086,7 +2088,6 @@
   "{} minute|{} minutes": {
     "other": "{} menit"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk ke aplikasi lewat App Connect v2 dengan batas pengeluaran dan masa berlaku, koleksi NFT Jembe, testnet dan mainnet (beta), jaringan dipilih di layar masuk",
   "Giving, selling and receiving NFTs by link": "Memberi, menjual, dan menerima NFT lewat tautan",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Masuk dengan identitas yang dipilih di “Bertindak sebagai”; Anda bisa menggantinya di sana.",
   "The limit is less than the app needs": "Batasnya kurang dari yang dibutuhkan aplikasi",
@@ -2871,5 +2872,6 @@
   "Request sent": "Permintaan terkirim",
   "Request received": "Permintaan diterima",
   "Time of the write in Platform": "Waktu pencatatan di Platform",
-  "still looking for payments…": "masih mencari pembayaran…"
+  "still looking for payments…": "masih mencari pembayaran…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk ke aplikasi lewat App Connect v2 dengan batas pengeluaran dan masa berlaku, koleksi NFT berstandar evolite, testnet dan mainnet (beta), jaringan dipilih di layar masuk"
 }

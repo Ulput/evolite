@@ -590,6 +590,33 @@ impl Chain {
         read.await.unwrap_or((None, None, None))
     }
 
+    /// FEAT-0054 part 2: the collections `identity` (base58) received or bought NFTs of, read
+    /// with proofs from DocumentHistory after `found`'s cursor, at most [`MAX_PAGES`] pages of
+    /// each kind a pass; `found` with what is new. The contracts are candidates: which are of
+    /// the standard is [`Self::standard_nfts`]'s to tell.
+    pub async fn find_received(
+        &self,
+        identity: &str,
+        found: &super::search::Found,
+    ) -> Result<super::search::Found, String> {
+        use super::search::{Kind, contract_of, query};
+        self.ready()?;
+        let _turn = self.nft_reads.acquire().await.map_err(|e| e.to_string())?;
+        let sdk = self.sdk().await?;
+        let history = self
+            .fresh_cached(id_of(DOCUMENT_HISTORY)?, CONTRACT_WITHIN)
+            .await?
+            .contract;
+        let identity = id_of(identity)?;
+        let mut found = found.clone();
+        for kind in [Kind::Received, Kind::Bought] {
+            let q = query(history.clone(), kind, identity, found.since(kind))?;
+            let page = pages(&sdk, q, None, usize::MAX, MAX_PAGES, |_| true).await?;
+            found.add(kind, page.docs.iter().filter_map(contract_of));
+        }
+        Ok(found)
+    }
+
     /// FEAT-0054: whether contract `id` (base58) is an NFT collection of the evolite standard,
     /// its body read with its proof (or kept fresh): the one test, [`profile::profile`].
     pub async fn is_standard_collection(&self, id: &str) -> Result<bool, String> {

@@ -10,7 +10,11 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "Comprobado criptográficamente: evolite comprobó él mismo la firma de la red en lugar de fiarse de un nodo.",
   "Cryptographically checked: evolite checked the signature itself.": "Comprobado criptográficamente: evolite comprobó él mismo la firma de la red.",
   "Gives your private encryption key for {}": "Entrega su clave privada de cifrado a {}",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"one": "Entrega sus claves privadas de cifrado de {} contrato", "many": "Entrega sus claves privadas de cifrado de {} contratos", "other": "Entrega sus claves privadas de cifrado de {} contratos"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "one": "Entrega sus claves privadas de cifrado de {} contrato",
+    "many": "Entrega sus claves privadas de cifrado de {} contratos",
+    "other": "Entrega sus claves privadas de cifrado de {} contratos"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · comprobando",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock: evolite comprobó la firma BLS del quórum de masternodes.",
@@ -282,7 +286,7 @@
   "{} of the top-up are still waiting for final confirmation — usually a couple of minutes.": "{} de la recarga aún esperan la confirmación final: suele tardar un par de minutos.",
   "{} record|{} records": {
     "one": "{} registro",
-    "many": "{} registros",
+    "many": "{} de registros",
     "other": "{} registros"
   },
   "{} token|{} tokens": {
@@ -2134,7 +2138,6 @@
     "one": "{} minuto",
     "other": "{} minutos"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: recibir, enviar, historial, nodo propio. Platform: identidades, nombres DPNS, créditos, dirección de Platform. Contactos y perfil de DashPay, pool privado, inicio de sesión en apps con App Connect v2 con límite de gasto y plazo, colección de NFT de Jembe, testnet y mainnet (beta), la red se elige en la pantalla de inicio de sesión",
   "Giving, selling and receiving NFTs by link": "Regalar, vender y recibir NFT por enlace",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Inicia sesión con la identidad elegida en «Trabajar como»; puede cambiarla allí.",
   "The limit is less than the app needs": "El límite es menor de lo que necesita la aplicación",
@@ -2947,5 +2950,6 @@
   "Request sent": "Solicitud enviada",
   "Request received": "Solicitud recibida",
   "Time of the write in Platform": "Hora del registro en Platform",
-  "still looking for payments…": "aún buscamos pagos…"
+  "still looking for payments…": "aún buscamos pagos…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: recibir, enviar, historial, nodo propio. Platform: identidades, nombres DPNS, créditos, dirección de Platform. Contactos y perfil de DashPay, pool privado, inicio de sesión en apps con App Connect v2 con límite de gasto y plazo, colecciones de NFT del estándar evolite, testnet y mainnet (beta), la red se elige en la pantalla de inicio de sesión"
 }

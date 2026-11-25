@@ -167,6 +167,11 @@ pub const FOLDER_FILES: &[(&str, bool, &str)] = &[
         "the identity nonce its own contracts were looked for up to (BUG-271): the network gives it again",
     ),
     (
+        "nft-search.json",
+        false,
+        "the NFT search's cursors and the contracts found: the network gives them again",
+    ),
+    (
         "trusted-issuers.json",
         true,
         "nft, the issuers whose pictures are shown",

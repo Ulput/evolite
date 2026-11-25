@@ -10,7 +10,9 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "暗号学的に確認済み：evolite はノードを信用せず、ネットワークの署名を自ら確認しました。",
   "Cryptographically checked: evolite checked the signature itself.": "暗号学的に確認済み：evolite がネットワークの署名を自ら確認しました。",
   "Gives your private encryption key for {}": "暗号化の秘密鍵を {} に渡します",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"other": "{} 件のコントラクトの暗号化の秘密鍵を渡します"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "other": "{} 件のコントラクトの暗号化の秘密鍵を渡します"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · 確認中",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock：evolite はマスターノード・クォーラムの BLS 署名を確認しました。",
@@ -273,7 +275,7 @@
   },
   "{} of the top-up are still waiting for final confirmation — usually a couple of minutes.": "チャージのうち {} はまだ最終確認を待っています。通常は数分です。",
   "{} record|{} records": {
-    "other": "記録 {} 件"
+    "other": "{} 件の記録"
   },
   "{} token|{} tokens": {
     "other": "トークン {} 件"
@@ -2086,7 +2088,6 @@
   "{} minute|{} minutes": {
     "other": "{} 分"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：受け取り、送金、履歴、自分のノード。Platform：アイデンティティ、DPNS 名、クレジット、Platform アドレス。DashPay の連絡先とプロフィール、プライベートプール、支出上限と期間付きの App Connect v2 によるアプリへのログイン、Jembe の NFT コレクション、testnet と mainnet（ベータ）、ネットワークはログイン画面で選択",
   "Giving, selling and receiving NFTs by link": "NFT の贈呈・販売・リンクでの受け取り",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "「作業する名義」で選んだアイデンティティでログインします。変更はそこでできます。",
   "The limit is less than the app needs": "上限がアプリに必要な額より少ないです",
@@ -2871,5 +2872,6 @@
   "Request sent": "リクエスト送信済み",
   "Request received": "リクエスト受信",
   "Time of the write in Platform": "Platform に書き込まれた時刻",
-  "still looking for payments…": "支払いをまだ探しています…"
+  "still looking for payments…": "支払いをまだ探しています…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：受け取り、送金、履歴、自分のノード。Platform：アイデンティティ、DPNS 名、クレジット、Platform アドレス。DashPay の連絡先とプロフィール、プライベートプール、支出上限と期間付きの App Connect v2 によるアプリへのログイン、evolite 標準の NFT コレクション、testnet と mainnet（ベータ）、ネットワークはログイン画面で選択"
 }

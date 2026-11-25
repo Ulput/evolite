@@ -10,7 +10,9 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "已通过密码学检查：evolite 自行检查了网络的签名，而不是信任某个节点。",
   "Cryptographically checked: evolite checked the signature itself.": "已通过密码学检查：evolite 自行检查了网络的签名。",
   "Gives your private encryption key for {}": "将你的加密私钥交给 {}",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"other": "将交出你在 {} 个合约上的加密私钥"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "other": "将交出你在 {} 个合约上的加密私钥"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · 正在检查",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock：evolite 检查了主节点法定组的 BLS 签名。",
@@ -2086,7 +2088,6 @@
   "{} minute|{} minutes": {
     "other": "{} 分钟"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过 App Connect v2 登录应用（带支出上限和期限）、Jembe NFT 收藏、testnet 和 mainnet（测试版），在登录界面选择网络",
   "Giving, selling and receiving NFTs by link": "赠送、出售和通过链接接收 NFT",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "使用“以此身份操作”中选中的身份登录；可以在那里更改。",
   "The limit is less than the app needs": "上限低于应用所需",
@@ -2871,5 +2872,6 @@
   "Request sent": "已发送请求",
   "Request received": "已收到请求",
   "Time of the write in Platform": "写入 Platform 的时间",
-  "still looking for payments…": "仍在查找付款…"
+  "still looking for payments…": "仍在查找付款…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过 App Connect v2 登录应用（带支出上限和期限）、evolite 标准的 NFT 收藏、testnet 和 mainnet（测试版），在登录界面选择网络"
 }

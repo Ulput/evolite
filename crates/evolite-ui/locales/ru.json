@@ -10,7 +10,11 @@
   "Cryptographically checked: evolite checked the network's signature itself instead of trusting a node.": "Проверено криптографически: evolite сам проверил подпись сети и не полагается на слово узла.",
   "Cryptographically checked: evolite checked the signature itself.": "Проверено криптографически: evolite сам проверил подпись сети.",
   "Gives your private encryption key for {}": "Отдаёт закрытый ключ шифрования для {}",
-  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {"one": "Отдаёт закрытые ключи шифрования для {} контракта", "few": "Отдаёт закрытые ключи шифрования для {} контрактов", "many": "Отдаёт закрытые ключи шифрования для {} контрактов"},
+  "Gives your private encryption keys for {} contract|Gives your private encryption keys for {} contracts": {
+    "one": "Отдаёт закрытые ключи шифрования для {} контракта",
+    "few": "Отдаёт закрытые ключи шифрования для {} контрактов",
+    "many": "Отдаёт закрытые ключи шифрования для {} контрактов"
+  },
   "InstantLock": "InstantLock",
   "InstantLock · checking": "InstantLock · проверяется",
   "InstantLock: evolite checked the BLS signature of the masternode quorum.": "InstantLock: evolite проверил BLS-подпись кворума мастернод.",
@@ -2068,7 +2072,6 @@
     "many": "{} минут",
     "one": "{} минуту"
   },
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, the Jembe NFT collection, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: приём, отправка, история, свой узел. Platform: личности, имена DPNS, кредиты, адрес Platform. Контакты и профиль DashPay, приватный пул, вход в приложения по App Connect v2 с лимитом трат и сроком, коллекция NFT Jembe, testnet и mainnet (бета), сеть выбирается на экране входа",
   "Giving, selling and receiving NFTs by link": "Подарок, продажа и получение NFT по ссылке",
   "Signs in with the identity chosen in “Work as”; you can change it there.": "Вход — личность из «Работать как»; сменить её можно там.",
   "The limit is less than the app needs": "Лимит меньше, чем нужно приложению",
@@ -2958,5 +2961,6 @@
   "Request sent": "Вы отправили запрос",
   "Request received": "Запрос получен",
   "Time of the write in Platform": "Время записи в Platform",
-  "still looking for payments…": "ещё ищем платежи…"
+  "still looking for payments…": "ещё ищем платежи…",
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: приём, отправка, история, свой узел. Platform: личности, имена DPNS, кредиты, адрес Platform. Контакты и профиль DashPay, приватный пул, вход в приложения по App Connect v2 с лимитом трат и сроком, коллекции NFT стандарта evolite, testnet и mainnet (бета), сеть выбирается на экране входа"
 }
