@@ -129,7 +129,7 @@ async fn a_contact_paid_from_mixed_coins_reserves_nothing_before_the_payment() {
         name: Some("bob".into()),
         profile: Profile::default(),
         state: ContactState::Established,
-        since: 0,
+        record: Default::default(),
         payments: 0,
         last_payment: None,
         channel_broken: false,

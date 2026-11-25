@@ -498,7 +498,7 @@ fn series_title(act: &evolite_api::series::SeriesAct, model: Option<&str>, done:
             let to = if to.starts_with('@') {
                 crate::i18n::own(to)
             } else {
-                short_address(to)
+                whole(to)
             };
             format!(tr!("Given {} “{}” · {}"), done, model, to)
         }
