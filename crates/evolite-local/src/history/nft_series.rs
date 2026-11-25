@@ -66,6 +66,14 @@ pub struct Series {
     /// The plate's «×»: no longer shown, still in History.
     #[serde(default)]
     pub closed: bool,
+    /// BUG-307: the model's name when the series started, for its History line (none in a
+    /// series kept before it was).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_name: Option<String>,
+    /// BUG-307: a run wrote something and the credits before or after it were not read — `spent`
+    /// is not all it took: its History line says the cost is not known, never a sum too small.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cost_unknown: bool,
 }
 
 impl Series {
@@ -185,6 +193,17 @@ impl NftSeries {
         })
     }
 
+    /// BUG-307: a run of series `id` wrote with its cost not read.
+    pub fn cost_unknown(&self, id: u64) -> Result<(), String> {
+        self.change(|f| match f.series.iter_mut().find(|s| s.id == id) {
+            Some(s) => {
+                s.cost_unknown = true;
+                ((), true)
+            }
+            None => ((), false),
+        })
+    }
+
     /// The plate's «×».
     pub fn close(&self, id: u64) -> Result<(), String> {
         self.change(|f| match f.series.iter_mut().find(|s| s.id == id) {
@@ -234,6 +253,8 @@ mod tests {
             created_at: 1,
             spent: 0,
             closed: false,
+            model_name: None,
+            cost_unknown: false,
         }
     }
 

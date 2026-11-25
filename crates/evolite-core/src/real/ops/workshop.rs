@@ -364,6 +364,8 @@ mod given_tests {
             created_at: at,
             spent: 0,
             closed: false,
+            model_name: None,
+            cost_unknown: false,
         };
         use nft_series::State::{Done, Refused};
         series

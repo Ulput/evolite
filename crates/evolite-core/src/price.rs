@@ -295,11 +295,20 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
         // registration itself, which refuses below its total before signing (`CheckContract`
         // shows it); nothing is promised here.
         Spend::RegisterContract { .. } => of("register_contract", 0, true),
-        // FEAT-0038: a series' fee depends on what it takes and is checked fresh before the
-        // password (`PlanSeries`) and again when it starts; nothing is promised here.
-        Spend::NftBatch { .. } => of("nft_batch", 0, true),
-        Spend::ContinueSeries { .. } => of("continue_series", 0, true),
-        Spend::CreateModel { .. } => of("create_model", 0, true),
+        // FEAT-0038: a series' fee is checked fresh before the password (`PlanSeries`) and
+        // again when it starts; BUG-307: what is declared is the window's estimate of all its
+        // writes (`fee_max`: one write's × the records), not 0.
+        Spend::NftBatch { fee_max, .. } => {
+            of("nft_batch", *fee_max, covers(seen.credits, 0, *fee_max))
+        }
+        Spend::ContinueSeries { fee_max, .. } => of(
+            "continue_series",
+            *fee_max,
+            covers(seen.credits, 0, *fee_max),
+        ),
+        Spend::CreateModel { fee_max, .. } => {
+            of("create_model", *fee_max, covers(seen.credits, 0, *fee_max))
+        }
         Spend::GiftNft { .. } => of(
             "gift_nft",
             fees.nft_transfer,
@@ -620,6 +629,33 @@ pub(crate) mod tests {
         let mut short = seen.clone();
         short.credits = 10_000_000 + without.declared - 1;
         assert!(!declared(&claim(None), &short, 0).enough);
+    }
+
+    /// BUG-307: a series declares what its window estimated for all its writes (QA's log had
+    /// «declared:0»), and is not enough below it.
+    #[test]
+    fn a_series_declares_its_windows_estimate() {
+        let gift = Spend::NftBatch {
+            target: evolite_api::series::SeriesTarget {
+                identity: "me".into(),
+                contract: "c".into(),
+                model: "m".into(),
+            },
+            kind: evolite_api::series::SeriesKind::Gift {
+                count: 3,
+                to: "@carol".into(),
+            },
+            fee_max: 3 * 145_000,
+        };
+        let d = declared(&gift, &seen(1_000_000), 0);
+        assert_eq!((d.what, d.declared), ("nft_batch", 435_000));
+        assert!(d.enough);
+        assert!(!declared(&gift, &seen(435_000 - 1), 0).enough);
+        let more = Spend::ContinueSeries {
+            id: 4,
+            fee_max: 145_000,
+        };
+        assert_eq!(declared(&more, &seen(1_000_000), 0).declared, 145_000);
     }
 
     #[test]

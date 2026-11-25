@@ -2914,5 +2914,14 @@
   "Request received": "İstek alındı",
   "Time of the write in Platform": "Platform’a yazılma zamanı",
   "still looking for payments…": "ödemeler hâlâ aranıyor…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: alma, gönderme, geçmiş, kendi düğümünüz. Platform: kimlikler, DPNS adları, krediler, Platform adresi. DashPay kişileri ve profili, gizli havuz, harcama sınırı ve süresiyle App Connect v2 üzerinden uygulama girişi, evolite standardındaki NFT koleksiyonları, testnet ve mainnet (beta), ağ giriş ekranında seçilir"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: alma, gönderme, geçmiş, kendi düğümünüz. Platform: kimlikler, DPNS adları, krediler, Platform adresi. DashPay kişileri ve profili, gizli havuz, harcama sınırı ve süresiyle App Connect v2 üzerinden uygulama girişi, evolite standardındaki NFT koleksiyonları, testnet ve mainnet (beta), ağ giriş ekranında seçilir",
+  "Deleted {} copies of “{}”": "{} adet “{}” kopyası silindi",
+  "Given {} “{}” · {}": "{} adet “{}” hediye edildi · {}",
+  "Issued {} “{}”": "{} adet “{}” çıkarıldı",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "{} adet “{}” fiyatı {} olarak değişti",
+  "Put up for sale {} “{}” at {}": "{} adet “{}” {} fiyatla satışa çıkarıldı",
+  "Taken off sale {} “{}”": "{} adet “{}” satıştan kaldırıldı",
+  "series · done {} of {}": "seri · {} / {} tamamlandı",
+  "series · done {} · refused {}": "seri · {} tamamlandı · {} reddedildi"
 }

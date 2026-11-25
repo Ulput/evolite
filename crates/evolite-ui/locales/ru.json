@@ -2962,5 +2962,14 @@
   "Request received": "Запрос получен",
   "Time of the write in Platform": "Время записи в Platform",
   "still looking for payments…": "ещё ищем платежи…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: приём, отправка, история, свой узел. Platform: личности, имена DPNS, кредиты, адрес Platform. Контакты и профиль DashPay, приватный пул, вход в приложения по App Connect v2 с лимитом трат и сроком, коллекции NFT стандарта evolite, testnet и mainnet (бета), сеть выбирается на экране входа"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: приём, отправка, история, свой узел. Platform: личности, имена DPNS, кредиты, адрес Platform. Контакты и профиль DashPay, приватный пул, вход в приложения по App Connect v2 с лимитом трат и сроком, коллекции NFT стандарта evolite, testnet и mainnet (бета), сеть выбирается на экране входа",
+  "Deleted {} copies of “{}”": "Удалено {} экземпляров «{}»",
+  "Given {} “{}” · {}": "Подарено {} «{}» · {}",
+  "Issued {} “{}”": "Выпущено {} «{}»",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "Цена изменена у {} «{}» на {}",
+  "Put up for sale {} “{}” at {}": "Выставлено на продажу {} «{}» по {}",
+  "Taken off sale {} “{}”": "Снято с продажи {} «{}»",
+  "series · done {} of {}": "серия · сделано {} из {}",
+  "series · done {} · refused {}": "серия · сделано {} · отказ {}"
 }

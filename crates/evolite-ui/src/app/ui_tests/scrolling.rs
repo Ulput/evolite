@@ -96,7 +96,7 @@ fn scroll_overview_down(kit: &mut Kit) {
 /// A screen opened in a new app that starts from `memory`, as eframe starts from the file of the
 /// last run (`persistence`); the places of its words at the top of it.
 fn places_in_a_new_app(preset: &str, memory: Option<egui::Memory>) -> Vec<f32> {
-    let _turn = ONE_APP.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = take_turn();
     let args: Vec<String> = ["--screen", preset, "--lang", "en"]
         .iter()
         .map(|s| s.to_string())

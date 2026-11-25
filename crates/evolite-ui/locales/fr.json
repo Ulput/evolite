@@ -2951,5 +2951,14 @@
   "Request received": "Demande reçue",
   "Time of the write in Platform": "Heure de l’écriture dans Platform",
   "still looking for payments…": "recherche des paiements en cours…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core : recevoir, envoyer, historique, votre propre nœud. Platform : identités, noms DPNS, crédits, adresse Platform. Contacts et profil DashPay, pool privé, connexion aux applications par App Connect v2 avec une limite de dépenses et une durée, collections NFT au standard evolite, testnet et mainnet (bêta), le réseau se choisit sur l’écran de connexion"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core : recevoir, envoyer, historique, votre propre nœud. Platform : identités, noms DPNS, crédits, adresse Platform. Contacts et profil DashPay, pool privé, connexion aux applications par App Connect v2 avec une limite de dépenses et une durée, collections NFT au standard evolite, testnet et mainnet (bêta), le réseau se choisit sur l’écran de connexion",
+  "Deleted {} copies of “{}”": "{} exemplaires de « {} » supprimés",
+  "Given {} “{}” · {}": "{} « {} » offerts · {}",
+  "Issued {} “{}”": "{} « {} » émis",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "Prix de {} « {} » changé en {}",
+  "Put up for sale {} “{}” at {}": "{} « {} » mis en vente à {}",
+  "Taken off sale {} “{}”": "{} « {} » retirés de la vente",
+  "series · done {} of {}": "série · {} faits sur {}",
+  "series · done {} · refused {}": "série · {} faits · {} refusés"
 }

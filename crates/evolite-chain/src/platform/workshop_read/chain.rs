@@ -538,6 +538,28 @@ impl Chain {
         Some(profile::profile(&kept.contract).is_ok())
     }
 
+    /// BUG-307: model `model`'s name in collection `contract` (both base58), read with its
+    /// proof; `None` when it cannot be read now (its series' line then names no model).
+    pub async fn workshop_model_name(&self, contract: &str, model: &str) -> Option<String> {
+        let read = async {
+            let sdk = self.sdk().await?;
+            let (c, profile) = self.collection_contract(contract).await?;
+            let doc = Document::fetch_many(
+                &sdk,
+                DocumentQuery::new(c, &profile.model)
+                    .map_err(|e| format!("{e:?}"))?
+                    .with_document_id(&id_of(model)?),
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?
+            .into_values()
+            .flatten()
+            .next();
+            Ok::<_, String>(doc.map(|d| model_of(&d).name))
+        };
+        read.await.ok().flatten()
+    }
+
     /// The model's id and name and the number of a sold instance; all `None` when it is gone
     /// (deleted after the sale, the architect's point 4) or cannot be read.
     async fn sold_instance(

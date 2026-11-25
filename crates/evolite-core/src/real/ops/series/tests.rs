@@ -224,6 +224,8 @@ fn series(store: &NftSeries, kind: Kind, serials: &[u32]) -> u64 {
             created_at: 0,
             spent: 0,
             closed: false,
+            model_name: None,
+            cost_unknown: false,
         })
         .unwrap()
 }

@@ -2873,5 +2873,14 @@
   "Request received": "요청 받음",
   "Time of the write in Platform": "Platform에 기록된 시각",
   "still looking for payments…": "아직 결제를 찾는 중…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: 받기, 보내기, 내역, 자체 노드. Platform: 아이덴티티, DPNS 이름, 크레딧, Platform 주소. DashPay 연락처와 프로필, 비공개 풀, 지출 한도와 기간이 있는 App Connect v2 앱 로그인, evolite 표준 NFT 컬렉션, testnet과 mainnet(베타), 네트워크는 로그인 화면에서 선택"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: 받기, 보내기, 내역, 자체 노드. Platform: 아이덴티티, DPNS 이름, 크레딧, Platform 주소. DashPay 연락처와 프로필, 비공개 풀, 지출 한도와 기간이 있는 App Connect v2 앱 로그인, evolite 표준 NFT 컬렉션, testnet과 mainnet(베타), 네트워크는 로그인 화면에서 선택",
+  "Deleted {} copies of “{}”": "{}개의 “{}” 사본 삭제됨",
+  "Given {} “{}” · {}": "{}개의 “{}” 선물함 · {}",
+  "Issued {} “{}”": "{}개의 “{}” 발행됨",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "{}개의 “{}” 가격을 {}(으)로 변경함",
+  "Put up for sale {} “{}” at {}": "{}개의 “{}” {}에 판매 등록됨",
+  "Taken off sale {} “{}”": "{}개의 “{}” 판매 취소됨",
+  "series · done {} of {}": "시리즈 · {}/{} 완료",
+  "series · done {} · refused {}": "시리즈 · {} 완료 · {} 거부됨"
 }

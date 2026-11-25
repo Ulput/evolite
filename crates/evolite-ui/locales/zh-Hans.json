@@ -2873,5 +2873,14 @@
   "Request received": "已收到请求",
   "Time of the write in Platform": "写入 Platform 的时间",
   "still looking for payments…": "仍在查找付款…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过 App Connect v2 登录应用（带支出上限和期限）、evolite 标准的 NFT 收藏、testnet 和 mainnet（测试版），在登录界面选择网络"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：收款、付款、历史、自有节点。Platform：身份、DPNS 名称、积分、Platform 地址。DashPay 联系人和资料、私密池、通过 App Connect v2 登录应用（带支出上限和期限）、evolite 标准的 NFT 收藏、testnet 和 mainnet（测试版），在登录界面选择网络",
+  "Deleted {} copies of “{}”": "已删除 {} 个“{}”副本",
+  "Given {} “{}” · {}": "已赠送 {} 个“{}” · {}",
+  "Issued {} “{}”": "已发行 {} 个“{}”",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "已将 {} 个“{}”的价格改为 {}",
+  "Put up for sale {} “{}” at {}": "已上架 {} 个“{}”，价格 {}",
+  "Taken off sale {} “{}”": "已下架 {} 个“{}”",
+  "series · done {} of {}": "系列 · 已完成 {}/{}",
+  "series · done {} · refused {}": "系列 · 已完成 {} · 被拒 {}"
 }

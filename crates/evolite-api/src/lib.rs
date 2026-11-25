@@ -186,6 +186,17 @@ pub enum ActivityKind {
     CollectionCreated {
         name: String,
     },
+    /// FEAT-0038 R-15, BUG-307: a «Workshop» series, one line for all of it («Подарено {n}
+    /// «{model}» · @{name}», «Выставлено на продажу {n} «{model}» по {price}»…): `done` of `total`
+    /// written, `refused` refused; the amount is what the writes done took (its cost not known:
+    /// [`Detail::cost_unknown`]). `model` is `None` for a series kept before its name was.
+    NftSeries {
+        act: series::SeriesAct,
+        model: Option<String>,
+        done: u32,
+        refused: u32,
+        total: u32,
+    },
     /// FEAT-0038 R-15: an NFT of the identity's collection sold («Продан «{model}» № {n} ·
     /// @{name}»); the amount is its price, in. `model`/`serial` are `None` when the instance was
     /// deleted after the sale; `buyer`: `@name` when known, else the id.

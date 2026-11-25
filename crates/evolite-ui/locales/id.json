@@ -2873,5 +2873,14 @@
   "Request received": "Permintaan diterima",
   "Time of the write in Platform": "Waktu pencatatan di Platform",
   "still looking for payments…": "masih mencari pembayaran…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk ke aplikasi lewat App Connect v2 dengan batas pengeluaran dan masa berlaku, koleksi NFT berstandar evolite, testnet dan mainnet (beta), jaringan dipilih di layar masuk"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: terima, kirim, riwayat, node sendiri. Platform: identitas, nama DPNS, kredit, alamat Platform. Kontak dan profil DashPay, pool privat, masuk ke aplikasi lewat App Connect v2 dengan batas pengeluaran dan masa berlaku, koleksi NFT berstandar evolite, testnet dan mainnet (beta), jaringan dipilih di layar masuk",
+  "Deleted {} copies of “{}”": "{} salinan “{}” dihapus",
+  "Given {} “{}” · {}": "{} “{}” diberikan · {}",
+  "Issued {} “{}”": "{} “{}” diterbitkan",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "Harga {} “{}” diubah menjadi {}",
+  "Put up for sale {} “{}” at {}": "{} “{}” dijual seharga {}",
+  "Taken off sale {} “{}”": "Penjualan {} “{}” dibatalkan",
+  "series · done {} of {}": "seri · selesai {} dari {}",
+  "series · done {} · refused {}": "seri · selesai {} · ditolak {}"
 }

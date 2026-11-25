@@ -8,7 +8,7 @@ const KNOWN: &str = "yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh";
 
 /// The open app on `preset` in a window of `size`.
 fn app_at(preset: &str, lang: &str, size: egui::Vec2) -> (MutexGuard<'static, ()>, Kit) {
-    let turn = ONE_APP.lock().unwrap_or_else(|e| e.into_inner());
+    let turn = take_turn();
     let args: Vec<String> = ["--screen", preset, "--lang", lang]
         .iter()
         .map(|s| s.to_string())

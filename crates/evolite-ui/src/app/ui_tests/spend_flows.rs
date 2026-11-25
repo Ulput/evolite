@@ -50,7 +50,7 @@ fn left(app: &mut App) -> usize {
 /// window's state left out of the list would never be forgotten.
 #[test]
 fn every_paid_window_is_in_the_one_list() {
-    let _turn = ONE_APP.lock().unwrap_or_else(|e| e.into_inner());
+    let _turn = take_turn();
     let args: Vec<String> = ["--screen", "overview", "--lang", "en"]
         .iter()
         .map(|s| s.to_string())

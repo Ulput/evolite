@@ -2951,5 +2951,14 @@
   "Request received": "Solicitud recibida",
   "Time of the write in Platform": "Hora del registro en Platform",
   "still looking for payments…": "aún buscamos pagos…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: recibir, enviar, historial, nodo propio. Platform: identidades, nombres DPNS, créditos, dirección de Platform. Contactos y perfil de DashPay, pool privado, inicio de sesión en apps con App Connect v2 con límite de gasto y plazo, colecciones de NFT del estándar evolite, testnet y mainnet (beta), la red se elige en la pantalla de inicio de sesión"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: recibir, enviar, historial, nodo propio. Platform: identidades, nombres DPNS, créditos, dirección de Platform. Contactos y perfil de DashPay, pool privado, inicio de sesión en apps con App Connect v2 con límite de gasto y plazo, colecciones de NFT del estándar evolite, testnet y mainnet (beta), la red se elige en la pantalla de inicio de sesión",
+  "Deleted {} copies of “{}”": "Eliminadas {} copias de «{}»",
+  "Given {} “{}” · {}": "Regaladas {} «{}» · {}",
+  "Issued {} “{}”": "Emitidas {} «{}»",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "Precio cambiado de {} «{}» a {}",
+  "Put up for sale {} “{}” at {}": "Puestas a la venta {} «{}» por {}",
+  "Taken off sale {} “{}”": "Retiradas de la venta {} «{}»",
+  "series · done {} of {}": "serie · hechas {} de {}",
+  "series · done {} · refused {}": "serie · hechas {} · rechazadas {}"
 }

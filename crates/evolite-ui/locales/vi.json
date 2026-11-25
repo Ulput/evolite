@@ -2873,5 +2873,14 @@
   "Request received": "Đã nhận yêu cầu",
   "Time of the write in Platform": "Thời điểm ghi vào Platform",
   "still looking for payments…": "vẫn đang tìm các khoản thanh toán…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: nhận, gửi, lịch sử, nút riêng. Platform: danh tính, tên DPNS, tín dụng, địa chỉ Platform. Liên hệ và hồ sơ DashPay, pool riêng tư, đăng nhập ứng dụng bằng App Connect v2 với hạn mức chi tiêu và thời hạn, các bộ sưu tập NFT theo chuẩn evolite, testnet và mainnet (beta), mạng được chọn ở màn hình đăng nhập"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core: nhận, gửi, lịch sử, nút riêng. Platform: danh tính, tên DPNS, tín dụng, địa chỉ Platform. Liên hệ và hồ sơ DashPay, pool riêng tư, đăng nhập ứng dụng bằng App Connect v2 với hạn mức chi tiêu và thời hạn, các bộ sưu tập NFT theo chuẩn evolite, testnet và mainnet (beta), mạng được chọn ở màn hình đăng nhập",
+  "Deleted {} copies of “{}”": "Đã xóa {} bản của “{}”",
+  "Given {} “{}” · {}": "Đã tặng {} “{}” · {}",
+  "Issued {} “{}”": "Đã phát hành {} “{}”",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "Đã đổi giá {} “{}” thành {}",
+  "Put up for sale {} “{}” at {}": "Đã rao bán {} “{}” với giá {}",
+  "Taken off sale {} “{}”": "Đã ngừng bán {} “{}”",
+  "series · done {} of {}": "loạt · xong {}/{}",
+  "series · done {} · refused {}": "loạt · xong {} · bị từ chối {}"
 }

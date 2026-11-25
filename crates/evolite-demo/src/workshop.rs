@@ -19,6 +19,8 @@ const ISSUED: u32 = 14;
 pub(crate) const SOLD_SERIAL: u32 = 14;
 pub(crate) const PURCHASE: &str = "demo-purchase-1";
 pub(crate) const PRICE: evolite_api::Duffs = 100_000_000;
+/// What the gift of no. 13 took: one transfer, as the demo's plan of a gift estimates it.
+pub(crate) const GIFT_FEE: evolite_api::Duffs = 145_000;
 
 /// The example's instances: numbers 1–12, every third for sale at 1 DASH.
 fn instances() -> Vec<Instance> {
@@ -290,6 +292,18 @@ mod tests {
                     s.serial
                 );
             }
+            // BUG-307: the gift's series line, one for the gift of no. 13 (R-15).
+            let history = crate::demo::demo_wallet(crate::demo::now()).activity;
+            let gifts: Vec<_> = history
+                .iter()
+                .filter(|a| {
+                    matches!(&a.kind, evolite_api::ActivityKind::NftSeries {
+                    act: evolite_api::series::SeriesAct::Gift { .. }, model: Some(x), done, .. }
+                    if *x == m.name && u64::from(*done) == given)
+                })
+                .collect();
+            assert_eq!(gifts.len(), 1, "{}: the gift's one History line", m.name);
+            assert!(gifts[0].amount < 0, "{}: what the gift took", m.name);
             // The sale's line in History, the one «Recent» shows (written when the sales are read).
             let wallet = evolite_api::Wallet {
                 activity: vec![crate::demo::sale_line()],

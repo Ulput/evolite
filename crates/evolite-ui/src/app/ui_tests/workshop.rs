@@ -328,8 +328,14 @@ fn a_model_page_shows_its_numbers() {
         3,
         "History without the sale",
         |w| {
-            w.activity
-                .retain(|a| !matches!(a.kind, evolite_api::ActivityKind::NftSold { .. }))
+            // The gift's series line (BUG-307) too: «Recent» is empty only without both.
+            w.activity.retain(|a| {
+                !matches!(
+                    a.kind,
+                    evolite_api::ActivityKind::NftSold { .. }
+                        | evolite_api::ActivityKind::NftSeries { .. }
+                )
+            })
         },
         |kit| has_text(kit, "No events yet"),
     );
@@ -468,6 +474,9 @@ fn giving_copies_is_one_series_with_one_check() {
 #[test]
 fn a_stopped_series_can_be_continued_from_the_model_page() {
     let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    // What the page asked for when it opened (the sales, BUG-314) has come: a snapshot after the
+    // edit would take the plate away before «Continue» is pressed.
+    settle(&mut kit);
     show_wallet_edited(
         &mut kit,
         4,
@@ -773,5 +782,40 @@ fn a_visit_after_a_minute_reads_the_sales_again() {
     );
     wait_for(&mut kit, "the counts read again", |kit| {
         kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL) == Some(Some(1))
+    });
+}
+
+/// BUG-307 (R-15, AC-A15): a series is one History line — the demo's gift of no. 13 reads
+/// «Given 1 “Winter tram” · @alice» with «Platform · series · done 1 of 1» under it, its cost
+/// what it took; and the model's «Recent» has it.
+#[test]
+fn a_gift_series_is_one_line_in_history_and_recent() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    wait_for(&mut kit, "the gift's line", |kit| {
+        has_words(kit, "Given 1 “Winter tram”")
+    });
+    assert!(
+        has_words(&kit, "series · done 1 of 1"),
+        "{:?}",
+        painted_texts(&kit)
+    );
+    let lines = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| {
+            w.activity
+                .iter()
+                .filter(|a| matches!(a.kind, evolite_api::ActivityKind::NftSeries { .. }))
+                .count()
+        });
+    assert_eq!(lines, Some(1), "one line for the series");
+    // The first app's turn let go first: a second `demo_app` would wait on it forever.
+    drop(kit);
+    drop(_turn);
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    wait_for(&mut kit, "«Recent»", |kit| {
+        has_words(kit, "Given 1 “Winter tram”")
     });
 }

@@ -228,7 +228,7 @@ pub(crate) fn sale_line() -> Activity {
     };
     let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
     Activity {
-        id: 37,
+        id: 38,
         kind,
         chain: Chain::Platform,
         at: crate::workshop::AT,
@@ -941,6 +941,28 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Chain::Platform,
                     5 * day,
                     0,
+                    Proof::Proved,
+                )
+            },
+            // BUG-307: the Workshop's gift of no. 13 to @alice, its series' one line (R-15), as
+            // the real core keeps it from the series' file.
+            Activity {
+                at: crate::workshop::AT,
+                key: "nftseries:1:1763600000".into(),
+                ..act(
+                    37,
+                    NftSeries {
+                        act: evolite_api::series::SeriesAct::Gift {
+                            to: "@alice".into(),
+                        },
+                        model: Some("Winter tram".into()),
+                        done: 1,
+                        refused: 0,
+                        total: 1,
+                    },
+                    Chain::Platform,
+                    0,
+                    -crate::workshop::GIFT_FEE,
                     Proof::Proved,
                 )
             },

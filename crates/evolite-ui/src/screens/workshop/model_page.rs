@@ -457,10 +457,14 @@ struct Numbers {
     prices: Vec<(Duffs, u32)>,
 }
 
-/// A History line about this model (W7-6): its sales now; its issues and gifts once History
-/// has them (BUG-259).
+/// A History line about this model (W7-6): its sales, and its series (issues, gifts, sales put
+/// up, taken off: BUG-307).
 fn about_model(act: &evolite_api::Activity, name: &str) -> bool {
-    matches!(&act.kind, evolite_api::ActivityKind::NftSold { model: Some(m), .. } if m == name)
+    match &act.kind {
+        evolite_api::ActivityKind::NftSold { model: Some(m), .. }
+        | evolite_api::ActivityKind::NftSeries { model: Some(m), .. } => m == name,
+        _ => false,
+    }
 }
 
 /// W7-1: the picture whole in its square (or the width), on `raised`; while it is drawn, when it

@@ -27,6 +27,23 @@ pub enum SeriesKind {
     Delete { count: u32 },
 }
 
+/// What a series did, as its History line says it (BUG-307, R-15); prices in duffs.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum SeriesAct {
+    /// «Issued {n} “{model}”».
+    Mint,
+    /// «Put up for sale {n} “{model}” at {price}».
+    Price { price: Duffs },
+    /// «Price changed {n} “{model}” to {price}».
+    Reprice { price: Duffs },
+    /// «Given {n} “{model}” · {to}».
+    Gift { to: String },
+    /// «Taken off sale {n} “{model}”».
+    Unprice,
+    /// «Deleted {n} copies of “{model}”».
+    Delete,
+}
+
 /// The model a series is about: its collection (contract) and its «image» document, by id.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SeriesTarget {

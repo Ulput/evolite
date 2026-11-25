@@ -602,6 +602,7 @@ impl Real {
         };
         let chain = self.chain.clone();
         let store = self.nft_series.clone();
+        let journal = self.journal.clone();
         let runs = self.series_run.clone();
         let refresh = self.refresher();
         self.answer_later("task:nft_series", async move {
@@ -681,6 +682,8 @@ impl Real {
                             created_at: evolite_common::wall_secs(),
                             spent: 0,
                             closed: false,
+                            model_name: Some(model.name.clone()),
+                            cost_unknown: false,
                         };
                         let id = store.start(series).map_err(CoreError::Failed)?;
                         (id, target, None)
@@ -714,6 +717,11 @@ impl Real {
                             created_at: evolite_common::wall_secs(),
                             spent: 0,
                             closed: false,
+                            // BUG-307: its History line names the model, after a restart too.
+                            model_name: chain
+                                .workshop_model_name(&target.contract, &target.model)
+                                .await,
+                            cost_unknown: false,
                         };
                         let id = store.start(series).map_err(CoreError::Failed)?;
                         (id, target, planned.to)
@@ -750,6 +758,7 @@ impl Real {
                 let kind = store.get(series_id).map(|s| s.kind).expect("the series");
                 let one = per_write_kind(&kind);
                 let before = chain.identity_credits(&wallet, &owner, true).await;
+                let done_before = store.get(series_id).map_or(0, |s| s.count(State::Done));
                 let net = Arc::new(ChainNet {
                     chain: chain.clone(),
                     wallet: wallet.clone(),
@@ -769,9 +778,7 @@ impl Real {
                 )
                 .await;
                 let after = chain.identity_credits(&wallet, &owner, true).await;
-                if let (Some(b), Some(a)) = (before, after) {
-                    let _ = store.spent(series_id, b.saturating_sub(a).div_ceil(1_000));
-                }
+                settle_run(&store, &journal, series_id, (before, after), done_before);
                 if let Some(s) = store.get(series_id) {
                     crate::diag::record(crate::diag::Record::SeriesEnded {
                         total: s.items.len() as u32,
@@ -810,6 +817,40 @@ impl Real {
     }
 }
 
+/// After a run of series `id` (BUG-307, R-15): what it took from the credits read `before` and
+/// `after` it, or — not read, and the run wrote something past the `done_before` it found —
+/// its cost marked not known (never a sum too small); then its one History line, as it stands.
+pub(in crate::real) fn settle_run(
+    store: &evolite_local::nft_series::NftSeries,
+    journal: &evolite_local::journal::Journal,
+    id: u64,
+    (before, after): (Option<u64>, Option<u64>),
+    done_before: usize,
+) {
+    match (before, after) {
+        // BUG-307 r1 (BUG-303's rule): the whole duffs each balance shows, one less the other —
+        // what the screen's credits went down by, never a duff more by rounding the difference.
+        (Some(b), Some(a)) => {
+            let shown = evolite_chain::identity::credits_as_duffs;
+            let _ = store.spent(id, shown(b).saturating_sub(shown(a)).max(0) as u64);
+        }
+        _ if store
+            .get(id)
+            .is_some_and(|s| s.count(State::Done) > done_before) =>
+        {
+            let _ = store.cost_unknown(id);
+        }
+        _ => {}
+    }
+    if let Some(line) = store
+        .get(id)
+        .as_ref()
+        .and_then(evolite_local::journal::series_entry)
+    {
+        journal.put(line);
+    }
+}
+
 /// The screens' state of a write, from the disk's.
 #[allow(dead_code)]
 pub(in crate::real) fn item_state(state: State) -> ItemState {
@@ -825,6 +866,124 @@ pub(in crate::real) fn item_state(state: State) -> ItemState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-307 r1 (BUG-303's rule): 5 000 999 credits before, 2 400 000 after — the screen
+    /// shows 5 000 and 2 400 duffs, so the line says 2 600, not the 2 601 of the difference
+    /// rounded up.
+    #[test]
+    fn a_run_costs_what_the_two_balances_show() {
+        use evolite_local::journal::Journal;
+        use evolite_local::nft_series::NftSeries;
+        let dir = std::env::temp_dir().join(format!("evolite-run-duffs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = NftSeries::new(dir.join("nft-series.json"));
+        let journal = Journal::new(dir.join("platform-history.json"));
+        let id = store
+            .start(Series {
+                id: 0,
+                identity: "me".into(),
+                contract: "c".into(),
+                model: "m".into(),
+                kind: Kind::Mint,
+                items: vec![Item {
+                    serial: 1,
+                    doc: None,
+                    state: State::Done,
+                    why: None,
+                    sent_at: None,
+                    no_since: None,
+                }],
+                created_at: 1_700_000_000,
+                spent: 0,
+                closed: false,
+                model_name: Some("Orange pin".into()),
+                cost_unknown: false,
+            })
+            .unwrap();
+        settle_run(&store, &journal, id, (Some(5_000_999), Some(2_400_000)), 0);
+        let line = evolite_local::journal::activity(&journal.entries()[0]);
+        assert_eq!(line.amount, -2_600, "5 000 − 2 400 as shown");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUG-307 (R-15, AC-A15): a gift of three, one refused — after its run one History line
+    /// «2 of 3» costing what the run took; run again, and after a restart, still that one line;
+    /// a later run that wrote with its credits not read marks the cost not known, not a smaller
+    /// sum.
+    #[test]
+    fn a_series_run_leaves_its_one_history_line() {
+        use evolite_local::journal::Journal;
+        use evolite_local::nft_series::NftSeries;
+        let dir = std::env::temp_dir().join(format!("evolite-run-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = NftSeries::new(dir.join("nft-series.json"));
+        let journal = Journal::new(dir.join("platform-history.json"));
+        let item = |serial| Item {
+            serial,
+            doc: None,
+            state: State::Waiting,
+            why: None,
+            sent_at: None,
+            no_since: None,
+        };
+        let id = store
+            .start(Series {
+                id: 0,
+                identity: "me".into(),
+                contract: "c".into(),
+                model: "m".into(),
+                kind: Kind::Gift {
+                    to: "@carol".into(),
+                },
+                items: vec![item(1), item(2), item(3)],
+                created_at: 1_700_000_000,
+                spent: 0,
+                closed: false,
+                model_name: Some("Orange pin".into()),
+                cost_unknown: false,
+            })
+            .unwrap();
+        settle_run(&store, &journal, id, (Some(5_000_000), Some(5_000_000)), 0);
+        assert!(journal.entries().is_empty(), "nothing written: no line");
+        // A first run writes no. 1 (1 300 duffs), and stops.
+        store.edit(id, 1, |i| i.state = State::Done).unwrap();
+        settle_run(&store, &journal, id, (Some(5_000_000), Some(3_700_000)), 0);
+        assert_eq!(journal.entries().len(), 1, "a line from the first write");
+        // «Continue»: no. 2 refused, no. 3 written (1 300 more); then a run with nothing left.
+        store.edit(id, 2, |i| i.state = State::Refused).unwrap();
+        store.edit(id, 3, |i| i.state = State::Done).unwrap();
+        settle_run(&store, &journal, id, (Some(3_700_000), Some(2_400_000)), 1);
+        settle_run(&store, &journal, id, (Some(2_400_000), Some(2_400_000)), 2);
+        let restarted = Journal::new(dir.join("platform-history.json"));
+        let lines: Vec<_> = restarted
+            .entries()
+            .iter()
+            .map(evolite_local::journal::activity)
+            .collect();
+        assert_eq!(lines.len(), 1, "one line for the series");
+        assert_eq!(lines[0].amount, -2_600, "what the two done took");
+        assert!(matches!(
+            lines[0].kind,
+            evolite_api::ActivityKind::NftSeries {
+                done: 2,
+                refused: 1,
+                total: 3,
+                ..
+            }
+        ));
+        assert!(!lines[0].detail.as_ref().is_some_and(|d| d.cost_unknown));
+        // A run that wrote (done 1 → 2) with its credits not read.
+        settle_run(&store, &journal, id, (None, Some(1)), 1);
+        let line = evolite_local::journal::activity(&journal.entries()[0]);
+        assert_eq!(journal.entries().len(), 1);
+        assert!(
+            line.detail.is_some_and(|d| d.cost_unknown),
+            "not known, not 2 600"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn model(name: &str, description: &str, supply: u32, image: &[u8]) -> NewModel {
         NewModel {

@@ -2873,5 +2873,14 @@
   "Request received": "リクエスト受信",
   "Time of the write in Platform": "Platform に書き込まれた時刻",
   "still looking for payments…": "支払いをまだ探しています…",
-  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：受け取り、送金、履歴、自分のノード。Platform：アイデンティティ、DPNS 名、クレジット、Platform アドレス。DashPay の連絡先とプロフィール、プライベートプール、支出上限と期間付きの App Connect v2 によるアプリへのログイン、evolite 標準の NFT コレクション、testnet と mainnet（ベータ）、ネットワークはログイン画面で選択"
+  "Core: receive, send, history, your own node. Platform: identities, DPNS names, credits, Platform address. DashPay contacts and profile, the private pool, app sign-in by App Connect v2 with a spending limit and a period, NFT collections of the evolite standard, testnet and mainnet (beta), the network is chosen on the sign-in screen": "Core：受け取り、送金、履歴、自分のノード。Platform：アイデンティティ、DPNS 名、クレジット、Platform アドレス。DashPay の連絡先とプロフィール、プライベートプール、支出上限と期間付きの App Connect v2 によるアプリへのログイン、evolite 標準の NFT コレクション、testnet と mainnet（ベータ）、ネットワークはログイン画面で選択",
+  "Deleted {} copies of “{}”": "{} 部の「{}」を削除しました",
+  "Given {} “{}” · {}": "{} 部の「{}」を贈りました · {}",
+  "Issued {} “{}”": "{} 部の「{}」を発行しました",
+  "NFT": "NFT",
+  "Price changed for {} “{}” to {}": "{} 部の「{}」の価格を {} に変更しました",
+  "Put up for sale {} “{}” at {}": "{} 部の「{}」を {} で出品しました",
+  "Taken off sale {} “{}”": "{} 部の「{}」の出品を取り消しました",
+  "series · done {} of {}": "シリーズ · {} / {} 完了",
+  "series · done {} · refused {}": "シリーズ · {} 完了 · {} 拒否"
 }

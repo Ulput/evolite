@@ -344,6 +344,19 @@ pub enum Kind {
     /// FEAT-0020-resend: contact requests sent again after the DashPay pair was replaced,
     /// `sent` of `of`, `left` still owed; `spent` is what they cost this identity.
     ContactsResent { sent: u32, of: u32, left: u32 },
+    /// FEAT-0038 R-15, BUG-307: a «Workshop» series — one line for all of it, keyed
+    /// `nftseries:<id>:<created>` ([`series_key`]), written again as it goes (the same line:
+    /// never a copy). `spent` is what the writes done took ([`Entry::cost_known`] `false` when a
+    /// run's cost was not read).
+    NftSeries {
+        series: super::nft_series::Kind,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        done: u32,
+        #[serde(default)]
+        refused: u32,
+        total: u32,
+    },
     /// FEAT-0038 W2, R-15: an NFT collection registered — «Collection “{name}” created». `spent`
     /// is what the registration took (read after it), else its estimate. `sending`: sent without
     /// an answer and not seen yet (BUG-243) — «in transit» until it is found or known not to have
@@ -389,7 +402,72 @@ impl Kind {
             | Kind::NotDone { token } => token.clone(),
             Kind::ContactsResent { .. } => "contacts".into(),
             Kind::CollectionCreated { name, .. } => name.clone(),
+            Kind::NftSeries { model, .. } => model.clone().unwrap_or_else(|| "series".into()),
         }
+    }
+}
+
+/// Whether `a` and `b` say the same, their line's number apart.
+fn same_line(a: &Entry, b: &Entry) -> bool {
+    Entry {
+        line: None,
+        ..a.clone()
+    } == Entry {
+        line: None,
+        ..b.clone()
+    }
+}
+
+/// BUG-307: the key of series `id` started at `created` (unix seconds): its History line's,
+/// unchanged however often the line is written again, after a restart too. The time keeps a
+/// series apart from another of the same id if `nft-series.json` was set aside and its ids
+/// started over.
+pub fn series_key(id: u64, created: u64) -> String {
+    format!("nftseries:{id}:{created}")
+}
+
+/// BUG-307: the series' History line as it stands — `None` while nothing was written.
+pub fn series_entry(s: &super::nft_series::Series) -> Option<Entry> {
+    use super::nft_series::State;
+    let done = s.count(State::Done) as u32;
+    if done == 0 {
+        return None;
+    }
+    let kind = Kind::NftSeries {
+        series: s.kind.clone(),
+        model: s.model_name.clone(),
+        done,
+        refused: s.count(State::Refused) as u32,
+        total: s.items.len() as u32,
+    };
+    Some(Entry {
+        at: s.created_at as Timestamp,
+        what: What::Credits { to: kind.named() },
+        spent: s.spent as Duffs,
+        identity: Some(s.identity.clone()),
+        key: Some(series_key(s.id, s.created_at)),
+        kind: Some(kind),
+        cost_known: !s.cost_unknown,
+        ..Entry::default()
+    })
+}
+
+/// A series' kind as its History line says it; a price in credits is shown in duffs.
+fn series_act(kind: &super::nft_series::Kind) -> evolite_api::series::SeriesAct {
+    use super::nft_series::Kind as K;
+    use evolite_api::series::SeriesAct as A;
+    let duffs = |credits: u64| Duffs::try_from(credits / 1_000).unwrap_or(Duffs::MAX);
+    match kind {
+        K::Mint => A::Mint,
+        K::Price { price } => A::Price {
+            price: duffs(*price),
+        },
+        K::Reprice { price, .. } => A::Reprice {
+            price: duffs(*price),
+        },
+        K::Gift { to } => A::Gift { to: to.clone() },
+        K::Unprice => A::Unprice,
+        K::Delete => A::Delete,
     }
 }
 
@@ -751,6 +829,41 @@ impl Journal {
         }
     }
 
+    /// BUG-307: `entry` in place of the one of its key, or added when there is none — a series'
+    /// line written again as it goes stays one line, its number in History (notes) kept.
+    /// Whether the file changed.
+    pub fn put(&self, entry: Entry) -> bool {
+        let Some(key) = entry.key.clone() else {
+            return self.add(entry).is_some();
+        };
+        let mut entry = Some(entry);
+        let kept = self.store.update_kept(|e| {
+            let new = entry.take().expect("one entry");
+            match e
+                .known
+                .iter()
+                .position(|x| x.key.as_deref() == Some(key.as_str()))
+            {
+                Some(at) if same_line(&e.known[at], &new) => (false, false),
+                Some(at) => {
+                    let line = e.known[at].line;
+                    e.known[at] = Entry { line, ..new };
+                    (true, true)
+                }
+                None => {
+                    e.known.push(new);
+                    give_lines(&mut e.known);
+                    (true, true)
+                }
+            }
+        });
+        match kept {
+            Ok((changed, _)) => changed,
+            // Not written now (the file is held): kept in memory as any new entry is.
+            Err(_) => entry.is_some_and(|e| self.add(e).is_some()),
+        }
+    }
+
     /// The entry keyed `key` changed by `change` (FEAT-0038: a registration «in transit» found,
     /// or known not to have landed — `change` returns `false` to take the entry out). Whether
     /// one was there.
@@ -894,6 +1007,22 @@ pub fn activity(entry: &Entry) -> Activity {
         (Some(Kind::CollectionCreated { name, .. }), _) => {
             ActivityKind::CollectionCreated { name: name.clone() }
         }
+        (
+            Some(Kind::NftSeries {
+                series,
+                model,
+                done,
+                refused,
+                total,
+            }),
+            _,
+        ) => ActivityKind::NftSeries {
+            act: series_act(series),
+            model: model.clone(),
+            done: *done,
+            refused: *refused,
+            total: *total,
+        },
         (
             Some(Kind::NftSold {
                 model,
@@ -1138,6 +1267,95 @@ fn moves_money(what: &What) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-307 (FEAT-0038 R-15, AC-A15): a series of three, one refused — one History line
+    /// «2 of 3», its cost what the two done took; written again as it goes and after a restart,
+    /// still that one line, its number kept; a run whose cost was not read says «not known».
+    #[test]
+    fn a_series_is_one_line_however_often_it_is_written() {
+        use super::super::nft_series::{Item, Kind as SeriesKind, Series, State};
+        let dir = std::env::temp_dir().join(format!("evolite-series-line-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("platform-history.json");
+        let item = |serial, state| Item {
+            serial,
+            doc: None,
+            state,
+            why: None,
+            sent_at: None,
+            no_since: None,
+        };
+        let mut series = Series {
+            id: 4,
+            identity: "me".into(),
+            contract: "c".into(),
+            model: "m".into(),
+            kind: SeriesKind::Gift {
+                to: "@carol".into(),
+            },
+            items: vec![
+                item(1, State::Done),
+                item(2, State::Waiting),
+                item(3, State::Waiting),
+            ],
+            created_at: 1_700_000_000,
+            spent: 0,
+            closed: false,
+            model_name: Some("Orange pin".into()),
+            cost_unknown: false,
+        };
+        assert_eq!(
+            series_entry(&Series {
+                items: vec![item(1, State::Waiting)],
+                ..series.clone()
+            }),
+            None,
+            "nothing written: no line"
+        );
+        let journal = Journal::new(path.clone());
+        series.spent = 1_300;
+        assert!(journal.put(series_entry(&series).unwrap()));
+        let first = journal.entries()[0].line;
+        // The rest: one refused, one done.
+        series.items[1].state = State::Refused;
+        series.items[2].state = State::Done;
+        series.spent = 2_600;
+        assert!(journal.put(series_entry(&series).unwrap()));
+        assert!(
+            !journal.put(series_entry(&series).unwrap()),
+            "the same: nothing to write"
+        );
+        let again = Journal::new(path.clone());
+        assert!(
+            !again.put(series_entry(&series).unwrap()),
+            "after a restart: the same line"
+        );
+        let all = again.entries();
+        assert_eq!(all.len(), 1, "one line for the series");
+        assert_eq!(all[0].line, first, "its number kept");
+        let line = activity(&all[0]);
+        assert_eq!(
+            line.kind,
+            ActivityKind::NftSeries {
+                act: evolite_api::series::SeriesAct::Gift {
+                    to: "@carol".into()
+                },
+                model: Some("Orange pin".into()),
+                done: 2,
+                refused: 1,
+                total: 3,
+            }
+        );
+        assert_eq!(line.amount, -2_600, "what the two done took");
+        assert!(!line.detail.as_ref().is_some_and(|d| d.cost_unknown));
+        // A run whose credits were not read: not a sum too small, «not known».
+        series.cost_unknown = true;
+        assert!(again.put(series_entry(&series).unwrap()));
+        let all = Journal::new(path).entries();
+        assert_eq!(all.len(), 1);
+        assert!(activity(&all[0]).detail.is_some_and(|d| d.cost_unknown));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// BUG-205 r1 C2: a journal whose wallet folder was deleted says so, so a late line is not
     /// written and the folder not made again.

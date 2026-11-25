@@ -405,6 +405,27 @@ pub fn cost_unknown(act: &Activity) -> bool {
 }
 
 pub fn row_place(act: &Activity) -> String {
+    // BUG-307 (R-15, AC-A15): «Platform · series · done 2 of 3», with refusals «done 2 ·
+    // refused 1»; its cost not known said after it.
+    if let ActivityKind::NftSeries {
+        done,
+        refused,
+        total,
+        ..
+    } = act.kind
+    {
+        let series = if refused > 0 {
+            format!(tr!("series · done {} · refused {}"), done, refused)
+        } else {
+            format!(tr!("series · done {} of {}"), done, total)
+        };
+        let place = format!("{} · {series}", source(act));
+        return if cost_unknown(act) {
+            format!("{place} · {}", tr!("fee: no record"))
+        } else {
+            place
+        };
+    }
     // BUG-176: not «0.0000», which would say it cost nothing.
     if cost_unknown(act) {
         return tr!("fee: no record").into();
@@ -448,6 +469,41 @@ pub fn row_place(act: &Activity) -> String {
             )
         }
         _ => source(act).into(),
+    }
+}
+
+/// A «Workshop» series' line in History (FEAT-0038 R-15, the analyst's strings): `done` is how
+/// many were written; a series kept before its model's name was names none.
+fn series_title(act: &evolite_api::series::SeriesAct, model: Option<&str>, done: u32) -> String {
+    use evolite_api::series::SeriesAct;
+    let model = match model {
+        Some(m) => crate::i18n::own(m),
+        None => tr!("NFT").to_owned(),
+    };
+    match act {
+        SeriesAct::Mint => format!(tr!("Issued {} “{}”"), done, model),
+        SeriesAct::Price { price } => format!(
+            tr!("Put up for sale {} “{}” at {}"),
+            done,
+            model,
+            crate::format::amount(*price)
+        ),
+        SeriesAct::Reprice { price } => format!(
+            tr!("Price changed for {} “{}” to {}"),
+            done,
+            model,
+            crate::format::amount(*price)
+        ),
+        SeriesAct::Gift { to } => {
+            let to = if to.starts_with('@') {
+                crate::i18n::own(to)
+            } else {
+                short_address(to)
+            };
+            format!(tr!("Given {} “{}” · {}"), done, model, to)
+        }
+        SeriesAct::Unprice => format!(tr!("Taken off sale {} “{}”"), done, model),
+        SeriesAct::Delete => format!(tr!("Deleted {} copies of “{}”"), done, model),
     }
 }
 
@@ -717,6 +773,10 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::CollectionCreated { name } => {
             format!(tr!("Collection “{}” created"), crate::i18n::own(name))
         }
+        // BUG-307, R-15: one line a series — what it did, to how many done.
+        ActivityKind::NftSeries {
+            act, model, done, ..
+        } => series_title(act, model.as_deref(), *done),
         // FEAT-0038 R-15: «Продан «{model}» № {n} · @{name}»; without the number, or the model,
         // when the instance was deleted after the sale (the architect's point 4).
         ActivityKind::NftSold {
@@ -1043,7 +1103,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::PlatformReceived
         | ActivityKind::PoolReceived
         | ActivityKind::NftSold { .. } => "receive",
-        ActivityKind::CollectionCreated { .. } => "nft",
+        ActivityKind::CollectionCreated { .. } | ActivityKind::NftSeries { .. } => "nft",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",

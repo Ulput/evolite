@@ -111,11 +111,47 @@ pub(super) type Kit = Harness<'static, App>;
 /// but the network and the core and art threads are one per process.
 static ONE_APP: Mutex<()> = Mutex::new(());
 
+/// The thread that took [`ONE_APP`] last (through [`take_turn`]).
+static TURN_HOLDER: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
+
+/// This test's turn at the app. A test that still holds its turn and asks for another would
+/// wait for itself forever (BUG-307's test hung three hours): that panics at once, saying so.
+/// Another test's turn is waited for as long as it takes — a turn ends with its test, which
+/// gives up after [`PATIENCE`] at each wait.
+pub(super) fn take_turn() -> MutexGuard<'static, ()> {
+    let me = std::thread::current().id();
+    let mut mine_since: Option<Instant> = None;
+    loop {
+        match ONE_APP.try_lock() {
+            Ok(turn) => return held_by(turn, me),
+            Err(std::sync::TryLockError::Poisoned(e)) => return held_by(e.into_inner(), me),
+            Err(std::sync::TryLockError::WouldBlock) => {}
+        }
+        let holder = *TURN_HOLDER.lock().unwrap_or_else(|e| e.into_inner());
+        // A turn just passed on may not have its holder written yet: «mine» only when it stays.
+        mine_since = match (holder == Some(me), mine_since) {
+            (true, None) => Some(Instant::now()),
+            (true, since) => since,
+            (false, _) => None,
+        };
+        assert!(
+            !mine_since.is_some_and(|t| t.elapsed() > Duration::from_secs(1)),
+            "ONE_APP is still held: drop the previous app (its _turn) before opening another"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn held_by(turn: MutexGuard<'static, ()>, me: std::thread::ThreadId) -> MutexGuard<'static, ()> {
+    *TURN_HOLDER.lock().unwrap_or_else(|e| e.into_inner()) = Some(me);
+    turn
+}
+
 /// The app as `evolite --screen <preset> --lang <lang>` starts it — the demo core, dark,
 /// 1024×768 — once the core's first snapshot is on screen. Keep the turn to the end of the
 /// test: `let (_turn, mut kit) = …` (not `_`).
 pub(super) fn demo_app(preset: &str, lang: &str) -> (MutexGuard<'static, ()>, Kit) {
-    let turn = ONE_APP.lock().unwrap_or_else(|e| e.into_inner());
+    let turn = take_turn();
     let args: Vec<String> = ["--screen", preset, "--lang", lang]
         .iter()
         .map(|s| s.to_string())
@@ -454,4 +490,18 @@ pub(super) fn tab_to(kit: &mut Kit, name: &str) {
 pub(super) fn enter(kit: &mut Kit) {
     kit.key_press(Key::Enter);
     kit.run_steps(2);
+}
+
+/// BUG-307: a test asking for a second turn while it holds the first is told so, not left
+/// waiting for itself.
+#[test]
+fn a_second_turn_in_one_test_panics_saying_why() {
+    let _turn = take_turn();
+    let again = std::panic::catch_unwind(take_turn).expect_err("a second turn");
+    let why = again
+        .downcast_ref::<String>()
+        .cloned()
+        .or_else(|| again.downcast_ref::<&str>().map(|s| s.to_string()))
+        .unwrap_or_default();
+    assert!(why.contains("drop the previous app (its _turn)"), "{why}");
 }
