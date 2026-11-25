@@ -141,7 +141,7 @@ impl Chain {
         let found = IdentitiesContractKeys::fetch(&sdk, query)
             .await
             .map_err(|e| e.to_string())?
-            .unwrap_or_default();
+            .unwrap_or_default(); // default-ok: proved none: the identity has no such key
         Ok(found
             .get(&identity)
             .and_then(|by_purpose| by_purpose.get(&wanted).cloned().flatten()))
@@ -172,6 +172,7 @@ impl Chain {
         }
         let mut disable = Some(disable);
         for batch in batches {
+            // default-ok: keys to disable go in the first batch only
             let off = disable.take().unwrap_or_default();
             if batch.is_empty() && off.is_empty() {
                 continue;
@@ -263,7 +264,7 @@ impl Chain {
         .await
         .map_err(|e| e.to_string())?
         .map(|b| b.0)
-        .unwrap_or_default();
+        .unwrap_or_default(); // default-ok: proved none: each key's budget reads none
         Ok(key_ids
             .into_iter()
             .map(|id| (id, found.get(&id).copied().flatten()))

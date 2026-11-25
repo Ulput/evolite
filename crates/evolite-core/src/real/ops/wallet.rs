@@ -554,10 +554,12 @@ impl Real {
                     {
                         tokio::time::sleep(Duration::from_millis(250)).await;
                     }
+                    // default-ok: no height known: scan from genesis, slow but safe
                     known(self).unwrap_or(0)
                 }
                 None => {
                     self.start_settled(START_WAIT).await;
+                    // default-ok: no height known: scan from genesis, slow but safe
                     known(self).unwrap_or(0)
                 }
             }
@@ -752,6 +754,7 @@ impl Real {
                 Event::PhraseAccepted(Err(e))
             } else if let Some(name) = self.same_wallet(&vault::Secret {
                 phrase: text.clone(),
+                // default-ok: an optional passphrase: none is empty
                 passphrase: passphrase.clone().unwrap_or_default(),
             }) {
                 // One phrase, one wallet on this computer.
@@ -766,6 +769,7 @@ impl Real {
             } else if !dashpay {
                 let secret = vault::Secret {
                     phrase: text,
+                    // default-ok: an optional passphrase: none is empty
                     passphrase: passphrase.unwrap_or_default(),
                 };
                 self.pending = Some((secret, true));
@@ -777,6 +781,7 @@ impl Real {
                 // before the wallet is made, for O5. Its keys are dropped after the scan.
                 let secret = vault::Secret {
                     phrase: text,
+                    // default-ok: an optional passphrase: none is empty
                     passphrase: passphrase.unwrap_or_default(),
                 };
                 let keys = seed_of(&secret).and_then(|seed| keys_from(seed_bytes(&seed)));

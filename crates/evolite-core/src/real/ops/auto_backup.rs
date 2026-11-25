@@ -79,6 +79,7 @@ impl Real {
             .file
             .get_or_insert_with(|| {
                 evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+                    // default-ok: an unreadable file is set aside: backups start over off
                     .unwrap_or_default()
             })
             .clone()
@@ -171,7 +172,7 @@ impl Real {
             .into_iter()
             .find(|w| w.id == self.wallet)
             .map(|w| w.name)
-            .unwrap_or_default();
+            .unwrap_or_default(); // default-ok: a wallet name for the file name: none is empty
         self.auto.lock().unwrap_or_else(|e| e.into_inner()).running = true;
         let (auto_state, path) = (self.auto.clone(), self.auto_path());
         let (dirty, out, wake) = (self.dirty.clone(), self.out.clone(), self.wake.clone());
@@ -186,6 +187,7 @@ impl Real {
             );
             let mut state = auto_state.lock().unwrap_or_else(|e| e.into_inner());
             state.running = false;
+            // default-ok: loaded before the write starts: never none here
             let mut file = state.file.clone().unwrap_or_default();
             let result = match &written {
                 Ok(done) => {

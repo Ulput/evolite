@@ -185,7 +185,11 @@ pub fn to_api(managed: &ManagedIdentity) -> Identity {
         names,
         keys,
         profile: None,
-        // As the choice of identities counts it (`Real::wallet`).
+        // As the choice of identities counts it (`Real::wallet`). Every caller picks the
+        // wallet's identities with a slot only (`wallet_id == Some(id) &&
+        // identity_index.is_some()`, as `platform_history`): one without would read as slot 0
+        // and be mixed with identity 0 in the top-up account and «Continue» (review r1, Should 2).
+        // default-ok: never none here: the callers pick identities with a slot only
         slot: managed.identity_index.unwrap_or_default(),
     }
 }
@@ -453,6 +457,7 @@ pub fn lock_line(
     match what {
         // The identity exists: Platform took the lock that made it.
         Some(LockFor::Registration) => (
+            // default-ok: display only: unknown identity; credits say unknown
             registered.map(shown).unwrap_or_default(),
             true,
             not_added(registered.is_some()),
@@ -465,6 +470,7 @@ pub fn lock_line(
             // transaction was swept, is not tracked either (BUG-57 r1).
             let taken = consumed || tracked.is_some_and(|t| t.consumed);
             (
+                // default-ok: display only: unknown identity; credits say unknown
                 identity.clone().unwrap_or_default(),
                 false,
                 not_added(identity.is_some() && taken),

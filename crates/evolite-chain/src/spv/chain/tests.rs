@@ -621,9 +621,18 @@ fn an_already_taken_lock_is_judged_by_the_credits() {
         already_taken(Some(100), Some(50_000_100), Some(InstantSendLocked)),
         AlreadyTaken::Credited(50_000_100)
     );
+    // Before not known: credits held before prove nothing, the lock's status answers.
+    assert_eq!(
+        already_taken(None, Some(7), Some(InstantSendLocked)),
+        AlreadyTaken::AwaitChainLock
+    );
     assert_eq!(
         already_taken(None, Some(7), None),
-        AlreadyTaken::Credited(7)
+        AlreadyTaken::AwaitChainLock
+    );
+    assert_eq!(
+        already_taken(None, Some(7), Some(RecoveredFromChain)),
+        AlreadyTaken::Settled
     );
     // Credited before (an earlier sync saw it), no ChainLock yet: wait, do not fail.
     assert_eq!(

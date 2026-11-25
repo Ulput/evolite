@@ -135,6 +135,7 @@ fn block_of(metadata: &dash_sdk::dapi_grpc::platform::v0::ResponseMetadata) -> B
         time_ms: metadata.time_ms,
         height: metadata.height,
         core_height: metadata.core_chain_locked_height,
+        // default-ok: block info for display: a bad epoch reads 0
         epoch: Epoch::new(metadata.epoch as u16).unwrap_or_default(),
     }
 }

@@ -191,6 +191,24 @@ fn last_lines<K: PartialEq>(
     }
 }
 
+/// The spent nullifiers of a read that could not read them (the store busy or failing): this
+/// wallet's last ones, not none. With none, the pool's withdrawals (BUG-275) would read «from
+/// Platform» in that snapshot and «from the pool» in the next (review r2 of TECH-bug-prevention
+/// (а), Should). No last read: none, as the first snapshot of a run.
+#[cfg(feature = "pool")]
+#[allow(clippy::type_complexity)]
+fn last_spent<K: PartialEq>(
+    last: &std::sync::Mutex<Option<(K, PoolView)>>,
+    id: &K,
+) -> (Vec<[u8; 32]>, std::collections::HashMap<u64, Vec<[u8; 32]>>) {
+    match &*last.lock().unwrap_or_else(|e| e.into_inner()) {
+        Some((wallet, view)) if wallet == id => {
+            (view.spent.clone(), view.spent_by_operation.clone())
+        }
+        _ => Default::default(),
+    }
+}
+
 /// The one Orchard account evolite uses.
 #[cfg(feature = "pool")]
 const ACCOUNT: u32 = 0;
@@ -534,38 +552,56 @@ mod imp {
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
-            let mut spent = Vec::new();
-            let mut spent_by_operation = std::collections::HashMap::new();
-            let (notes, operations) = match coordinator.store().try_read() {
-                Ok(store) => {
-                    let found = store.get_unspent_notes(id).unwrap_or_default();
-                    // BUG-275: every spent note's nullifier, and each operation's own.
-                    if let Ok(all) = store.get_all_notes(id) {
-                        spent = all
-                            .iter()
-                            .filter(|n| n.is_spent)
-                            .map(|n| n.nullifier)
-                            .collect();
-                    }
-                    let entries = store
-                        .get_activity(id, 0, SHOWN_OPERATIONS)
-                        .unwrap_or_default();
-                    for e in &entries {
-                        if !e.spent_nullifiers.is_empty() {
-                            let mut key = [0u8; 8];
-                            key.copy_from_slice(&e.id[..8]);
-                            spent_by_operation
-                                .insert(u64::from_le_bytes(key), e.spent_nullifiers.clone());
+            let last = || {
+                let (notes, operations) = super::last_lines(&self.last_pool, &wallet.wallet_id());
+                let (spent, by_operation) = super::last_spent(&self.last_pool, &wallet.wallet_id());
+                (notes, operations, spent, by_operation)
+            };
+            let (notes, operations, spent, spent_by_operation) = match coordinator
+                .store()
+                .try_read()
+            {
+                // TECH-bug-prevention (TEAM.md §8d-4): a store that could not be read is not «no
+                // notes, no operations»: the last lines stay, as with a busy store.
+                Ok(store) => match (
+                    store.get_unspent_notes(id),
+                    store.get_activity(id, 0, SHOWN_OPERATIONS),
+                ) {
+                    (Ok(found), Ok(entries)) => {
+                        // BUG-275: every spent note's nullifier, and each operation's own. Not
+                        // read: the last ones (review r2, Should).
+                        let spent = match store.get_all_notes(id) {
+                            Ok(all) => all
+                                .iter()
+                                .filter(|n| n.is_spent)
+                                .map(|n| n.nullifier)
+                                .collect(),
+                            Err(_) => super::last_spent(&self.last_pool, &wallet.wallet_id()).0,
+                        };
+                        let mut spent_by_operation = std::collections::HashMap::new();
+                        for e in &entries {
+                            if !e.spent_nullifiers.is_empty() {
+                                let mut key = [0u8; 8];
+                                key.copy_from_slice(&e.id[..8]);
+                                spent_by_operation
+                                    .insert(u64::from_le_bytes(key), e.spent_nullifiers.clone());
+                            }
                         }
+                        // BUG-240: the same read's count and sum, for the journal.
+                        unspent = Some((
+                            found.len() as u32,
+                            found.iter().fold(0u64, |s, n| s.saturating_add(n.value)),
+                        ));
+                        (
+                            found.len() as u32,
+                            operations(entries),
+                            spent,
+                            spent_by_operation,
+                        )
                     }
-                    // BUG-240: the same read's count and sum, for the journal.
-                    unspent = Some((
-                        found.len() as u32,
-                        found.iter().fold(0u64, |s, n| s.saturating_add(n.value)),
-                    ));
-                    (found.len() as u32, operations(entries))
-                }
-                Err(_) => super::last_lines(&self.last_pool, &wallet.wallet_id()),
+                    _ => last(),
+                },
+                Err(_) => last(),
             };
             note_pool_read(pool_record(state.as_ref().map_err(|_| ()), unspent));
             Some(PoolView {
@@ -1030,8 +1066,10 @@ mod imp {
             // To our own private address: only the fee leaves.
             (_, ShieldedDirection::SelfTransfer) => (
                 ActivityKind::SelfTransfer { moved: 0 },
+                // default-ok: a restored line: its fee is not known, shown without
                 -fee.unwrap_or_default(),
             ),
+            // default-ok: a restored line: its fee is not known, shown without
             (_, ShieldedDirection::Out) => (ActivityKind::PoolSent, -(duffs + fee.unwrap_or(0))),
         };
         let mut id = [0u8; 8];
@@ -1538,6 +1576,23 @@ mod tests {
     fn a_busy_store_keeps_the_wallets_last_notes_and_lines() {
         let last = std::sync::Mutex::new(Some((1u8, a_view(3, vec![a_line(9)]))));
         assert_eq!(last_lines(&last, &1), (3, vec![a_line(9)]));
+    }
+
+    /// Review r2 of TECH-bug-prevention (а), Should: the store busy, a read keeps the wallet's
+    /// last spent nullifiers, so a pool withdrawal does not read «from Platform» for one
+    /// snapshot; another wallet's, or none read yet, give none.
+    #[test]
+    fn a_busy_store_keeps_the_wallets_last_spent_nullifiers() {
+        let mut view = a_view(3, vec![a_line(9)]);
+        view.spent = vec![[7; 32]];
+        view.spent_by_operation.insert(5, vec![[7; 32]]);
+        let last = std::sync::Mutex::new(Some((1u8, view)));
+        let (spent, by_operation) = last_spent(&last, &1);
+        assert_eq!(spent, vec![[7; 32]]);
+        assert_eq!(by_operation.get(&5), Some(&vec![[7; 32]]));
+        assert!(last_spent(&last, &2).0.is_empty(), "another wallet's");
+        let none = std::sync::Mutex::new(None::<(u8, PoolView)>);
+        assert!(last_spent(&none, &1).0.is_empty());
     }
 
     #[test]

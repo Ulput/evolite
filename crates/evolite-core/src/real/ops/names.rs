@@ -222,6 +222,7 @@ impl Real {
                         let (shown, ids) = match wallet_id {
                             Some(id) => match chain.wallet(&id).await {
                                 Some(w) => (
+                                    // default-ok: no identity in the wallet: none on screen
                                     acting_identity(&w).await.unwrap_or_default(),
                                     wallet_identity_ids(&w).await,
                                 ),

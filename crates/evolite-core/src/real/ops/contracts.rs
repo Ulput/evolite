@@ -229,6 +229,7 @@ fn sent_key(identity: &str, nonce: u64) -> String {
 /// The collection's name for its History line: its description.
 fn name_of(draft: &ContractDraft) -> String {
     match draft {
+        // default-ok: an optional description: none is empty
         ContractDraft::NftCollection { description, .. } => description.clone().unwrap_or_default(),
     }
 }
@@ -277,6 +278,7 @@ where
     if unclear.contract_of(identity).is_none()
         && let Some((nonce, at)) = in_transit(journal, identity)
     {
+        // default-ok: clock behind the line's time: sent just now
         let ago = Duration::from_secs(u64::try_from(now() - at).unwrap_or(0));
         let watch = sent::Watch::Contract {
             owner: identity.to_owned(),

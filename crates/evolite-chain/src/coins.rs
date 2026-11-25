@@ -84,7 +84,7 @@ pub fn within(payable: Vec<Utxo>, chosen: &[String]) -> Result<Vec<Utxo>, Choice
             .iter()
             .find(|o| !found.contains(*o))
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_default(); // default-ok: error text only: the missing coin's name
         return Err(ChoiceError::Gone(gone));
     }
     Ok(coins)

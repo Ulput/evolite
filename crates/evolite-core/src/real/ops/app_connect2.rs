@@ -99,6 +99,7 @@ pub(in crate::real) fn refusal(refused: Refusal, text: &str, system: bool) -> Co
         Refusal::NotOurs => return CoreError::BadLink,
         Refusal::Refused(Status::Stale, _) => AppLinkRefusal::Stale,
         Refusal::Refused(_, Part::Version) => AppLinkRefusal::Version {
+            // default-ok: display only: a link without v shows none
             v: link_param(text, "v").unwrap_or_default(),
         },
         // TECH-mainnet-all: the transitional carrier on mainnet (DIP-0015's rule, kept), and a
@@ -162,6 +163,7 @@ fn binding(bounds: &Bounds) -> AppBinding {
 }
 
 fn stored_binding(key: &StoredKey) -> AppBinding {
+    // default-ok: an optional document type: none is empty
     let name = key.document_type.clone().unwrap_or_default();
     match key.kind.as_str() {
         "group" => AppBinding::Group {
@@ -256,7 +258,7 @@ pub(in crate::real) fn spent_by_reads(app: &App, reads: &Reads) -> Option<u64> {
 /// lost to rounding over many reads); a fall (a renewal, a new budget) is no line, only the new
 /// baseline. Not read before: everything spent so far, once.
 pub(in crate::real) fn app_spent_step(seen: Option<u64>, spent: u64) -> (Duffs, u64) {
-    let seen = seen.unwrap_or(0);
+    let seen = seen.unwrap_or(0); // default-ok: never read before: everything spent so far counts
     let line = if spent > seen {
         duffs(spent) - duffs(seen)
     } else {
@@ -636,7 +638,7 @@ impl Real {
                                 })
                                 .collect()
                         })
-                        .unwrap_or_default(),
+                        .unwrap_or_default(), // default-ok: no previous session: none to disable
                     _ => Vec::new(),
                 };
                 let added: Vec<IdentityPublicKey> = add.iter().map(|k| k.key.clone()).collect();
@@ -960,6 +962,7 @@ pub(in crate::real) async fn disconnect(
     app: &App,
     apps: &crate::real::connected_apps::ConnectedApps,
 ) -> Result<(), CoreError> {
+    // default-ok: no session: no session keys to disable
     let session = app.session.clone().unwrap_or_default();
     let ids = live_session_keys(&session, &who.keys);
     let who = if ids.is_empty() {

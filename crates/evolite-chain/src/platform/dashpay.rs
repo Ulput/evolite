@@ -280,7 +280,7 @@ pub fn contacts_of(
                 let picture = fetches_picture(state).then(|| avatar(id, p)).flatten();
                 profile_of(p, picture)
             })
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: a contact without a profile: an empty one
     };
     // Both ways: how many, and the latest the history has a time for.
     let payments = |id: &Identifier| {

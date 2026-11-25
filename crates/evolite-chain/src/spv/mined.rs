@@ -53,7 +53,7 @@ impl Mined {
     fn load(&self) -> HashMap<String, Block> {
         // BUG-235: one that does not read is set aside, not written over.
         crate::json_file::read_cache(&self.path, |b| serde_json::from_slice(b).ok())
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: a cache: unread means not noted yet, set aside
     }
 
     /// Notes the block of every record in a final one — chain-locked, or at or below

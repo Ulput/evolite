@@ -280,7 +280,8 @@ impl Real {
                         what: journal::What::Name {
                             label: label.clone(),
                         },
-                        spent: spent_credits(before, after).unwrap_or(0),
+                        spent: write_cost(before, after).0,
+                        cost_known: write_cost(before, after).1,
                         moved: 0,
                         identity: Some(acting),
                         ..Default::default()
@@ -464,7 +465,8 @@ impl Real {
                     what: journal::What::NameClaim {
                         label: label.clone(),
                     },
-                    spent: spent_credits(before, after).unwrap_or(0),
+                    spent: write_cost(before, after).0,
+                    cost_known: write_cost(before, after).1,
                     // BUG-190/191: the fund goes into the vote, it is no fee: the line's fee is
                     // the writes alone (preorder, domain, the link), what the form estimated.
                     moved: fund_now,
@@ -577,7 +579,8 @@ impl Real {
                         label: label.clone(),
                         removed: url.is_none(),
                     },
-                    spent: spent_credits(before, after).unwrap_or(0),
+                    spent: write_cost(before, after).0,
+                    cost_known: write_cost(before, after).1,
                     moved: 0,
                     identity: Some(shown),
                     ..Default::default()
@@ -1030,6 +1033,7 @@ impl Real {
             let result = match available {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
                     tr!("The name @{label} is already taken, the money is untouched"),
+                    // default-ok: error text only: no label is empty
                     label = label.as_deref().unwrap_or_default()
                 ))),
                 Err(e) => Err(read_failure(e)),
@@ -1132,6 +1136,23 @@ pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) ->
     (spent > 0).then_some((spent / 1000) as Duffs)
 }
 
+/// TECH-bug-prevention (TEAM.md §8d-4): what a Platform write took from the identity's credits,
+/// in duffs, and whether that is known. Both balances read: their difference (`0` when the
+/// credits did not go down), known. Either read failed: `(0, false)` — «cost not known», never a
+/// write that looks free.
+pub(in crate::real) fn write_cost(before: Option<u64>, after: Option<u64>) -> (Duffs, bool) {
+    match (before, after) {
+        (Some(before), Some(after)) => ((before.saturating_sub(after) / 1000) as Duffs, true),
+        _ => (0, false),
+    }
+}
+
+/// `entry` with whether its cost is known ([`write_cost`]).
+pub(in crate::real) fn costed(mut entry: journal::Entry, known: bool) -> journal::Entry {
+    entry.cost_known = known;
+    entry
+}
+
 /// The journal line of a Platform write evolite signed itself (BUG-145 AC-T1): what it cost from
 /// the credits before and after, or no line when the write failed: nothing was signed, or the
 /// network refused it.
@@ -1153,12 +1174,8 @@ pub(in crate::real) fn own_line(
     after: Option<u64>,
     acting: Option<String>,
 ) -> journal::Entry {
-    journal::entry_of(
-        kind,
-        now(),
-        spent_credits(before, after).unwrap_or(0),
-        acting,
-    )
+    let (spent, known) = write_cost(before, after);
+    costed(journal::entry_of(kind, now(), spent, acting), known)
 }
 
 /// The first slot this computer remembers a name for (`names`, [`pending::PendingNames`])

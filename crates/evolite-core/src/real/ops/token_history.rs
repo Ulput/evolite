@@ -528,6 +528,7 @@ pub(in crate::real) async fn read_asked(
             // T-3.10: what this identity did as the issuer, here or on another device — a kind
             // at a time, so one refused does not hide the others; only the kinds it has a right
             // to, and not more often than every 5 minutes (review r1, should 1).
+            // default-ok: no issuer rights, or not due: no kinds to read
             let kinds = issuer.get(&meta.token_id).cloned().unwrap_or_default();
             if kinds.is_empty() {
                 continue;

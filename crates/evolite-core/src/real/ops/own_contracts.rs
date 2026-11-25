@@ -120,6 +120,7 @@ impl Real {
         self.answer_later("task:own_contracts", async move {
             let mut checked: BTreeMap<String, u64> =
                 evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
+                    // default-ok: a cache (BUG-271): unread, the scan starts over, set aside
                     .unwrap_or_default();
             let from = scan_from(checked.get(&identity).copied());
             let pass = {

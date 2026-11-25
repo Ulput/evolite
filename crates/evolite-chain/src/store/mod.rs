@@ -543,7 +543,9 @@ pub fn spent_claims(db: &Path, wallet: &WalletId, locked: u32) -> Claims {
     let Ok(spent) = outpoints(db, wallet, true) else {
         return Claims::default();
     };
+    // default-ok: unread claims nothing: no coin is hidden
     let unspent = outpoints(db, wallet, false).unwrap_or_default();
+    // default-ok: unread claims nothing: no coin is hidden
     let records = crate::chain::stored_history(db, wallet).unwrap_or_default();
     claims_of(&spent, &unspent, &records, locked)
 }

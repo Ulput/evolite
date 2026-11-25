@@ -186,6 +186,7 @@ impl LockStatuses {
             let file: Option<File> =
                 crate::json_file::read_cache(&self.path, |b| serde_json::from_slice(b).ok());
             state.set_aside = there && file.is_none();
+            // default-ok: unreadable file set aside and asked again
             let file = file.unwrap_or_default();
             state.spent = Some(file.spent);
         }

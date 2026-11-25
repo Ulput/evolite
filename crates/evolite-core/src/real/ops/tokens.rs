@@ -321,7 +321,7 @@ impl Real {
                         })
                         .collect()
                 })
-                .unwrap_or_default(),
+                .unwrap_or_default(), // default-ok: no identity chosen: no hidden tokens
         }
     }
 
@@ -1114,10 +1114,9 @@ fn earlier_is(
         return Earlier::NotKnown;
     };
     if state.nonce > n0 {
-        if state.shows(n0, shows) {
-            Earlier::Landed(state.value.unwrap_or_default())
-        } else {
-            Earlier::SomethingLanded
+        match state.value.filter(|_| state.shows(n0, shows)) {
+            Some(read) => Earlier::Landed(read),
+            None => Earlier::SomethingLanded,
         }
     } else if quiet_for >= sent::QUIET {
         // BUG-243 (7): one «no» may be a node behind: two, far enough apart.

@@ -181,6 +181,7 @@ impl Real {
             let result = match available {
                 Ok(false) => Err(CoreError::NotAvailable(format!(
                     tr!("The name @{label} is already taken, the money is untouched"),
+                    // default-ok: error text only: no label is empty
                     label = label.as_deref().unwrap_or_default()
                 ))),
                 Err(e) => Err(read_failure(e)),

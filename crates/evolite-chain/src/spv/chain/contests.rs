@@ -81,12 +81,13 @@ fn snapshot_of(
         .document_type_cloned_for_name("domain")
         .ok()
         .and_then(|document_type| state.to_contenders(&document_type, version).ok())
-        .unwrap_or_default();
+        .unwrap_or_default(); // default-ok: claim times for display only: none known
     let contenders = state
         .contenders
         .iter()
         .map(|(id, contender)| Contender {
             identity: id.to_string(Encoding::Base58),
+            // default-ok: protocol: an absent tally is 0
             votes: contender.vote_tally().unwrap_or(0),
             created_at: documents
                 .get(id)
@@ -105,7 +106,8 @@ fn snapshot_of(
     ContestSnapshot {
         winner,
         contenders,
-        lock: state.lock_vote_tally.unwrap_or(0),
+        lock: state.lock_vote_tally.unwrap_or(0), // default-ok: protocol: an absent tally is 0
+        // default-ok: protocol: an absent tally is 0
         abstain: state.abstain_vote_tally.unwrap_or(0),
     }
 }
@@ -199,7 +201,7 @@ impl Chain {
                 d.properties()
                     .get("url")
                     .and_then(|v| v.as_text())
-                    .unwrap_or_default()
+                    .unwrap_or_default() // default-ok: an optional url field: none is empty
                     .to_owned()
             }))
     }

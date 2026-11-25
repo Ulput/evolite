@@ -129,7 +129,7 @@ impl Outgoing {
                     .txid
                     .as_ref()
                     .map(|t| format!("core:{t}"))
-                    .unwrap_or_default(),
+                    .unwrap_or_default(), // default-ok: no txid yet: the line has no key
                 detail: None,
                 note: None,
                 rate: None,

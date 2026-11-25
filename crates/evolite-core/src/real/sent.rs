@@ -52,6 +52,7 @@ impl<T, E> Outcome<T, TokenState, E> {
     pub(in crate::real) fn landed(self) -> Result<Landed<T>, NoAnswer<T, E>> {
         match self {
             Outcome::Done(done) => Ok(Landed::Answer(done)),
+            // default-ok: shown only when the value was read: never none
             Outcome::Shown(state) => Ok(Landed::Read(state.value.unwrap_or_default())),
             Outcome::Refused(e) => Err(NoAnswer::Refused(e)),
             Outcome::Unclear { late } => Err(NoAnswer::Unclear(late)),
@@ -305,6 +306,7 @@ pub(in crate::real) async fn token_read(
                 .token_facts(identity, &[token.to_owned()])
                 .await
                 .ok()?;
+            // default-ok: proved facts: a token not held is 0
             Some(facts.balances.get(token).copied().unwrap_or(0))
         }
         TokenShows::SupplyAtLeast(_) | TokenShows::SupplyAtMost(_) => {

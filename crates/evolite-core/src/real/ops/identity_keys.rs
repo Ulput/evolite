@@ -209,7 +209,9 @@ impl Real {
         let wallet = loaded(&self.chain, &open.id).await.ok()?;
         let state = wallet.state().await;
         let managed = state.identity_manager.managed_identities().find(|m| {
-            m.wallet_id == Some(open.id) && m.identity.id().to_string(Encoding::Base58) == identity
+            m.wallet_id == Some(open.id)
+                && m.identity_index.is_some()
+                && m.identity.id().to_string(Encoding::Base58) == identity
         })?;
         Some(api_keys(
             managed,

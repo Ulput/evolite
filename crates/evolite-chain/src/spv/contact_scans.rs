@@ -53,6 +53,7 @@ impl ContactScans {
 
     fn load(path: &std::path::Path) -> BTreeSet<String> {
         // BUG-235: one that does not read is set aside, not written over.
+        // default-ok: a cache: unread means rescan, set aside
         crate::json_file::read_cache(path, |b| serde_json::from_slice(b).ok()).unwrap_or_default()
     }
 

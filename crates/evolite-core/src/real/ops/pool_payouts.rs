@@ -186,7 +186,7 @@ impl Payouts {
     fn docs(&mut self, path: &std::path::Path) -> &mut BTreeMap<String, StoredDoc> {
         self.docs.get_or_insert_with(|| {
             evolite_local::json_file::read_cache(path, |b| serde_json::from_slice(b).ok())
-                .unwrap_or_default()
+                .unwrap_or_default() // default-ok: a cache: an unread file means read again
         })
     }
 

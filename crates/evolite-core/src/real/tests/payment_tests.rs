@@ -138,6 +138,28 @@ fn counts_what_a_write_cost_in_duffs() {
     assert_eq!(spent_credits(Some(1_000), Some(2_000)), None);
 }
 
+/// TECH-bug-prevention (TEAM.md §8d-4): a write's cost in the history is known only when both
+/// balances were read; a read that failed is «cost not known», never a free write.
+#[test]
+fn a_cost_read_that_failed_is_not_known_not_free() {
+    use crate::real::ops::identity::{costed, write_cost};
+    assert_eq!(write_cost(Some(5_000_000), Some(4_000_000)), (1_000, true));
+    assert_eq!(
+        write_cost(Some(1_000), Some(1_000)),
+        (0, true),
+        "known: nothing spent"
+    );
+    assert_eq!(
+        write_cost(Some(1_000), Some(2_000)),
+        (0, true),
+        "credits came in meanwhile"
+    );
+    assert_eq!(write_cost(None, Some(1)), (0, false));
+    assert_eq!(write_cost(Some(1), None), (0, false));
+    let line = costed(journal::Entry::default(), false);
+    assert!(!line.cost_known);
+}
+
 /// A disconnect is answered as `disconnect`, as the demo does: the screen takes `app` for the
 /// answer to the request it shows.
 #[tokio::test]

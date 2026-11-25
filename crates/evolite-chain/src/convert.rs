@@ -62,6 +62,7 @@ pub fn sync_info(s: &SyncStatus, wallet: bool) -> SyncInfo {
         (Some(h), _, _) if !h.done => (
             SyncStage::Headers,
             span(
+                // default-ok: progress display only: no start counts from 0
                 s.headers_from.unwrap_or(0).min(h.height),
                 h.height + s.headers_buffered,
                 h.target,
@@ -295,6 +296,7 @@ fn kind_of(
         (_, TransactionDirection::Incoming) => (ActivityKind::Received { from: None }, Chain::Core),
         (_, TransactionDirection::Outgoing) => (
             ActivityKind::Sent {
+                // default-ok: an optional recipient label: none is empty
                 to: sent_to.unwrap_or_default(),
             },
             Chain::Core,
@@ -569,6 +571,7 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
     let detail = detail_of(record, &kind, proof, block);
     Activity {
         key: format!("core:{txid}"),
+        // default-ok: display id only: a txid is always hex
         id: u64::from_str_radix(&txid[..16.min(txid.len())], 16).unwrap_or(0),
         kind,
         chain,
@@ -1626,12 +1629,14 @@ pub fn change_pool_ends(
                 .find(|p| p.pool_type == AddressPoolType::Internal)
                 .map(|p| {
                     (
+                        // default-ok: journal only: none used reads 0
                         p.highest_used.unwrap_or_default(),
+                        // default-ok: journal only: none generated reads 0
                         p.highest_generated.unwrap_or_default(),
                     )
                 })
         })
-        .unwrap_or_default()
+        .unwrap_or_default() // default-ok: journal only: no change pool reads 0, 0
 }
 
 /// The address pools of the live wallet's BIP44, BIP32 and CoinJoin accounts as the store keeps
@@ -5775,7 +5780,7 @@ pub fn own_platform_addresses(
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default() // default-ok: journal only: no change pool reads 0, 0
 }
 
 /// Whether `to`, a recipient as it was typed, is one of `own` ([`own_platform_addresses`]).

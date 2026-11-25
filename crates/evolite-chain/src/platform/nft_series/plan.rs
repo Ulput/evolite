@@ -70,6 +70,7 @@ pub fn next_serials(
     count: u32,
     supply: u32,
 ) -> Result<Vec<u32>, u32> {
+    // default-ok: none issued yet: serials start after 0
     let after = journal_max.max(network_max).unwrap_or(0);
     let left = supply.saturating_sub(after);
     if count > left {

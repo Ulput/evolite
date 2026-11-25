@@ -40,6 +40,7 @@ impl SignInIdentity {
 
     /// The id the next added key takes.
     pub fn next_key_id(&self) -> u32 {
+        // default-ok: no keys yet: the first id is 0
         self.keys.iter().map(|k| k.id() + 1).max().unwrap_or(0)
     }
 

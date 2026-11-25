@@ -177,6 +177,7 @@ pub async fn read(
     let mut reads = tokio::task::JoinSet::new();
     for (me, names_known) in identities {
         let b58 = me.to_string(Encoding::Base58);
+        // default-ok: no mark yet: read this identity from the start
         let mark = marks.identities.get(&b58).cloned().unwrap_or_default();
         let (sdk, contracts, gate) = (sdk.clone(), contracts.clone(), gate.clone());
         reads.spawn(async move {
@@ -367,7 +368,7 @@ fn name(doc: &Document, me: &Identifier, identity: &str) -> Option<Entry> {
     let label = doc.properties().get("label")?.as_text()?.to_owned();
     let key = format!("dpns:{}", doc.id().to_string(Encoding::Base58));
     let mut entry = network(
-        doc.created_at().unwrap_or(0),
+        doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
         What::Name { label },
         identity,
         key,
@@ -386,6 +387,7 @@ fn profile(doc: &Document, identity: &str) -> Entry {
         doc.id().to_string(Encoding::Base58),
         doc.revision().unwrap_or(1)
     );
+    // default-ok: timestamp for ordering only
     let at = doc.updated_at().or(doc.created_at()).unwrap_or(0);
     let mut entry = network(at, What::Profile, identity, key);
     entry.block = doc
@@ -407,7 +409,7 @@ fn withdrawal(doc: &Document, identity: &str) -> Option<Entry> {
     let duffs = crate::identity::credits_as_duffs(credits);
     let key = format!("wd:{}", doc.id().to_string(Encoding::Base58));
     let mut entry = network(
-        doc.created_at().unwrap_or(0),
+        doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
         What::Withdrawal { to },
         identity,
         key,

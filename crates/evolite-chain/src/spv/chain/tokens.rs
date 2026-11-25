@@ -235,6 +235,7 @@ impl Chain {
                 IdentityTokenInfos,
             ) = tokio::try_join!(balances, statuses, infos).map_err(|e| format!("{e:?}"))?;
             for (token, amount) in balances.iter() {
+                // default-ok: proved facts: a token not held is 0
                 facts.balances.insert(base58(token), amount.unwrap_or(0));
             }
             for token in batch {
@@ -373,6 +374,7 @@ impl Chain {
                 let page = DataContractsByRange::fetch_with_settings(&sdk, query, settings)
                     .await
                     .map_err(failure)?
+                    // default-ok: a proved empty page: no contracts
                     .unwrap_or_default();
                 // Bodies only from the proved page: `verify_contracts_by_range` checked them.
                 let mut reads = Vec::with_capacity(page.0.len());
@@ -394,6 +396,7 @@ impl Chain {
                 let page = DataContractsByRange::fetch_with_settings(&sdk, query, settings)
                     .await
                     .map_err(failure)?
+                    // default-ok: a proved empty page: no contracts
                     .unwrap_or_default();
                 Reply::Ids(page.0.keys().map(|k| k.to_buffer()).collect())
             }
@@ -565,6 +568,7 @@ impl Chain {
             .await
             .map_err(|e| e.to_string())?
             .map(|found| found.0)
+            // default-ok: proved none: no write with this contract yet, nonce 0
             .unwrap_or(0);
         Ok(nonce & IDENTITY_NONCE_VALUE_FILTER)
     }

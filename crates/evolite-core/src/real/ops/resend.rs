@@ -55,7 +55,7 @@ impl ResendRun {
             .unwrap_or_else(|e| e.into_inner())
             .get(identity)
             .copied()
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: no batch for this identity: nothing to show
     }
 }
 
@@ -259,6 +259,7 @@ impl<S: Side> Batch<S> {
             // nothing more asked of the network, the keys not used again (SEC-6 after a lock).
             if stopped.is_some() {
                 payer.tally.count(Step::Due);
+                // default-ok: stopped: nothing is signed, the key is not used
                 self.owe(&from58, &to58, payer.key.unwrap_or(0), Owed::Due);
                 continue;
             }

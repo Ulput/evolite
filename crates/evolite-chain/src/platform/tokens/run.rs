@@ -104,6 +104,7 @@ impl Sizer {
             return None;
         }
         // One below what was asked: a size above the base limit does not count.
+        // default-ok: nothing smaller than asked: the smallest size
         self.at = SIZES.iter().rposition(|s| *s < asked).unwrap_or(0);
         Some(SIZES[self.at])
     }
@@ -245,6 +246,7 @@ fn requests_left<P>(cache: &Cache<P>, tally: &Tally, limits: Limits) -> Option<u
     let per = |n: u32, by: usize| n.div_ceil(by.max(1) as u32);
     let to_read = per(cache.to_read.len() as u32, limits.batch);
     let read = cache.ids.values().filter(|v| v.is_some()).count() as u32;
+    // default-ok: progress estimate only: not counted yet is 0
     let left = tally.of.unwrap_or(0).saturating_sub(tally.done);
     match Stage::of(&cache.pass) {
         None => Some(0),

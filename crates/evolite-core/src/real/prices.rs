@@ -145,6 +145,7 @@ impl PriceWatch {
             return;
         };
         let app_cost = match op {
+            // default-ok: no request seen for this app: no cost shown
             Spend::ApproveApp { id, .. } => watch.app_costs.get(id).copied().unwrap_or(0),
             _ => 0,
         };

@@ -80,13 +80,11 @@ impl Real {
                         return Err(contact_not_seen(&unclear, e, me, before));
                     }
                     // Keyed as the read of Platform keys it (BUG-58): one line, not two.
-                    journal.add(platform_history::sent_request(
-                        &from,
-                        &to,
-                        &label,
-                        now(),
-                        spent_credits(before, chain.identity_credits(&wallet, &from, true).await)
-                            .unwrap_or(0),
+                    let after = chain.identity_credits(&wallet, &from, true).await;
+                    let (spent, known) = write_cost(before, after);
+                    journal.add(costed(
+                        platform_history::sent_request(&from, &to, &label, now(), spent),
+                        known,
                     ));
                     Ok(())
                 }
@@ -145,15 +143,12 @@ impl Real {
                                 return Err(contact_not_seen(&unclear, e, mine, before));
                             }
                             let after = chain.identity_credits(&wallet, &me, true).await;
-                            let spent = spent_credits(before, after).unwrap_or(0);
+                            let (spent, known) = write_cost(before, after);
                             // BUG-198: keyed as the read of Platform keys our request back, so the
                             // two are one line.
-                            journal.add(platform_history::accepted_request(
-                                &me,
-                                &from,
-                                &who,
-                                now(),
-                                spent,
+                            journal.add(costed(
+                                platform_history::accepted_request(&me, &from, &who, now(), spent),
+                                known,
                             ));
                             Ok(())
                         }
@@ -260,7 +255,8 @@ impl Real {
                 journal.add(journal::Entry {
                     at: now(),
                     what: journal::What::Profile,
-                    spent: spent_credits(before, after).unwrap_or(0),
+                    spent: write_cost(before, after).0,
+                    cost_known: write_cost(before, after).1,
                     moved: 0,
                     identity: Some(acting),
                     ..Default::default()

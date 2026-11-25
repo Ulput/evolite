@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS pass (
 /// The cache's file for the network whose SPV data is in `spv` (`<data>/spv/<network>`):
 /// `<data>/contracts/<network>/contracts.db`.
 pub fn path_beside_spv(spv: &Path) -> PathBuf {
+    // default-ok: a path with no last part: no network name
     let network = spv.file_name().map(|n| n.to_owned()).unwrap_or_default();
     spv.parent()
         .and_then(Path::parent)
@@ -452,7 +453,7 @@ impl ContractCache {
                 s.query_map(params![PROFILE_VERSION], |r| r.get(0))?
                     .collect::<Result<_, _>>()
             })
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: a cache: a failed query rechecks none for now
         };
         let verdicts: Vec<(Vec<u8>, String)> = unchecked
             .into_iter()
@@ -461,7 +462,7 @@ impl ContractCache {
                 let kept = self.get(&id)?;
                 let instance = crate::platform::workshop_read::profile(&kept.contract)
                     .map(|p| p.instance)
-                    .unwrap_or_default();
+                    .unwrap_or_default(); // default-ok: not a known profile: no instance type
                 Some((bytes, instance))
             })
             .collect();
@@ -495,7 +496,7 @@ impl ContractCache {
             })?
             .collect::<Result<Vec<_>, _>>()
         })
-        .unwrap_or_default()
+        .unwrap_or_default() // default-ok: a cache: a failed query lists none for now
         .into_iter()
         .filter_map(|(id, t)| Some((Identifier::from_bytes(&id).ok()?, t)))
         .collect()

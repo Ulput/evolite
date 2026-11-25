@@ -136,12 +136,9 @@ pub(in crate::real) async fn wallet_identity_ids(wallet: &PlatformWallet) -> Vec
     state
         .identity_manager
         .managed_identities()
-        .filter(|m| m.wallet_id == Some(id))
-        .map(|m| {
-            (
-                m.identity.id().to_string(Encoding::Base58),
-                m.identity_index.unwrap_or_default(),
-            )
+        .filter_map(|m| {
+            let slot = m.identity_index?;
+            (m.wallet_id == Some(id)).then(|| (m.identity.id().to_string(Encoding::Base58), slot))
         })
         .collect()
 }
@@ -383,6 +380,7 @@ impl Real {
             .nodes
             .as_ref()
             .map(|(_, c, d)| (c.clone(), d.clone()))
+            // default-ok: the nodes not asked yet: none listed for now
             .unwrap_or_default();
         let platform_nodes = dapi_nodes
             .iter()
@@ -400,6 +398,7 @@ impl Real {
                     let saved =
                         turn::during("core_node_file", || node::load(&self.paths.chain.core_node));
                     // Empty: back to DNS seeds at the next start.
+                    // default-ok: no node saved: empty is back to the DNS seeds
                     (saved != status.core_node).then(|| saved.unwrap_or_default())
                 },
                 ..self.shown_sync(&status, tip_time)
@@ -408,7 +407,9 @@ impl Real {
             wallet,
             demo: false,
             elsewhere: false,
+            // default-ok: display only: a lock poisoned shows no rate
             fiat: self.fiat.lock().map(|f| f.clone()).unwrap_or_default(),
+            // default-ok: display only: a lock poisoned shows no update
             update: self.update.lock().map(|u| u.clone()).unwrap_or_default(),
             advanced_features: self.advanced_features,
             advanced_allowed: self.advanced_allowed(),
@@ -574,6 +575,7 @@ impl Real {
         } = self.read_wallet(id).await;
         // The height its coins were read at: the «after» of [`count_checked`] sees it.
         self.chain.note_wallet_synced(Some(synced));
+        // default-ok: not read: `platform_address_read` says «—», not 0 (BUG-91)
         let (platform_address, platform_credits) = platform.unwrap_or_default();
         let (pool, unfinished_shield, connecting_pool) = self.read_pool(id, &own_core).await;
         let mut fees = turn::timed("fees_now", self.fees_now(coins)).await;
@@ -606,6 +608,7 @@ impl Real {
             let (spent, by_operation) = pool
                 .as_ref()
                 .map(|p| (p.spent.clone(), p.spent_by_operation.clone()))
+                // default-ok: the pool not read: no origins from it this time
                 .unwrap_or_default();
             let mine: Vec<dpp::prelude::Identifier> = identities
                 .iter()
@@ -640,6 +643,7 @@ impl Real {
         let mut contacts = shown
             .as_ref()
             .map(|(_, _, contacts)| contacts.clone())
+            // default-ok: no identity shown: no contacts on screen
             .unwrap_or_default();
         // Unnamed, and named only from this computer's file: read from the network (SYNC-4).
         let unnamed = {
@@ -712,6 +716,7 @@ impl Real {
         // Only a checked balance is shown: while the filters are not at the tip (a start, a
         // rewound pass, a rescan) the last checked one with its time, or none (BUG-77).
         let (core, core_as_of) = self.core_balance.shown(
+            // default-ok: not checked: `shown` keeps the last checked or none (BUG-77)
             balance.unwrap_or(0),
             count_checked(balance.is_some(), &status_before, &self.chain.status()),
             now(),
@@ -759,6 +764,7 @@ impl Real {
                 .receive_address
                 .as_ref()
                 .map(|(a, _)| a.clone())
+                // default-ok: no address made yet: none shown
                 .unwrap_or_default(),
             platform_address,
             identity: shown.map(|(identity, _, _)| identity),
@@ -789,6 +795,7 @@ impl Real {
                 .identity_search
                 .lock()
                 .map(|s| s.clone())
+                // default-ok: display only: a lock poisoned shows no search
                 .unwrap_or_default(),
             fees,
             phrase_words: meta.word_count as usize,
@@ -844,6 +851,7 @@ impl Real {
                     let shown = platform
                         .as_ref()
                         .map(|(a, _)| a.as_str())
+                        // default-ok: no address read: the saved one is resumed
                         .unwrap_or_default();
                     let address = super::ops::address_fund::resume_address(
                         self.fund_intents.address(&l.txid),
@@ -926,7 +934,7 @@ impl Real {
         let own_identities: HashMap<String, String> = state
             .identity_manager
             .managed_identities()
-            .filter(|m| m.wallet_id == Some(id))
+            .filter(|m| m.wallet_id == Some(id) && m.identity_index.is_some())
             .map(|m| {
                 let id = m.identity.id().to_string(Encoding::Base58);
                 let named = self.identity_of(m).name().map(|n| format!("@{n}"));
@@ -953,6 +961,7 @@ impl Real {
             .map(|m| IdentityChoice {
                 id: m.identity.id().to_string(Encoding::Base58),
                 name: self.identity_of(m).name().map(str::to_owned),
+                // default-ok: never none here: `mine` has the identities with a slot only
                 slot: m.identity_index.unwrap_or_default(),
             })
             .collect();
@@ -1343,6 +1352,7 @@ impl Real {
                 };
                 // key-wallet's net for these locks counts the change but not the lock: what
                 // left Core is the lock and its fee.
+                // default-ok: a fee not known: the lock alone, the fee shown as not known
                 act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
             }
         }
@@ -1359,6 +1369,7 @@ impl Real {
             };
             if let Some(locked) = fund_locks.get(txid) {
                 act.kind = ActivityKind::AddressFunded;
+                // default-ok: a fee not known: the lock alone, the fee shown as not known
                 act.amount = -(*locked as Duffs + act.fee.unwrap_or(0));
             } else if self.fund_intents.is_funding(txid) {
                 // BUG-173: before platform-wallet's store is read (a start) our own record names

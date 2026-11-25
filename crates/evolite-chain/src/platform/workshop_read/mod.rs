@@ -195,7 +195,7 @@ pub fn sale_of(doc: &Document) -> Option<SaleDoc> {
         instance: id("documentId")?,
         buyer: doc.owner_id().to_string(Encoding::Base58),
         price: props.get("price")?.to_integer::<u64>().ok()?,
-        at_ms: doc.created_at().unwrap_or(0),
+        at_ms: doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
     })
 }
 
@@ -307,7 +307,7 @@ pub fn gift_of(
     Some(GiftDoc {
         instance: id("documentId")?,
         to,
-        at_ms: doc.created_at().unwrap_or(0),
+        at_ms: doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
     })
 }
 

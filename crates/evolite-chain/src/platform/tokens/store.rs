@@ -56,7 +56,7 @@ pub fn load<P: DeserializeOwned>(path: &Path) -> Cache<P> {
             .ok()
             .and_then(from_stored)
     })
-    .unwrap_or_default()
+    .unwrap_or_default() // default-ok: a cache: unread is set aside, start fresh
 }
 
 /// The search's state as the contracts cache's pass row keeps it (FEAT-0031 C5, condition 10).

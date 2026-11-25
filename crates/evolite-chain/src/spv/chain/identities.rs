@@ -157,13 +157,16 @@ pub enum AlreadyTaken {
     AwaitChainLock,
 }
 
+/// «Credited» only when both balances were read and the credits grew: with `before` not known,
+/// credits the identity had before prove nothing (review r1 of TECH-bug-prevention (а), Should
+/// 1), and the lock's status answers.
 pub fn already_taken(
     before: Option<u64>,
     after: Option<u64>,
     status: Option<AssetLockStatus>,
 ) -> AlreadyTaken {
-    if let Some(after) = after
-        && after > before.unwrap_or(0)
+    if let (Some(before), Some(after)) = (before, after)
+        && after > before
     {
         return AlreadyTaken::Credited(after);
     }
@@ -347,7 +350,7 @@ impl Chain {
         if pass.slots_complete {
             Ok(pass.found)
         } else {
-            Err(pass.missing.unwrap_or_default())
+            Err(pass.missing.unwrap_or_default()) // default-ok: error text only: no slot named
         }
     }
 

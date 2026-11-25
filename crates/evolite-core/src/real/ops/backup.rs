@@ -41,7 +41,7 @@ impl Real {
             .file
             .as_ref()
             .map(|f| f.chosen())
-            .unwrap_or_default();
+            .unwrap_or_default(); // default-ok: tokens off for this network: none chosen
         Ok(file::Contents {
             notes,
             address_book: self.address_book.entries(),
@@ -76,7 +76,7 @@ impl Real {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .unwrap_or_default(); // default-ok: display name only: a path without a name is empty
         tokio::task::spawn_blocking(move || {
             let bytes = file::seal(&key, network(), &contents)
                 .map_err(|why| BackupError::Io(why.into()))?;

@@ -40,7 +40,7 @@ pub(in crate::real) fn shown_apps(
                 .session
                 .as_ref()
                 .map(|s| s.label.clone())
-                .unwrap_or_default(),
+                .unwrap_or_default(), // default-ok: an optional label: none is empty
             domain: String::new(),
             last_used: a.last_used,
             session: app_connect2::shown_session(a, reads, now_ms),

@@ -208,6 +208,7 @@ pub fn past_cursor(
         docs.reverse();
     }
     let next = match docs.last() {
+        // default-ok: an empty page: the cursor stays where it was
         None => cursor.cloned().unwrap_or_default(),
         Some(last) => {
             let at_ms = last.at_ms;
@@ -311,7 +312,7 @@ fn transfer_doc(doc: &Document) -> Option<TransferDoc> {
         from: doc.owner_id().to_string(Encoding::Base58),
         to: to.to_string(Encoding::Base58),
         amount,
-        at_ms: doc.created_at().unwrap_or(0),
+        at_ms: doc.created_at().unwrap_or(0), // default-ok: timestamp for ordering only
     })
 }
 

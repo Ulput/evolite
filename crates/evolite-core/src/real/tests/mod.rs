@@ -7,6 +7,7 @@ mod backup_tests;
 mod balance_tests;
 mod coinjoin_tests;
 mod dashpay_tests;
+mod default_guard;
 #[cfg(unix)]
 mod folder_tests;
 mod identity_tests;

@@ -280,6 +280,7 @@ impl Real {
                         .await
                 }
                 (CorePayee::Contact(to), shown) => {
+                    // default-ok: always some for a contact: checked before signing
                     let shown = shown.unwrap_or_default();
                     let contact = to.to_string(Encoding::Base58);
                     let before = contact_paid.paid(&contact);

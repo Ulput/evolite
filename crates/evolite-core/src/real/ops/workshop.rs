@@ -43,7 +43,7 @@ impl WorkshopState {
         let all = self.0.lock().unwrap_or_else(|e| e.into_inner());
         all.get(identity)
             .map(|s| s.cursor.clone())
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: no sales read yet: start from the first
     }
 
     /// Keeps `new` sales after the earlier ones; a sale already kept is not kept again.
@@ -194,6 +194,7 @@ fn given(
         return evolite_api::workshop::Given {
             contract: contract.to_owned(),
             model: model.to_owned(),
+            // default-ok: none of this model given from this computer
             count: Count::Proved(here.count.get(model).copied().unwrap_or(0)),
             last: here.last.get(model).cloned(),
             this_computer_only: true,

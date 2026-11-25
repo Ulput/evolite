@@ -100,7 +100,7 @@ pub fn model_of(doc: &Document) -> Model {
             .get(k)
             .and_then(|v| v.as_text())
             .map(crate::dashpay::shown)
-            .unwrap_or_default()
+            .unwrap_or_default() // default-ok: an optional document text: none is empty
     };
     Model {
         id: b58(doc.id()),
@@ -110,7 +110,7 @@ pub fn model_of(doc: &Document) -> Model {
         supply: props
             .get(profile::SUPPLY)
             .and_then(|v| v.to_integer::<u32>().ok())
-            .unwrap_or(0),
+            .unwrap_or(0), // default-ok: protocol: no supply set is 0
     }
 }
 
@@ -139,6 +139,7 @@ pub(super) fn issuer_of(owner: Identifier, writers: [Option<Identifier>; 2]) -> 
         return (b58(owner), true);
     }
     let other = writers.into_iter().flatten().find(|w| *w != owner);
+    // default-ok: F10: Platform doesn't keep who wrote it: "", never the owner
     (other.map(b58).unwrap_or_default(), false)
 }
 
@@ -247,6 +248,7 @@ impl Chain {
             let models = self.models(kept.contract.clone(), &profile).await?;
             out.push(Collection {
                 contract: b58(id),
+                // default-ok: an optional description: none is empty
                 description: kept.contract.description().cloned().unwrap_or_default(),
                 open: profile.open,
                 limits: profile.limits.iter().copied().map(limit).collect(),
@@ -293,6 +295,7 @@ impl Chain {
             .nft_max_serial(id_of(contract)?, id_of(model)?)
             .await
             .ok()
+            // default-ok: proved none issued is 0; a failed read stays none
             .map(|max| max.unwrap_or(0));
         Ok(ModelCounts {
             contract: contract.into(),
