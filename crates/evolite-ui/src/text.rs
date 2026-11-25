@@ -627,6 +627,13 @@ pub fn activity_title(a: &Activity) -> String {
         ),
         ActivityKind::Received { from: None } => tr!("Received").into(),
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
+        // BUG-261 A4: a contact paid from «Mixed» — its address is one of the contact's paid
+        // ones (`contact-addresses.json`), so the core names it after a restart too.
+        ActivityKind::Sent { to }
+            if a.layers & evolite_api::layer::MIXED != 0 && to.starts_with('@') =>
+        {
+            format!(tr!("Sent to @{} · from mixed coins"), &to[1..])
+        }
         ActivityKind::Sent { to } => format!(tr!("Sent {}"), short_address(to)),
         ActivityKind::SelfTransfer { .. } => tr!("Transfer between own addresses").into(),
         // BUG-194: one identity of this wallet paid another as a contact.
@@ -1426,6 +1433,40 @@ mod tests {
 
     /// BUG-189: a time still to come — the end of a vote, of the window to join — is its time,
     /// never «just now»; within a minute either way it is.
+    /// BUG-261 A4: a contact paid from «Mixed» reads «Sent to @alice · from mixed coins»; the same
+    /// contact paid from Core keeps «Sent @alice». The name comes from the paid address
+    /// (`contact-addresses.json`), so a line read from the store after a restart reads the same.
+    #[test]
+    fn a_contact_paid_from_mixed_coins_says_so() {
+        use evolite_api::{Activity, ActivityKind, Chain, Flow, Proof, layer};
+        let sent = |layers| Activity {
+            id: 1,
+            kind: ActivityKind::Sent {
+                to: "@alice".into(),
+            },
+            chain: Chain::Core,
+            at: 1_800_000_000,
+            amount: -1_000_000,
+            proof: Proof::Proved,
+            txid: Some("ab".into()),
+            fee: Some(226),
+            block: None,
+            address: Some("yNk2Hc8pWq4mR7vT3sLb9XeJ6uZa5Df1Gh".into()),
+            layers,
+            flow: Flow::Out,
+            key: "core:ab".into(),
+            detail: None,
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        assert_eq!(
+            activity_title(&sent(layer::MIXED)),
+            "Sent to @alice · from mixed coins"
+        );
+        assert_eq!(activity_title(&sent(layer::CORE)), "Sent @alice");
+    }
+
     #[test]
     fn a_time_to_come_is_not_just_now() {
         let now = Local::now();

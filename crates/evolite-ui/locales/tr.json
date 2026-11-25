@@ -481,7 +481,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Platform adresinden Core'a: yalnızca bu cüzdanın adreslerine",
   "From a Platform address, only an identity of this wallet can be topped up": "Platform adresinden yalnızca bu cüzdanın bir kimliği doldurulabilir",
   "From identity": "Gönderen kimlik",
-  "From mixed coins you can pay only to a Core address for now.": "Karıştırılmış coinlerden şimdilik yalnızca bir Core adresine ödeme yapabilirsiniz.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Bakiyesi geri gelir, önceki işlemleri gelmez: ağ bir adresin yalnızca bakiyesini tutar.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform bir sıra üzerinden çeker: DASH genellikle bir saat içinde Core'a ulaşır",
   "Send from credits or from your Platform address: the money arrives at once.": "Kredilerden veya Platform adresinizden gönderin: para hemen ulaşır.",
@@ -2881,5 +2880,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite yeni giriş anahtarını bu cüzdanın ifadesinden türetir. Eskisi aynı güncellemede devre dışı bırakılır.",
   "{} · sign-in · HIGH": "{} · giriş · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · giriş · HIGH · ifadeden",
-  "≈ {} of credits needed": "≈ {} kredi gerekli"
+  "≈ {} of credits needed": "≈ {} kredi gerekli",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Karıştırılmış coinlerle @{} kişisine yalnızca DashPay kişisi olarak ödeme yapabilirsiniz. Kişilere ekleyin ya da Core adresini girin.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Karıştırılmış coinlerle bir Core adresine veya bir DashPay kişisine ödeme yapabilirsiniz.",
+  "To @{} · their Core address for you": "@{} kişisine · sizin için Core adresi",
+  "Sent to @{} · from mixed coins": "@{} kişisine gönderildi · karıştırılmış coinlerden"
 }

@@ -92,17 +92,22 @@ async fn the_unlock_keys_hold_coinjoin_account_0_and_sign_its_coins() {
 #[tokio::test]
 async fn mixed_coins_go_only_to_a_dash_address() {
     let core = opened("mixed-payee", "pw-mixed");
-    // FEAT-0048 A15: the core's words are the screen's, to the letter (`send::mixed::refusal`
-    // and its test say the same line).
-    const SCREEN: &str = "From mixed coins you can pay only to a Core address for now.";
-    let refused = |r: Result<MixedQuote, CoreError>| match r {
-        Err(CoreError::NotAvailable(why)) => why == SCREEN,
+    // BUG-261 A2: `@name` not a contact — said with what to do; A3: Platform, the screen's line
+    // to the letter (`send::mixed::refusal` and its test say the same).
+    let said = |r: Result<MixedQuote, CoreError>, line: &str| match r {
+        Err(CoreError::NotAvailable(why)) => why == line,
         _ => false,
     };
-    assert!(refused(core.preview_mixed("@bob", 100_000).await));
+    assert!(said(
+        core.preview_mixed("@bob", 100_000).await,
+        "From mixed coins you can pay @bob only as a DashPay contact. Add them to contacts or enter their Core address."
+    ));
     let platform = PlatformAddress::P2pkh([7; 20]).to_bech32m_string(key_wallet::Network::Testnet);
     assert!(
-        refused(core.preview_mixed(&platform, 100_000).await),
+        said(
+            core.preview_mixed(&platform, 100_000).await,
+            "From mixed coins you can pay to a Core address or to a DashPay contact."
+        ),
         "a Platform address: the screen's line, no «do not go to Platform»"
     );
     assert!(matches!(
@@ -110,6 +115,84 @@ async fn mixed_coins_go_only_to_a_dash_address() {
             .await,
         Err(CoreError::NotSynced)
     ));
+}
+
+/// BUG-261 A1, R-2: an established contact by `@name` passes the check — its quote waits for the
+/// sync here — and nothing is reserved before the payment is signed for: neither the look nor a
+/// send that stops before building takes an address of the contact (none is written as paid).
+#[tokio::test]
+async fn a_contact_paid_from_mixed_coins_reserves_nothing_before_the_payment() {
+    let mut core = opened("mixed-contact", "pw-mixed");
+    let bob = "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh";
+    core.contacts = vec![Contact {
+        identity_id: bob.into(),
+        name: Some("bob".into()),
+        profile: Profile::default(),
+        state: ContactState::Established,
+        since: 0,
+        payments: 0,
+        last_payment: None,
+        channel_broken: false,
+    }];
+    assert!(
+        matches!(
+            core.preview_mixed("@bob", 100_000).await,
+            Err(CoreError::NotSynced)
+        ),
+        "a contact: past the check, to the sync"
+    );
+    assert!(
+        core.contact_paid.paid(bob).is_empty(),
+        "the look reserves nothing"
+    );
+    // r1: without the address the last look showed, nothing is sent, nothing written.
+    assert!(matches!(
+        core.send_mixed(1, "@bob", 100_000, (None, None, 0)).await,
+        Err(CoreError::NotAvailable(why)) if why.contains("was not shown before signing")
+    ));
+    assert!(
+        core.contact_paid.paid(bob).is_empty(),
+        "a send refused before building writes nothing"
+    );
+}
+
+/// BUG-261 r1 (as BUG-212): a contact's address is written as paid only on the network's
+/// answer — sent, or unclear (it may have gone, BUG-243) — never for a payment refused before it,
+/// so the next look shows the same address and the contact's wallet never misses one.
+#[tokio::test]
+async fn a_contacts_address_is_written_as_paid_only_on_the_networks_answer() {
+    let dir = std::env::temp_dir().join(format!("evolite-test-paid-after-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let paid = contact_addresses::ContactAddresses::new(dir.join("contact-addresses.json"));
+    let (bob, shown) = (
+        "F5teLR3Vq4JjzQA7jgdGjZQvJbKpMubbu5dsC4MJd1Eh",
+        "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+    );
+    let sent = |relayed| evolite_chain::chain::Paid {
+        txid: "ab".into(),
+        fee: 226,
+        sent: 100_000,
+        relayed,
+    };
+    let refused = super::super::ops::mixed::pay_then_mark(&paid, bob, shown, async {
+        Err("the network refused it".to_string())
+    })
+    .await;
+    assert!(refused.is_err());
+    assert!(
+        paid.paid(bob).is_empty(),
+        "refused before the network: not paid"
+    );
+    let unclear =
+        super::super::ops::mixed::pay_then_mark(&paid, bob, shown, async { Ok(sent(false)) }).await;
+    assert!(unclear.is_ok());
+    assert_eq!(
+        paid.paid(bob),
+        vec![shown.to_string()],
+        "an unclear answer: paid"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// АРХ-9а in the core: the quote's rule from the excess, an amount without excess with a

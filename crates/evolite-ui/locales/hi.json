@@ -481,7 +481,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Platform पते से Core में: केवल इस वॉलेट के पतों पर",
   "From a Platform address, only an identity of this wallet can be topped up": "Platform पते से केवल इस वॉलेट की पहचान को टॉप-अप किया जा सकता है",
   "From identity": "पहचान से",
-  "From mixed coins you can pay only to a Core address for now.": "मिश्रित कॉइन से अभी केवल Core पते पर भुगतान किया जा सकता है।",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "इसका बैलेंस वापस आता है, पर पिछले लेन-देन नहीं: नेटवर्क पते का केवल बैलेंस रखता है।",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform कतार के ज़रिए निकासी करता है: DASH आमतौर पर एक घंटे में Core पहुँच जाते हैं",
   "Send from credits or from your Platform address: the money arrives at once.": "क्रेडिट से या अपने Platform पते से भेजें: पैसा तुरंत पहुँचता है।",
@@ -2881,5 +2880,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite इस वॉलेट के वाक्यांश से नई साइन-इन कुंजी बनाता है। पुरानी उसी अपडेट में बंद होती है।",
   "{} · sign-in · HIGH": "{} · साइन-इन · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · साइन-इन · HIGH · वाक्यांश से",
-  "≈ {} of credits needed": "≈ {} क्रेडिट चाहिए"
+  "≈ {} of credits needed": "≈ {} क्रेडिट चाहिए",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "मिश्रित सिक्कों से आप @{} को केवल DashPay संपर्क के रूप में भुगतान कर सकते हैं। उन्हें संपर्कों में जोड़ें या उनका Core पता दर्ज करें।",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "मिश्रित सिक्कों से आप किसी Core पते या DashPay संपर्क को भुगतान कर सकते हैं।",
+  "To @{} · their Core address for you": "@{} को · आपके लिए उनका Core पता",
+  "Sent to @{} · from mixed coins": "@{} को भेजा · मिश्रित सिक्कों से"
 }

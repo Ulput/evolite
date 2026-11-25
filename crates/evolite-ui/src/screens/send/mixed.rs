@@ -150,11 +150,14 @@ pub(super) fn refusal(
     amount: Option<Duffs>,
 ) -> Option<String> {
     let typed = typed.trim();
-    // FEAT-0048 step 2 (A15): mixed coins reach Platform from the identity's top-up, its
-    // creation and «Shield», not as a payment to a Platform address; a payment from «Mixed» goes
-    // to a Core address (to a DashPay contact with BUG-261).
-    if typed.starts_with('@') || evolite_api::address::is_platform(typed, network) {
-        return Some(tr!("From mixed coins you can pay only to a Core address for now.").into());
+    // FEAT-0048 step 2 (A15), BUG-261 A3: mixed coins reach Platform from the identity's top-up,
+    // its creation and «Shield», not as a payment to a Platform or private address. A payment
+    // from «Mixed» goes to a Core address or to a DashPay contact — `@name` is the core's to
+    // judge (A2: only an established contact), said from its plan below.
+    if evolite_api::address::is_platform(typed, network) {
+        return Some(
+            tr!("From mixed coins you can pay to a Core address or to a DashPay contact.").into(),
+        );
     }
     match quote? {
         Err(CoreError::NotEnough) => amount.map(|amount| {

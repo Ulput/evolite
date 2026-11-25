@@ -529,7 +529,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "من عنوان Platform إلى Core: إلى عناوين هذه المحفظة فقط",
   "From a Platform address, only an identity of this wallet can be topped up": "من عنوان Platform لا يمكن تعبئة سوى هوية من هذه المحفظة",
   "From identity": "من الهوية",
-  "From mixed coins you can pay only to a Core address for now.": "من العملات المخلوطة يمكنك الدفع إلى عنوان Core فقط حاليًا.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "يعود رصيده، أمّا عملياته السابقة فلا: الشبكة تحفظ رصيد العنوان فقط.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "يسحب Platform عبر قائمة انتظار: تصل DASH إلى Core عادةً خلال ساعة",
   "Send from credits or from your Platform address: the money arrives at once.": "أرسل من الأرصدة أو من عنوان Platform الخاص بك: يصل المال فورًا.",
@@ -3041,5 +3040,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "يشتق evolite مفتاح تسجيل الدخول الجديد من عبارة هذه المحفظة. ويُعطَّل القديم في التحديث نفسه.",
   "{} · sign-in · HIGH": "{} · تسجيل الدخول · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · تسجيل الدخول · HIGH · من العبارة",
-  "≈ {} of credits needed": "يلزم ≈ {} من الأرصدة"
+  "≈ {} of credits needed": "يلزم ≈ {} من الأرصدة",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "من العملات المخلوطة يمكنك الدفع إلى @{} فقط كجهة اتصال في DashPay. أضفه إلى جهات الاتصال أو أدخل عنوان Core الخاص به.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "من العملات المخلوطة يمكنك الدفع إلى عنوان Core أو إلى جهة اتصال في DashPay.",
+  "To @{} · their Core address for you": "إلى @{} · عنوان Core الخاص به لك",
+  "Sent to @{} · from mixed coins": "أُرسل إلى @{} · من العملات المخلوطة"
 }

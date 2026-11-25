@@ -70,28 +70,56 @@ fn a_payment_from_mixed_shows_the_coins_and_the_excess_before_the_password() {
     assert!(ready(&kit));
 }
 
-/// AC-A5 (S2): to a name or to Platform «Mixed» refuses before anything is asked; the button
-/// stays grey.
+/// AC-A5 (S2), BUG-261 A2, A3: `@name` that is not an established contact, and a Platform
+/// address, are refused with what to do; the button stays grey.
 #[test]
-fn mixed_coins_go_only_to_a_core_address() {
+fn mixed_coins_go_only_to_a_core_address_or_a_contact() {
     let (_turn, mut kit) = demo_app("send-mixed", "en");
     for (to, why) in [
-        ("@alice", "only to a Core address"),
-        // FEAT-0048 A15: no «do not go to Platform» anywhere — the Core-only line.
+        // Bob's request came in, ours not answered: not a contact yet.
+        (
+            "@bob",
+            "From mixed coins you can pay @bob only as a DashPay contact",
+        ),
+        // FEAT-0048 A15: no «do not go to Platform» anywhere.
         (
             "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
-            "only to a Core address",
+            "From mixed coins you can pay to a Core address or to a DashPay contact",
         ),
     ] {
         kit.state_mut().send.recipient = to.into();
-        kit.run_steps(4);
-        assert!(has_words(&kit, why), "{to}: «{why}»");
+        // A name is the core's to judge: its answer comes with the plan.
+        wait_for(&mut kit, "the reason", |kit| has_words(kit, why));
         assert!(
             !has_words(&kit, "do not go to Platform"),
             "{to}: the old refusal gone"
         );
         assert!(!ready(&kit), "{to}: the button grey");
     }
+}
+
+/// BUG-261 A1: an established contact by `@name` — its plan as any, and the review says where the
+/// money goes: «To @alice · their Core address for you», no address before the password.
+#[test]
+fn a_contact_is_paid_from_mixed_coins_to_their_core_address() {
+    let (_turn, mut kit) = mixed_form(19_990_000);
+    kit.state_mut().send.recipient = "@alice".into();
+    wait_for(&mut kit, "the plan for alice", |kit| {
+        let m = &kit.state().send.mixed;
+        m.asked.as_ref().is_some_and(|(to, _)| to == "@alice") && m.quote.is_some()
+    });
+    kit.run_steps(4);
+    assert!(
+        !has_words(&kit, "only as a DashPay contact"),
+        "a contact is not refused"
+    );
+    assert!(ready(&kit), "«Check and send» on");
+    // The last look, as the other tests open it.
+    kit.state_mut().send.confirming = true;
+    settle(&mut kit);
+    let open = crate::components::dialog_seen(&kit.ctx).map(|d| d.name);
+    assert_eq!(open.as_deref(), Some("send-confirm"), "the review is open");
+    assert!(has_words(&kit, "To @alice · their Core address for you"));
 }
 
 /// AC-A12 (S3): an excess over 0.01 DASH is refused under the amount with the amount that burns
@@ -476,9 +504,9 @@ fn a_low_form_brings_the_refusal_into_view() {
 fn a_name_is_refused_under_to() {
     let (_turn, mut kit) = demo_app("send-mixed-name", "en");
     wait_for(&mut kit, "the reason", |kit| {
-        said(kit, "only to a Core address").is_some()
+        said(kit, "only as a DashPay contact").is_some()
     });
-    let reason = said(&kit, "only to a Core address").expect("the reason");
+    let reason = said(&kit, "only as a DashPay contact").expect("the reason");
     let amount = kit
         .query_all_by(|n| n.value().as_deref() == Some("Amount"))
         .map(|n| n.rect())

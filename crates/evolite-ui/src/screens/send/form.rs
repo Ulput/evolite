@@ -218,8 +218,9 @@ impl<'a> FormView<'a> {
                 form.mixed.ask_again();
             }
         }
+        // BUG-261: `@name` too — the core judges whether it is an established contact (A1, A2).
         if source.source == Source::Mixed
-            && to_core
+            && (to_core || typed.starts_with('@'))
             && let Some(amount) = amount
             && let Some(ask) = form.mixed.ask(&typed, amount)
         {
@@ -1376,7 +1377,10 @@ fn send_row(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, v: &FormView, aske
             // contact's next address from its key, as the core will pay it.
             form.preview = None;
             form.previewed = form.recipient.trim().to_string();
-            if source.source == Source::Core {
+            // BUG-261 r1: from «Mixed» to a contact too — its next address, not reserved.
+            if source.source == Source::Core
+                || (source.source == Source::Mixed && form.previewed.starts_with('@'))
+            {
                 asked.commands.push(Command::PreviewPayment {
                     to: form.previewed.clone(),
                 });

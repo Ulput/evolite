@@ -256,7 +256,7 @@
   },
   "{} record|{} records": {
     "one": "{} registro",
-    "many": "{} de registros",
+    "many": "{} registros",
     "other": "{} registros"
   },
   "{} token|{} tokens": {
@@ -493,7 +493,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "De una dirección de Platform a Core: solo a direcciones de este monedero",
   "From a Platform address, only an identity of this wallet can be topped up": "Desde una dirección de Platform solo se puede recargar una identidad de este monedero",
   "From identity": "Desde la identidad",
-  "From mixed coins you can pay only to a Core address for now.": "Desde monedas mezcladas, por ahora solo se puede pagar a una dirección de Core.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Vuelve su saldo, pero no sus operaciones anteriores: la red guarda de una dirección solo el saldo.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform retira mediante una cola: los DASH suelen llegar a Core en menos de una hora",
   "Send from credits or from your Platform address: the money arrives at once.": "Envíe desde créditos o desde su dirección de Platform: el dinero llega al momento.",
@@ -2917,5 +2916,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite deriva la nueva clave de inicio de sesión de la frase de este monedero. La antigua se desactiva en el mismo cambio.",
   "{} · sign-in · HIGH": "{} · inicio de sesión · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · inicio de sesión · HIGH · de la frase",
-  "≈ {} of credits needed": "Se necesitan ≈ {} de créditos"
+  "≈ {} of credits needed": "Se necesitan ≈ {} de créditos",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Desde monedas mezcladas solo puedes pagar a @{} como contacto de DashPay. Añádelo a contactos o introduce su dirección de Core.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Desde monedas mezcladas puedes pagar a una dirección de Core o a un contacto de DashPay.",
+  "To @{} · their Core address for you": "A @{} · su dirección de Core para ti",
+  "Sent to @{} · from mixed coins": "Enviado a @{} · desde monedas mezcladas"
 }

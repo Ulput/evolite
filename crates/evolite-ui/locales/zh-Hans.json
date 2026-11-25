@@ -469,7 +469,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "从 Platform 地址到 Core：只能发往本钱包的地址",
   "From a Platform address, only an identity of this wallet can be topped up": "从 Platform 地址只能为本钱包的身份充值",
   "From identity": "从身份",
-  "From mixed coins you can pay only to a Core address for now.": "已混合的币目前只能付款到 Core 地址。",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "余额会恢复，但之前的操作不会：网络只保存地址的余额。",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform 通过队列提现：DASH 通常在一小时内到达 Core",
   "Send from credits or from your Platform address: the money arrives at once.": "从积分或您的 Platform 地址发送：资金立即到账。",
@@ -2841,5 +2840,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite 从此钱包的助记词派生新的登录密钥。旧密钥在同一次更新中停用。",
   "{} · sign-in · HIGH": "{} · 登录 · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · 登录 · HIGH · 来自助记词",
-  "≈ {} of credits needed": "需要 ≈ {} 积分"
+  "≈ {} of credits needed": "需要 ≈ {} 积分",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "从已混合币只能以 DashPay 联系人的身份向 @{} 付款。请将其加入联系人，或输入其 Core 地址。",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "从已混合币可以向 Core 地址或 DashPay 联系人付款。",
+  "To @{} · their Core address for you": "给 @{} · 对方给你的 Core 地址",
+  "Sent to @{} · from mixed coins": "已发送给 @{} · 来自已混合币"
 }

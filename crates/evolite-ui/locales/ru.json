@@ -2069,7 +2069,6 @@
   "Find": "Найти",
   "Find my tokens": "Найти мои токены",
   "From identity": "С личности",
-  "From mixed coins you can pay only to a Core address for now.": "Из перемешанных монет пока можно платить только на адрес Core.",
   "Keep in mind": "Что учесть",
   "Left after": "Останется",
   "Looking for your tokens on the network…": "Ищем ваши токены в сети…",
@@ -2928,5 +2927,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "Новый ключ входа evolite выведет из фразы этого кошелька. Старый отключится в той же записи.",
   "{} · sign-in · HIGH": "{} · вход · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · вход · HIGH · из фразы",
-  "≈ {} of credits needed": "Нужно ≈ {} кредитов"
+  "≈ {} of credits needed": "Нужно ≈ {} кредитов",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Из перемешанных монет заплатить @{} можно только как контакту DashPay. Добавьте его в контакты или укажите его адрес Core.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Из перемешанных монет можно платить на адрес Core или контакту DashPay.",
+  "To @{} · their Core address for you": "@{} · его адрес Core для вас",
+  "Sent to @{} · from mixed coins": "Отправлено @{} · из перемешанных монет"
 }

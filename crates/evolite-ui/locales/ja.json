@@ -247,7 +247,7 @@
     "other": "ファイルの方が新しいメモ {} 件"
   },
   "{} record|{} records": {
-    "other": "{} 件の記録"
+    "other": "記録 {} 件"
   },
   "{} token|{} tokens": {
     "other": "トークン {} 件"
@@ -469,7 +469,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Platform アドレスから Core へは、このウォレットのアドレスにのみ送れます",
   "From a Platform address, only an identity of this wallet can be topped up": "Platform アドレスからは、このウォレットのアイデンティティにのみチャージできます",
   "From identity": "送信元アイデンティティ",
-  "From mixed coins you can pay only to a Core address for now.": "ミキシング済みのコインからは、今のところ Core アドレスにしか支払えません。",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "残高は戻りますが、過去の操作は戻りません。ネットワークはアドレスの残高しか保存しません。",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform は順番待ちで出金します。DASH は通常 1 時間以内に Core に届きます",
   "Send from credits or from your Platform address: the money arrives at once.": "クレジットか自分の Platform アドレスから送ってください。すぐに届きます。",
@@ -2841,5 +2840,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite はこのウォレットのフレーズから新しいサインイン鍵を導出します。古い鍵は同じ更新で無効になります。",
   "{} · sign-in · HIGH": "{} · サインイン · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · サインイン · HIGH · フレーズから",
-  "≈ {} of credits needed": "≈ {} のクレジットが必要です"
+  "≈ {} of credits needed": "≈ {} のクレジットが必要です",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "ミキシング済みコインから @{} に支払えるのは DashPay の連絡先としてのみです。連絡先に追加するか、Core アドレスを入力してください。",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "ミキシング済みコインからは Core アドレスまたは DashPay の連絡先に支払えます。",
+  "To @{} · their Core address for you": "@{} へ · あなた用の相手の Core アドレス",
+  "Sent to @{} · from mixed coins": "@{} に送金 · ミキシング済みコインから"
 }

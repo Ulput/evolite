@@ -481,7 +481,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Von einer Platform-Adresse nach Core: nur an Adressen dieser Wallet",
   "From a Platform address, only an identity of this wallet can be topped up": "Von einer Platform-Adresse lässt sich nur eine Identität dieser Wallet aufladen",
   "From identity": "Von Identität",
-  "From mixed coins you can pay only to a Core address for now.": "Aus gemischten Coins können Sie vorerst nur an eine Core-Adresse zahlen.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Ihr Guthaben kommt zurück, ihre früheren Vorgänge nicht: Das Netzwerk speichert von einer Adresse nur das Guthaben.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform zahlt über eine Warteschlange aus: Die DASH kommen meist innerhalb einer Stunde auf Core an",
   "Send from credits or from your Platform address: the money arrives at once.": "Senden Sie aus Credits oder von Ihrer Platform-Adresse: Das Geld kommt sofort an.",
@@ -2881,5 +2880,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite leitet den neuen Anmeldeschlüssel aus der Phrase dieser Wallet ab. Der alte wird in derselben Änderung deaktiviert.",
   "{} · sign-in · HIGH": "{} · Anmeldung · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · Anmeldung · HIGH · aus der Phrase",
-  "≈ {} of credits needed": "≈ {} an Credits nötig"
+  "≈ {} of credits needed": "≈ {} an Credits nötig",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Aus gemischten Münzen kannst du @{} nur als DashPay-Kontakt bezahlen. Füge ihn zu den Kontakten hinzu oder gib seine Core-Adresse ein.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Aus gemischten Münzen kannst du an eine Core-Adresse oder an einen DashPay-Kontakt zahlen.",
+  "To @{} · their Core address for you": "An @{} · seine Core-Adresse für dich",
+  "Sent to @{} · from mixed coins": "Gesendet an @{} · aus gemischten Münzen"
 }

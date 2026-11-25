@@ -247,7 +247,7 @@
     "other": "파일 쪽이 더 새로운 메모 {}개"
   },
   "{} record|{} records": {
-    "other": "레코드 {}개"
+    "other": "기록 {}개"
   },
   "{} token|{} tokens": {
     "other": "토큰 {}개"
@@ -469,7 +469,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Platform 주소에서 Core로는 이 지갑의 주소로만 보낼 수 있습니다",
   "From a Platform address, only an identity of this wallet can be topped up": "Platform 주소에서는 이 지갑의 아이덴티티만 충전할 수 있습니다",
   "From identity": "보내는 아이덴티티",
-  "From mixed coins you can pay only to a Core address for now.": "믹싱된 코인으로는 아직 Core 주소로만 보낼 수 있습니다.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "잔액은 돌아오지만 이전 거래는 돌아오지 않습니다. 네트워크는 주소의 잔액만 보관합니다.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform은 대기열로 출금합니다. DASH는 보통 한 시간 안에 Core에 도착합니다",
   "Send from credits or from your Platform address: the money arrives at once.": "크레딧이나 내 Platform 주소에서 보내세요. 바로 도착합니다.",
@@ -2841,5 +2840,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite가 이 지갑의 문구에서 새 로그인 키를 만듭니다. 이전 키는 같은 업데이트에서 비활성화됩니다.",
   "{} · sign-in · HIGH": "{} · 로그인 · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · 로그인 · HIGH · 문구에서",
-  "≈ {} of credits needed": "≈ {} 크레딧이 필요합니다"
+  "≈ {} of credits needed": "≈ {} 크레딧이 필요합니다",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "믹싱된 코인으로는 @{}에게 DashPay 연락처로만 결제할 수 있습니다. 연락처에 추가하거나 Core 주소를 입력하세요.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "믹싱된 코인으로는 Core 주소 또는 DashPay 연락처에 결제할 수 있습니다.",
+  "To @{} · their Core address for you": "@{}에게 · 당신을 위한 상대의 Core 주소",
+  "Sent to @{} · from mixed coins": "@{}에게 보냄 · 믹싱된 코인에서"
 }

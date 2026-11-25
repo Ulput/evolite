@@ -1281,7 +1281,8 @@ impl App {
             // last look — P1 a small excess, P2 one to agree to (the password asked), P2b the core
             // found another, P4 the core refused.
             let mixed_presets = [
-                ("send-mixed-name", "@alice", 19_990_000, false),
+                // BUG-261: a name not a contact yet (bob's request came in, not answered).
+                ("send-mixed-name", "@bob", 19_990_000, false),
                 ("send-mixed-refused", "", 15_000_000, false),
                 ("send-mixed-confirm", "", 19_990_000, true),
                 ("send-mixed-agree", "", 19_500_000, true),

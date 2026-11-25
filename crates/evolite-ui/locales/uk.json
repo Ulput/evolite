@@ -505,7 +505,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "З адреси Platform у Core — лише на адреси цього гаманця",
   "From a Platform address, only an identity of this wallet can be topped up": "З адреси Platform можна поповнити лише баланс ідентичності цього гаманця",
   "From identity": "З ідентичності",
-  "From mixed coins you can pay only to a Core address for now.": "З перемішаних монет поки можна платити лише на адресу Core.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Повернеться її баланс, але не попередні операції — мережа зберігає в адреси лише баланс.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform виводить через чергу — DASH надійдуть на Core зазвичай протягом години",
   "Send from credits or from your Platform address: the money arrives at once.": "Надішліть з кредитів або з вашої адреси Platform — гроші надійдуть одразу.",
@@ -2961,5 +2960,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "Новий ключ входу evolite виведе з фрази цього гаманця. Старий вимкнеться в тому самому записі.",
   "{} · sign-in · HIGH": "{} · вхід · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · вхід · HIGH · з фрази",
-  "≈ {} of credits needed": "Потрібно ≈ {} кредитів"
+  "≈ {} of credits needed": "Потрібно ≈ {} кредитів",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "З перемішаних монет заплатити @{} можна лише як контакту DashPay. Додайте його до контактів або вкажіть його адресу Core.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "З перемішаних монет можна платити на адресу Core або контакту DashPay.",
+  "To @{} · their Core address for you": "@{} · його адреса Core для вас",
+  "Sent to @{} · from mixed coins": "Надіслано @{} · з перемішаних монет"
 }

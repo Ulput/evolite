@@ -130,6 +130,7 @@ pub(super) fn confirm(
         resolved: &resolved,
         lookalike: &lookalike,
         from_core,
+        from_mixed,
         address: &address,
     };
     let mut send_now = false;
@@ -196,7 +197,8 @@ pub(super) fn confirm(
                         && !paused
                         && (form.large.is_none() || form.large_ticked)
                         && (!ask_password || !form.password.is_empty())
-                        && (!from_core || address.is_some())
+                        // BUG-261 r1: a contact from «Mixed» too — only to the address shown.
+                        && (!(from_core || (from_mixed && to.starts_with('@'))) || address.is_some())
                         && coins_gone.is_none()
                         && mixed_ready;
                     let clicked = button_enabled(
@@ -319,6 +321,9 @@ struct LastLook<'a> {
     resolved: &'a Option<ResolvedName>,
     lookalike: &'a Option<String>,
     from_core: bool,
+    /// BUG-261: from «Mixed» — a contact is paid to their Core address for you (DIP-15),
+    /// reserved only once it is signed for, so no address is shown before.
+    from_mixed: bool,
     address: &'a Option<String>,
 }
 
@@ -329,6 +334,7 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
         resolved,
         lookalike,
         from_core,
+        from_mixed,
         address,
     } = *look;
     ui.vertical(|ui| {
@@ -368,7 +374,17 @@ fn recipient_lines(ui: &mut Ui, p: &crate::theme::Palette, form: &SendForm, look
         if let Some(similar) = &lookalike {
             lookalike_warning(ui, p, to, similar);
         }
-        if from_core {
+        // BUG-261 A1: a contact from «Mixed» — where the money goes, said without an address.
+        if from_mixed && let Some(label) = to.strip_prefix('@') {
+            ui.add(crate::components::para(
+                &format!(tr!("To @{} · their Core address for you"), label),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            ));
+        }
+        // BUG-261 r1: a contact from «Mixed» is paid to the address shown, as from Core.
+        if from_core || (from_mixed && to.starts_with('@')) {
             match (&address, &form.preview) {
                 // The recipient's own address is above already (FEAT-0035, the designer):
                 // only a contact's, from its key, is said here.

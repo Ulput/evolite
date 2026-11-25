@@ -301,9 +301,24 @@ impl Mock {
                 ask,
                 result: Err(CoreError::NotEnough),
             },
-            Command::PreviewMixed { ask, amount, .. } => Event::MixedPreview {
+            Command::PreviewMixed { ask, to, amount } => Event::MixedPreview {
                 ask,
                 result: match &self.snapshot.wallet {
+                    // BUG-261 A2: `@name` only as an established contact, as the real core says.
+                    Some(w)
+                        if to.trim().starts_with('@')
+                            && !w.contacts.iter().any(|c| {
+                                c.state == evolite_api::ContactState::Established
+                                    && c.name.as_deref() == Some(to.trim().trim_start_matches('@'))
+                            }) =>
+                    {
+                        Err(CoreError::NotAvailable(format!(
+                            tr!(
+                                "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address."
+                            ),
+                            to.trim().trim_start_matches('@')
+                        )))
+                    }
                     Some(_) => demo::mixed_quote(amount),
                     None => Err(CoreError::NotAvailable(NO_WALLET.into())),
                 },

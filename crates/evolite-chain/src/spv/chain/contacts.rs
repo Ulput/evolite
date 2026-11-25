@@ -464,43 +464,13 @@ impl Chain {
             user_identity_id: me.to_buffer(),
             friend_identity_id: to.to_buffer(),
         };
-        use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
-        if !paid.is_empty() {
-            let mut state = wallet.state_mut().await;
-            if let Some(account) = state
-                .core_wallet
-                .accounts
-                .dashpay_external_accounts
-                .get_mut(&key)
-            {
-                let known: Vec<Address> = account
-                    .managed_account_type()
-                    .address_pools()
-                    .iter()
-                    .flat_map(|pool| pool.addresses.values())
-                    .filter(|info| paid.contains(&info.address.to_string()))
-                    .map(|info| info.address.clone())
-                    .collect();
-                for address in &known {
-                    account.mark_address_used(address);
-                }
-            }
-        }
-        let state = wallet.state().await;
-        // The pool's addresses by index: the first available is the one a payment takes.
+        let mut state = wallet.state_mut().await;
         Ok(state
             .core_wallet
             .accounts
             .dashpay_external_accounts
-            .get(&key)
-            .and_then(|account| {
-                let pools = account.managed_account_type().address_pools();
-                let pool = pools.first()?;
-                pool.addresses
-                    .values()
-                    .find(|info| info.is_available())
-                    .map(|info| info.address.to_string())
-            }))
+            .get_mut(&key)
+            .and_then(|account| next_contact_address(account, paid)))
     }
 
     /// Pays a DashPay contact from Core: to the next address of the key its request gave us,
@@ -561,6 +531,34 @@ impl Chain {
             Err(e) => Err(e.to_string()),
         }
     }
+}
+
+/// The address a payment to a contact takes next (BUG-212, BUG-261 r1): the addresses already
+/// paid (`paid`, from `contact-addresses.json`) marked used first, then the first of the pool
+/// not used, by index. Nothing is reserved: a payment that never reached the network leaves the
+/// same address for the next one, so a contact's wallet, which looks a few addresses ahead,
+/// still sees it.
+pub fn next_contact_address<A>(account: &mut A, paid: &[String]) -> Option<String>
+where
+    A: key_wallet::managed_account::managed_account_trait::ManagedAccountTrait,
+{
+    let known: Vec<Address> = account
+        .managed_account_type()
+        .address_pools()
+        .iter()
+        .flat_map(|pool| pool.addresses.values())
+        .filter(|info| paid.contains(&info.address.to_string()))
+        .map(|info| info.address.clone())
+        .collect();
+    for address in &known {
+        account.mark_address_used(address);
+    }
+    let pools = account.managed_account_type().address_pools();
+    let pool = pools.first()?;
+    pool.addresses
+        .values()
+        .find(|info| info.is_available())
+        .map(|info| info.address.to_string())
 }
 
 /// One of our contact requests to someone, as Platform proved it (FEAT-0020-resend): the
@@ -741,5 +739,49 @@ mod sent_request_tests {
         }
         assert!(versions_used_up(&[at(4, 3), at(6, 15)]));
         assert_eq!(at(6, 15).version(), LAST_REQUEST_VERSION);
+    }
+}
+
+#[cfg(test)]
+mod next_address_tests {
+    use super::*;
+
+    /// A contact's watch account, as a payment to them derives it (keys of another phrase).
+    fn their_account() -> key_wallet::managed_account::ManagedCoreFundsAccount {
+        let other = crate::keys_of(
+            "legal winner thank year wave sausage worth useful legal winner thank yellow",
+        )
+        .unwrap();
+        key_wallet::managed_account::ManagedCoreFundsAccount::from_account(&key_wallet::Account {
+            parent_wallet_id: None,
+            account_type: key_wallet::account::AccountType::DashpayExternalAccount {
+                index: 0,
+                user_identity_id: [1; 32],
+                friend_identity_id: [2; 32],
+            },
+            network: key_wallet::Network::Testnet,
+            account_xpub: other.accounts.coinjoin_accounts[&0].account_xpub,
+            is_watch_only: false,
+        })
+    }
+
+    /// BUG-261 r1 (as BUG-212): nothing is reserved — a payment refused before the network
+    /// (its address not written as paid) leaves the same address for the next look; one the
+    /// network answered (written as paid) moves the next look on to the next address.
+    #[test]
+    fn the_next_address_moves_on_only_once_one_is_paid() {
+        let mut account = their_account();
+        let first = next_contact_address(&mut account, &[]).expect("an address");
+        // Refused before the network: not written as paid.
+        let mut again = their_account();
+        assert_eq!(
+            next_contact_address(&mut again, &[]),
+            Some(first.clone()),
+            "the same address for the next look"
+        );
+        // The network answered: written as paid, the next look takes the next one.
+        let mut after = their_account();
+        let next = next_contact_address(&mut after, std::slice::from_ref(&first)).expect("next");
+        assert_ne!(next, first, "a new address once the first is paid");
     }
 }

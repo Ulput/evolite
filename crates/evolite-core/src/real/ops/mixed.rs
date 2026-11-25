@@ -5,10 +5,28 @@
 use crate::real::*;
 use evolite_chain::mixed_pay::{self, MixedPlan, MixedShort};
 
-/// To a contact, by `@name` or to a Platform address (AC-T7, AC-A5; FEAT-0048 A15): the screen's
-/// own line. Mixed coins reach Platform from the identity's creation, its top-up and «Shield»
-/// (step 2), never as a payment to a Platform address.
-const NOT_TO_CONTACT: &str = tr!("From mixed coins you can pay only to a Core address for now.");
+/// To a Platform or private address (FEAT-0048 A15, BUG-261 A3): the screen's own line. Mixed
+/// coins reach Platform from the identity's creation, its top-up and «Shield» (FEAT-0048 step 2).
+const NOT_TO_PLATFORM: &str =
+    tr!("From mixed coins you can pay to a Core address or to a DashPay contact.");
+
+/// BUG-261 A2: `@name` that is not an established DashPay contact.
+fn not_a_contact(label: &str) -> CoreError {
+    CoreError::NotAvailable(format!(
+        tr!(
+            "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address."
+        ),
+        label
+    ))
+}
+
+/// Who a payment from «Mixed» goes to (BUG-261): a Core address, or an established DashPay
+/// contact — paid to the DIP-15 Core address of theirs the last look showed (r1, BUG-212's way:
+/// the same `PaymentPreview`, never a reservation).
+pub(in crate::real) enum MixedPayee {
+    Address(key_wallet::dashcore::Address),
+    Contact(Identifier),
+}
 
 impl Real {
     /// BUG-260: the denominations' rounds to the journal, as counts by bucket, when they change.
@@ -30,16 +48,26 @@ impl Real {
         }
     }
 
-    /// The Dash address a payment from «Mixed» goes to: never a contact, a name or Platform.
-    fn mixed_payee(&self, to: &str) -> Result<key_wallet::dashcore::Address, CoreError> {
+    /// Who a payment from «Mixed» goes to: a Core address, or an established DashPay contact
+    /// (BUG-261 A1, R-1); never Platform or the pool (A3), never `@name` that is not a contact
+    /// (A2). Nothing is reserved here: this is also the preview's.
+    pub(in crate::real) fn mixed_payee(&self, to: &str) -> Result<MixedPayee, CoreError> {
         if PlatformAddress::from_bech32m_string(to.trim()).is_ok() {
-            return Err(CoreError::NotAvailable(NOT_TO_CONTACT.into()));
+            return Err(CoreError::NotAvailable(NOT_TO_PLATFORM.into()));
         }
+        // The names still loading, or the contact's key disabled, say so as for a Core payment.
+        let loading = tr!("Contacts' names are still loading — try again in a few seconds");
         match self.core_payee(to) {
-            Ok(CorePayee::Address(address)) => Ok(address),
-            Ok(CorePayee::Contact(_)) => Err(CoreError::NotAvailable(NOT_TO_CONTACT.into())),
-            Err(_) if to.trim().starts_with('@') => {
-                Err(CoreError::NotAvailable(NOT_TO_CONTACT.into()))
+            Ok(CorePayee::Address(address)) => Ok(MixedPayee::Address(address)),
+            Ok(CorePayee::Contact(contact)) => Ok(MixedPayee::Contact(contact)),
+            Err(CoreError::NotAvailable(why))
+                if to.trim().starts_with('@')
+                    && why != loading
+                    && !why.contains("disabled key") =>
+            {
+                Err(not_a_contact(&dpns::label(to).unwrap_or_else(|_| {
+                    to.trim().trim_start_matches('@').to_owned()
+                })))
             }
             Err(CoreError::BadAddress) => Err(not_an_address(to).unwrap_or(CoreError::BadAddress)),
             Err(e) => Err(e),
@@ -108,9 +136,28 @@ impl Real {
             note: send_note(note)?,
             rate: self.payment_rate(rate),
         };
-        let address = self.mixed_payee(to)?;
+        let payee = self.mixed_payee(to)?;
+        // BUG-261 r1: a contact only to the address the last look showed, as a Core payment.
+        let shown = match &payee {
+            MixedPayee::Address(_) => None,
+            MixedPayee::Contact(contact) => Some(
+                self.previews
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&contact.to_string(Encoding::Base58))
+                    .ok_or(CoreError::NotAvailable(
+                        tr!("The contact's address was not shown before signing — check the payment again")
+                            .into(),
+                    ))?,
+            ),
+        };
         let amount = positive_duffs(amount)?;
-        if convert::is_dust(Some(&address), amount) {
+        let address = match &payee {
+            MixedPayee::Address(address) => Some(address),
+            // A contact's DIP-15 address is P2PKH: the same dust as any such one.
+            MixedPayee::Contact(_) => None,
+        };
+        if convert::is_dust(address, amount) {
             return Err(CoreError::NotAvailable(
                 tr!("This amount is too small: the network does not relay so small a payment")
                     .into(),
@@ -141,10 +188,47 @@ impl Real {
         let notes = self.notes.clone();
         let prices = self.prices.clone();
         let dirty = self.dirty.clone();
+        let contact_paid = self.contact_paid.clone();
+        // BUG-206: the identity «Acting as» shows when the command comes (BUG-261 A5).
+        let pinned = self.shown_now(id);
         tokio::spawn(async move {
-            let paid = chain
-                .pay_mixed(&wallet, &keys, &address, amount, &plan)
-                .await;
+            let paid = match (payee, shown) {
+                (MixedPayee::Address(address), _) => {
+                    chain
+                        .pay_mixed(&wallet, &keys, &address, amount, &plan)
+                        .await
+                }
+                // Never without the address shown (taken above): refused, not an empty address.
+                (MixedPayee::Contact(_), None) => Err(tr!(
+                    "The contact's address was not shown before signing — check the payment again"
+                )
+                .to_string()),
+                (MixedPayee::Contact(to), Some(shown)) => {
+                    let contact = to.to_string(Encoding::Base58);
+                    let before = contact_paid.paid(&contact);
+                    let pay = async {
+                        let (_, me) = pinned_acting(&wallet, pinned)
+                            .await
+                            .ok_or_else(|| tr!("The wallet has no identity").to_string())?;
+                        // Still the address shown, after the password: the check a Core payment
+                        // to a contact makes (`pay_contact`).
+                        let now = chain
+                            .contact_address(&wallet, &keys, &me, to, &before)
+                            .await?;
+                        if now.as_deref() != Some(shown.as_str()) {
+                            return Err(tr!("The contact's address changed after the check — nothing was sent, check the payment again").to_string());
+                        }
+                        let address = evolite_chain::convert::payee(&shown)
+                            .map_err(|e| format!("{e:?}"))?
+                            .require_network(crate::network::dash())
+                            .map_err(|e| e.to_string())?;
+                        chain
+                            .pay_mixed(&wallet, &keys, &address, amount, &plan)
+                            .await
+                    };
+                    pay_then_mark(&contact_paid, &contact, &shown, pay).await
+                }
+            };
             outgoing.lock().unwrap_or_else(|e| e.into_inner()).answered(
                 key,
                 match &paid {
@@ -178,6 +262,23 @@ impl Real {
         });
         Ok(())
     }
+}
+
+/// BUG-261 r1 (as BUG-212): pays, and only on the network's answer — sent, or unclear (BUG-243:
+/// it may have gone) — writes `shown` as paid for `contact`, so the next payment takes the next
+/// address. A refusal before the network leaves it unpaid: the next look shows it again, and the
+/// contact's wallet, looking a few addresses ahead, never misses a payment.
+pub(in crate::real) async fn pay_then_mark(
+    contact_paid: &contact_addresses::ContactAddresses,
+    contact: &str,
+    shown: &str,
+    pay: impl std::future::Future<Output = Result<evolite_chain::chain::Paid, String>>,
+) -> Result<evolite_chain::chain::Paid, String> {
+    let paid = pay.await;
+    if paid.is_ok() {
+        contact_paid.add(contact, shown);
+    }
+    paid
 }
 
 /// The quote of `plan` for `amount` (АРХ-9а): the excess's rule, and with a refusal the amount

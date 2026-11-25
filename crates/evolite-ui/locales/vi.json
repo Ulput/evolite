@@ -469,7 +469,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Từ địa chỉ Platform về Core: chỉ tới các địa chỉ của ví này",
   "From a Platform address, only an identity of this wallet can be topped up": "Từ địa chỉ Platform chỉ có thể nạp cho danh tính của ví này",
   "From identity": "Từ danh tính",
-  "From mixed coins you can pay only to a Core address for now.": "Từ các đồng đã trộn, hiện chỉ có thể trả tới địa chỉ Core.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Số dư sẽ trở lại, nhưng các giao dịch trước thì không: mạng chỉ lưu số dư của một địa chỉ.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform rút qua hàng đợi: DASH thường về Core trong vòng một giờ",
   "Send from credits or from your Platform address: the money arrives at once.": "Gửi từ tín dụng hoặc từ địa chỉ Platform của bạn: tiền đến ngay.",
@@ -2841,5 +2840,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite tạo khóa đăng nhập mới từ cụm từ của ví này. Khóa cũ bị vô hiệu hóa trong cùng lần cập nhật.",
   "{} · sign-in · HIGH": "{} · đăng nhập · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · đăng nhập · HIGH · từ cụm từ",
-  "≈ {} of credits needed": "Cần ≈ {} tín dụng"
+  "≈ {} of credits needed": "Cần ≈ {} tín dụng",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Từ coin đã trộn bạn chỉ có thể trả cho @{} như một liên hệ DashPay. Hãy thêm vào danh bạ hoặc nhập địa chỉ Core của họ.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Từ coin đã trộn bạn có thể trả đến một địa chỉ Core hoặc một liên hệ DashPay.",
+  "To @{} · their Core address for you": "Đến @{} · địa chỉ Core của họ dành cho bạn",
+  "Sent to @{} · from mixed coins": "Đã gửi đến @{} · từ coin đã trộn"
 }

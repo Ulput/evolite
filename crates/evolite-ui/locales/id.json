@@ -247,7 +247,7 @@
     "other": "{} catatan lebih baru di berkas"
   },
   "{} record|{} records": {
-    "other": "{} catatan"
+    "other": "{} catatan riwayat"
   },
   "{} token|{} tokens": {
     "other": "{} token"
@@ -469,7 +469,6 @@
   "From a Platform address to Core: only to this wallet's addresses": "Dari alamat Platform ke Core: hanya ke alamat dompet ini",
   "From a Platform address, only an identity of this wallet can be topped up": "Dari alamat Platform hanya identitas dompet ini yang bisa diisi ulang",
   "From identity": "Dari identitas",
-  "From mixed coins you can pay only to a Core address for now.": "Dari koin tercampur, untuk saat ini Anda hanya bisa membayar ke alamat Core.",
   "Its balance comes back, but not its earlier operations: the network keeps only the balance of an address.": "Saldonya kembali, tetapi operasi sebelumnya tidak: jaringan hanya menyimpan saldo sebuah alamat.",
   "Platform withdraws through a queue: the DASH usually reach Core within an hour": "Platform menarik melalui antrean: DASH biasanya tiba di Core dalam satu jam",
   "Send from credits or from your Platform address: the money arrives at once.": "Kirim dari kredit atau dari alamat Platform Anda: uangnya langsung tiba.",
@@ -2841,5 +2840,9 @@
   "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update.": "evolite menurunkan kunci masuk baru dari frasa dompet ini. Yang lama dinonaktifkan dalam pembaruan yang sama.",
   "{} · sign-in · HIGH": "{} · masuk · HIGH",
   "{} · sign-in · HIGH · from the phrase": "{} · masuk · HIGH · dari frasa",
-  "≈ {} of credits needed": "Perlu ≈ {} kredit"
+  "≈ {} of credits needed": "Perlu ≈ {} kredit",
+  "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Dari koin tercampur Anda hanya bisa membayar @{} sebagai kontak DashPay. Tambahkan ke kontak atau masukkan alamat Core-nya.",
+  "From mixed coins you can pay to a Core address or to a DashPay contact.": "Dari koin tercampur Anda bisa membayar ke alamat Core atau ke kontak DashPay.",
+  "To @{} · their Core address for you": "Ke @{} · alamat Core-nya untuk Anda",
+  "Sent to @{} · from mixed coins": "Dikirim ke @{} · dari koin tercampur"
 }
