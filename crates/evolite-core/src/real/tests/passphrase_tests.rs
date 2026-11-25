@@ -339,7 +339,9 @@ async fn nothing_outside_tells_a_passphrase() {
         .iter()
         .map(|r| {
             let mut value = serde_json::to_value(r).unwrap();
-            for key in ["id", "name", "color"] {
+            // The times the two wallets were made (or opened) may fall a second apart; they
+            // tell nothing of a passphrase (batch 73: 1795625853 against 1795625854).
+            for key in ["id", "name", "color", "created_at", "last_opened"] {
                 value[key] = serde_json::Value::Null;
             }
             value

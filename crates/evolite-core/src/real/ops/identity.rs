@@ -1134,18 +1134,31 @@ pub(in crate::real) fn watch_creation(
 /// BUG-303: whole duffs of each balance, as the screens show them (and as the apps' line,
 /// `app_spent_step`), not of the difference: lines that add up to the screens' change, never
 /// 1 duff off.
+/// The same rule as [`write_cost`], whose answer it is when that cost is known and above zero.
 pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) -> Option<Duffs> {
-    let spent = identity::credits_as_duffs(before?) - identity::credits_as_duffs(after?);
-    (spent > 0).then_some(spent)
+    match write_cost(before, after) {
+        (spent, true) if spent > 0 => Some(spent),
+        _ => None,
+    }
 }
 
 /// TECH-bug-prevention (TEAM.md §8d-4): what a Platform write took from the identity's credits,
 /// in duffs, and whether that is known. Both balances read: their difference (`0` when the
 /// credits did not go down), known. Either read failed: `(0, false)` — «cost not known», never a
 /// write that looks free.
+///
+/// BUG-303: whole duffs of each balance, as the screens show them, not of the difference — the
+/// one rule for every own line ([`own_line`], [`spent_credits`]); batch 73 found the two paths
+/// apart (6 against 7 duffs for 0.00005000 → 0.00004993).
+///
+/// Credits that went **up** across the write mean credits came in meanwhile (a top-up, a
+/// transfer to it): what the write took is then not known, `(0, false)`, not «free».
 pub(in crate::real) fn write_cost(before: Option<u64>, after: Option<u64>) -> (Duffs, bool) {
     match (before, after) {
-        (Some(before), Some(after)) => ((before.saturating_sub(after) / 1000) as Duffs, true),
+        (Some(before), Some(after)) => {
+            let spent = identity::credits_as_duffs(before) - identity::credits_as_duffs(after);
+            if spent < 0 { (0, false) } else { (spent, true) }
+        }
         _ => (0, false),
     }
 }

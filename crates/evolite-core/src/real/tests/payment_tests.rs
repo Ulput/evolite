@@ -151,8 +151,8 @@ fn a_cost_read_that_failed_is_not_known_not_free() {
     );
     assert_eq!(
         write_cost(Some(1_000), Some(2_000)),
-        (0, true),
-        "credits came in meanwhile"
+        (0, false),
+        "credits came in meanwhile: what the write took is not known"
     );
     assert_eq!(write_cost(None, Some(1)), (0, false));
     assert_eq!(write_cost(Some(1), None), (0, false));
