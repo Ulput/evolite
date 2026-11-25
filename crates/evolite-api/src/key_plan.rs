@@ -26,6 +26,14 @@ pub enum KeyRequest {
     Transfers,
     /// A new AUTHENTICATION MASTER, the acting one disabled in the same update.
     ReplaceMaster,
+    /// BUG-286: one DECRYPTION MEDIUM bound to DashPay's contact requests, for an identity that
+    /// has none (one made by another wallet): other wallets (Dash Desktop Wallet) send contact
+    /// requests only to a DECRYPTION key, and see no contacts without it. The ENCRYPTION key
+    /// stays, so the identity's ECDH root does not change.
+    DashPayDecryption,
+    /// BUG-298: AUTHENTICATION HIGH, unbound: signing in to apps (App Connect), NFTs, and what
+    /// other wallets take as «ready for DashPay».
+    SignIn,
 }
 
 impl KeyRequest {
@@ -41,6 +49,7 @@ impl KeyRequest {
     pub fn bound_keys(self) -> usize {
         match self {
             KeyRequest::DashPay => 2,
+            KeyRequest::DashPayDecryption => 1,
             _ => 0,
         }
     }
@@ -193,7 +202,44 @@ pub fn has(keys: &[IdentityKey], request: KeyRequest) -> bool {
         KeyRequest::Transfers => active(keys).any(|k| k.purpose == KeyPurpose::Transfers),
         KeyRequest::DashPay => dashpay_works(keys),
         KeyRequest::ReplaceMaster => false,
+        // BUG-286: any acting DECRYPTION: the one others encrypt to.
+        KeyRequest::DashPayDecryption => keys.iter().any(|k| pickable(k) && k.decrypts),
+        KeyRequest::SignIn => signs_in(keys, &[]),
     }
+}
+
+/// BUG-298: an acting AUTHENTICATION HIGH of this wallet, unbound, `leaving` aside (disabled in
+/// the same update). App Connect and NFTs sign with exactly HIGH and no bound key: the same rule
+/// as the chain's `SignInIdentity::can_sign_in` (r1 Should 3).
+fn signs_in(keys: &[IdentityKey], leaving: &[u32]) -> bool {
+    active(keys).any(|k| {
+        k.purpose == KeyPurpose::Documents
+            && k.level == KeyLevel::High
+            && k.owner == KeyOwner::This
+            && k.bound_to.is_none()
+            && !leaving.contains(&k.id)
+    })
+}
+
+/// BUG-286, BUG-298: what the identity lacks to be ready for other wallets (Dash Desktop Wallet
+/// shows «Needs keys» otherwise): a sign-in key (AUTH HIGH) of this wallet, and a DECRYPTION
+/// key. One update adds them all («Add the missing keys»). Empty: ready.
+pub fn missing_for_other_wallets(keys: &[IdentityKey]) -> Vec<KeyRequest> {
+    [KeyRequest::SignIn, KeyRequest::DashPayDecryption]
+        .into_iter()
+        .filter(|request| !has(keys, *request))
+        .collect()
+}
+
+/// BUG-298: whether `plan` disables the last acting sign-in key of this wallet and adds none:
+/// said before the password, with «Replace with a new one» (not refused: the person decides).
+pub fn disables_last_sign_in(keys: &[IdentityKey], plan: &KeyPlan) -> bool {
+    signs_in(keys, &[])
+        && !signs_in(keys, &plan.disable)
+        && !plan
+            .add
+            .iter()
+            .any(|k| k.purpose == NewPurpose::Authentication && k.level == KeyLevel::High)
 }
 
 /// The keys of one update, numbered from max+1 over every key, the disabled ones too (AC-T3),
@@ -264,6 +310,28 @@ pub fn plan(
                 take(NewPurpose::Encryption, KeyLevel::Medium, true);
                 take(NewPurpose::Decryption, KeyLevel::Medium, true);
             }
+            KeyRequest::DashPayDecryption => {
+                if has(keys, request) {
+                    return Err(KeyRefusal::AlreadyHas(request));
+                }
+                // The key DashPay encrypts from must be this wallet's: else it is another
+                // wallet's DashPay, which that wallet changes (as for the pair, AC-T19).
+                let root = dashpay_picks(keys).first().copied();
+                let ours = root
+                    .is_some_and(|id| keys.iter().any(|k| k.id == id && k.owner == KeyOwner::This));
+                if !ours {
+                    return Err(KeyRefusal::OtherEncryptionKeys);
+                }
+                take(NewPurpose::Decryption, KeyLevel::Medium, true);
+            }
+            KeyRequest::SignIn => {
+                // Not already one that stays: a replacement of the last one is asked with it
+                // disabled in the same update («Replace with a new one»).
+                if signs_in(keys, &off) {
+                    return Err(KeyRefusal::AlreadyHas(request));
+                }
+                take(NewPurpose::Authentication, KeyLevel::High, false);
+            }
             KeyRequest::Tokens | KeyRequest::Transfers => {
                 if has(keys, request) {
                     return Err(KeyRefusal::AlreadyHas(request));
@@ -326,6 +394,151 @@ mod tests {
             key(4, KeyLevel::Medium, KeyPurpose::Encryption, KeyOwner::This),
             decrypt,
         ]
+    }
+
+    /// @ozzieq31's keys (BUG-286): made by another wallet, the phrase's all the same: MASTER,
+    /// HIGH, CRITICAL, TRANSFER and one ENCRYPTION bound to DashPay; no DECRYPTION.
+    fn imported() -> Vec<IdentityKey> {
+        let mut keys = evolite();
+        keys.retain(|k| !k.decrypts);
+        keys[4].bound_to = Some(DASHPAY_CONTRACT.into());
+        keys
+    }
+
+    /// BUG-286 (а): no DECRYPTION → one bound DECRYPTION, max+1, the ENCRYPTION kept; one there →
+    /// «already has»; the root another wallet's → refused, as the pair.
+    #[test]
+    fn a_missing_decryption_key_is_one_bound_key() {
+        let keys = imported();
+        assert!(!has(&keys, KeyRequest::DashPayDecryption));
+        let plan = plan(&keys, &[KeyRequest::DashPayDecryption], &[]).unwrap();
+        assert_eq!(
+            plan.add,
+            vec![NewKey {
+                id: 5,
+                purpose: NewPurpose::Decryption,
+                level: KeyLevel::Medium,
+                dashpay: true,
+            }]
+        );
+        assert!(plan.disable.is_empty(), "the ENCRYPTION stays");
+        let request = KeyRequest::DashPayDecryption;
+        assert_eq!(
+            (request.keys(), request.bound_keys()),
+            (1, 1),
+            "one key, bound"
+        );
+
+        assert_eq!(
+            super::plan(&evolite(), &[KeyRequest::DashPayDecryption], &[]),
+            Err(KeyRefusal::AlreadyHas(KeyRequest::DashPayDecryption))
+        );
+        let mut foreign = imported();
+        foreign[4].owner = KeyOwner::Other;
+        assert_eq!(
+            super::plan(&foreign, &[KeyRequest::DashPayDecryption], &[]),
+            Err(KeyRefusal::OtherEncryptionKeys)
+        );
+    }
+
+    /// BUG-298: the sign-in key: added when none of this wallet acts; «already has» otherwise,
+    /// unless the one there goes in the same update (the replacement).
+    #[test]
+    fn a_sign_in_key_is_added_or_replaces_the_last() {
+        let mut keys = evolite();
+        assert_eq!(
+            plan(&keys, &[KeyRequest::SignIn], &[]),
+            Err(KeyRefusal::AlreadyHas(KeyRequest::SignIn))
+        );
+        let replace = plan(&keys, &[KeyRequest::SignIn], &[1]).unwrap();
+        assert_eq!(replace.disable, vec![1]);
+        assert_eq!(
+            replace.add,
+            vec![NewKey {
+                id: 6,
+                purpose: NewPurpose::Authentication,
+                level: KeyLevel::High,
+                dashpay: false,
+            }]
+        );
+        keys[1].disabled_at = Some(1);
+        assert!(!has(&keys, KeyRequest::SignIn));
+        assert_eq!(
+            plan(&keys, &[KeyRequest::SignIn], &[]).unwrap().add.len(),
+            1
+        );
+        assert_eq!(
+            (KeyRequest::SignIn.keys(), KeyRequest::SignIn.bound_keys()),
+            (1, 0)
+        );
+    }
+
+    /// BUG-298 r1 Should 3: a HIGH bound to a contract (an import may bring one) is no sign-in
+    /// key, as App Connect's `can_sign_in` says: missing, and added. Mutant: no `bound_to`
+    /// check → «already has».
+    #[test]
+    fn a_bound_high_is_no_sign_in_key() {
+        let mut keys = evolite();
+        keys[1].bound_to = Some(DASHPAY_CONTRACT.into());
+        assert!(!has(&keys, KeyRequest::SignIn));
+        assert_eq!(missing_for_other_wallets(&keys), vec![KeyRequest::SignIn]);
+        assert_eq!(
+            plan(&keys, &[KeyRequest::SignIn], &[]).unwrap().add.len(),
+            1
+        );
+    }
+
+    /// BUG-286, BUG-298: what other wallets need, in one update.
+    #[test]
+    fn what_other_wallets_need_is_added_in_one_update() {
+        assert!(
+            missing_for_other_wallets(&evolite()).is_empty(),
+            "evolite's own six"
+        );
+        let mut keys = imported();
+        assert_eq!(
+            missing_for_other_wallets(&keys),
+            vec![KeyRequest::DashPayDecryption]
+        );
+        keys[1].disabled_at = Some(1);
+        let missing = missing_for_other_wallets(&keys);
+        assert_eq!(
+            missing,
+            vec![KeyRequest::SignIn, KeyRequest::DashPayDecryption]
+        );
+        let plan = plan(&keys, &missing, &[]).unwrap();
+        assert_eq!(
+            plan.add.iter().map(|k| k.id).collect::<Vec<_>>(),
+            vec![5, 6]
+        );
+        let bound: usize = missing.iter().map(|r| r.bound_keys()).sum();
+        assert_eq!(bound, 1, "the HIGH unbound, the DECRYPTION bound");
+    }
+
+    /// BUG-298: disabling the last sign-in key is said before the password; another one acting,
+    /// or a new one in the same update, is not.
+    #[test]
+    fn disabling_the_last_sign_in_key_is_said() {
+        let keys = evolite();
+        let off = plan(&keys, &[], &[1]).unwrap();
+        assert!(disables_last_sign_in(&keys, &off));
+        let replaced = plan(&keys, &[KeyRequest::SignIn], &[1]).unwrap();
+        assert!(!disables_last_sign_in(&keys, &replaced));
+        let mut two = keys.clone();
+        two.push(key(
+            6,
+            KeyLevel::High,
+            KeyPurpose::Documents,
+            KeyOwner::This,
+        ));
+        assert!(!disables_last_sign_in(
+            &two,
+            &plan(&two, &[], &[1]).unwrap()
+        ));
+        assert!(!disables_last_sign_in(
+            &keys,
+            &plan(&keys, &[], &[2]).unwrap()
+        ));
     }
 
     /// AC-T3: a new key is max+1 over every key, the disabled ones too.

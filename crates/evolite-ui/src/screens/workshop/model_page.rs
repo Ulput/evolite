@@ -289,8 +289,11 @@ pub(super) fn page(
             .unwrap_or_default(),
     };
     let left_to_issue = issued.map(|i| model.supply.saturating_sub(i));
+    let no_sign_in = super::no_sign_in_key(&wallet);
     let why_not_give = if running {
         Some(tr!("A series is running — wait for it or stop it"))
+    } else if no_sign_in.is_some() {
+        no_sign_in
     } else if free == Some(0) {
         Some(tr!("You have no free copies"))
     } else {
@@ -298,6 +301,8 @@ pub(super) fn page(
     };
     let why_not_issue = if running {
         Some(tr!("A series is running — wait for it or stop it"))
+    } else if no_sign_in.is_some() {
+        no_sign_in
     } else if left_to_issue == Some(0) {
         Some(tr!("The whole supply is issued"))
     } else {

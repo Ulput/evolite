@@ -49,6 +49,7 @@ mod login;
 mod low_login;
 mod low_menu;
 mod message;
+mod missing_keys;
 mod mixed;
 mod mixed_to_platform;
 mod mono_addresses;

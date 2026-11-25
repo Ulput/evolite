@@ -471,6 +471,13 @@ pub fn app_request(id: u64, text: &str, wallet: &Wallet) -> Result<AppRequest, C
             network: evolite_api::Network::Mainnet,
         }));
     }
+    // BUG-298: as the real core, before the dialog.
+    let signs_in = wallet.identity.as_ref().is_some_and(|i| {
+        evolite_api::key_plan::has(&i.keys, evolite_api::key_plan::KeyRequest::SignIn)
+    });
+    if v2 && !signs_in {
+        return Err(CoreError::AppLink(AppLinkRefusal::NoSignInKey));
+    }
     let kind = if v2 {
         connect2_example(identity, wallet, text.contains("&renew"))
     } else if text.starts_with("dash-key:") || text.starts_with("dash-st:") {

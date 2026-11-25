@@ -1040,6 +1040,19 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     bound_to: None,
                     owner: KeyOwner::This,
                 },
+                // BUG-286: and its decryption key, as evolite's identities have: other wallets
+                // (Dash Desktop Wallet) send contact requests only to one. The presets
+                // `*-no-decryption` take it away.
+                IdentityKey {
+                    id: 7,
+                    level: KeyLevel::Medium,
+                    purpose: KeyPurpose::Encryption,
+                    kind: KeyKind::Ecdsa,
+                    decrypts: true,
+                    disabled_at: None,
+                    bound_to: None,
+                    owner: KeyOwner::This,
+                },
             ],
             profile: Some(PEOPLE[0].profile()),
             slot: 0,

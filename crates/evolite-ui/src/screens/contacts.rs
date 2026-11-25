@@ -356,6 +356,10 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             }
             return;
         }
+        // BUG-286, BUG-298: DashPay works here, but other wallets do not see the contacts.
+        if let Some(id) = wallet.identity.as_ref() {
+            crate::screens::identity::missing_keys_notice(ui, a, cx, id);
+        }
         state.forget_not_enough_after_top_up(
             known_credits(wallet),
             wallet.identity.as_ref().map(|i| i.id.as_str()),

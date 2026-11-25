@@ -1774,6 +1774,7 @@ impl eframe::App for App {
             cx.go(Screen::Overview);
         }
         cx.set_fee(self.settings.fee);
+        cx.set_keys_not_now(self.settings.keys_not_now.clone());
         // By the window's width, once a frame (responsive spec R2).
         cx.bp = crate::theme::Breakpoint::of(ui.ctx().content_rect().width());
         // A countdown preset (FEAT-0002) shows the time it names.
@@ -2048,6 +2049,9 @@ impl eframe::App for App {
         if let Some(fee) = cx.take_fee_chosen() {
             self.settings.fee = fee;
         }
+        if let Some((id, missing)) = cx.take_keys_not_now() {
+            crate::prefs::join_not_now(&mut self.settings.keys_not_now, &[(id, missing)].into());
+        }
         let asked_now = cx.take_fund().map(|amount| {
             self.fund_address.form = Some(screens::fund_address::FundForm {
                 amount: crate::format::input_text(amount),
@@ -2102,6 +2106,11 @@ impl eframe::App for App {
         }
         if cx.take_enable_dashpay() {
             self.identity_keys.open_enable_dashpay();
+        }
+        if cx.take_add_missing_keys()
+            && let Some(id) = snapshot.wallet.as_ref().and_then(|w| w.identity.as_ref())
+        {
+            self.identity_keys.open_add_missing(&id.keys);
         }
         if let Some(query) = cx.take_history_query() {
             self.history.query = query;

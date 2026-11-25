@@ -386,7 +386,7 @@ fn home(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut WorkshopState) {
             "A contract by the NFT evolite v1 standard: models with a picture and numbered copies that can be given."
         ),
         tr!("Create NFT"),
-        None,
+        no_sign_in_key(&wallet),
     ) {
         state.new.open();
         state.page = Page::New;
@@ -416,6 +416,15 @@ fn identity_row(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, wallet: &evolite_api:
     if let Some(id) = picked.chosen {
         cx.send(Command::ChooseIdentity { id });
     }
+}
+
+/// BUG-298: the Workshop's writes sign with the identity's HIGH key (the instances') —
+/// without one, said in place of the button, not as an error after the password.
+pub(crate) fn no_sign_in_key(wallet: &evolite_api::Wallet) -> Option<&'static str> {
+    let id = wallet.identity.as_ref()?;
+    (!evolite_api::key_plan::has(&id.keys, evolite_api::key_plan::KeyRequest::SignIn)).then_some(
+        tr!("The identity has no sign-in key (HIGH): add one in Keys."),
+    )
 }
 
 /// A «Create» card: its icon, name, what it is and its button on the right (W1). `later`: the

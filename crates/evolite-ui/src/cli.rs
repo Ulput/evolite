@@ -251,7 +251,8 @@ pub const PRESETS: &[&str] = &[
     "contacts-channel-broken", "contact-accept", "contact-resend",
     "identity-keys", "identity-key-shown", "identity-keys-no-encryption", "key-disable",
     "key-replace-main", "key-replace-dashpay", "key-add", "identity-keys-foreign",
-    "key-enable-dashpay-foreign",
+    "key-enable-dashpay-foreign", "identity-keys-no-decryption", "contacts-no-decryption",
+    "identity-no-sign-in",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked", "create-identity-many-coins",
     "create-identity-pool-short", "create-identity-pool-connecting", "create-identity-pool-off",
@@ -463,6 +464,7 @@ fn dev_args<'a>(
             Some(
                 "identity"
                 | "identity-unfinished"
+                | "identity-no-sign-in"
                 | "identity-created"
                 | "top-up-stopped"
                 | "top-up-awaiting"
@@ -494,6 +496,7 @@ fn dev_args<'a>(
                 | "contact-profile"
                 | "my-qr"
                 | "contacts-no-encryption"
+                | "contacts-no-decryption"
                 | "contacts-channel-broken"
                 | "contact-accept"
                 | "contact-resend",
@@ -533,7 +536,8 @@ fn dev_args<'a>(
                 | "key-replace-dashpay"
                 | "key-add"
                 | "identity-keys-foreign"
-                | "key-enable-dashpay-foreign",
+                | "key-enable-dashpay-foreign"
+                | "identity-keys-no-decryption",
             ),
         ) => Screen::IdentityKeys,
         (

@@ -41,6 +41,29 @@ pub struct Prefs {
     pub lang: Option<String>,
     /// FEAT-0040: the wallet's fee rate for a Core payment, duffs per kB; none: «Normal» (R-12).
     pub fee_rate: Option<u64>,
+    /// BUG-286, BUG-298: the identities (base58) whose «keys other wallets need» warning got
+    /// «Not now», with what was missing then (r1 Should 1): the warning is hidden on Contacts
+    /// and Identity while nothing else is missing; the keys screen still says it.
+    pub keys_not_now: NotNow,
+}
+
+/// «Not now» on the missing keys' warning (BUG-286 r1): by identity, the names of what was
+/// missing when it was said (`screens::identity::keys::missing_names`).
+pub type NotNow = BTreeMap<String, BTreeSet<String>>;
+
+/// Whether «Not now» for `id` covers `missing` (by name): everything missing now was missing
+/// when it was said. Something new missing shows the warning again.
+pub fn not_now_covers(not_now: &NotNow, id: &str, missing: &BTreeSet<String>) -> bool {
+    not_now.get(id).is_some_and(|said| missing.is_subset(said))
+}
+
+/// Joins `from` into `into`, identity by identity.
+pub fn join_not_now(into: &mut NotNow, from: &NotNow) {
+    for (id, names) in from {
+        into.entry(id.clone())
+            .or_default()
+            .extend(names.iter().cloned());
+    }
 }
 
 /// Where the app's settings in `data_dir` live.
@@ -99,6 +122,7 @@ pub fn split(prefs: &Prefs) -> (Prefs, Prefs) {
         // FEAT-0040 (R-12): the wallet's, never the app's.
         fee_rate: prefs.fee_rate,
         empty_hint_closed: prefs.empty_hint_closed,
+        keys_not_now: prefs.keys_not_now.clone(),
         ..Prefs::default()
     };
     (app, wallet)
@@ -114,6 +138,7 @@ pub fn take_wallet_half(now: &mut Prefs, from: &Prefs) {
         now.toggles.entry(key).or_insert(on);
     }
     now.trusted_issuers.extend(from.trusted_issuers);
+    join_not_now(&mut now.keys_not_now, &from.keys_not_now);
     now.lock_after = now.lock_after.or(from.lock_after);
     now.identity = now.identity.take().or(from.identity);
     now.remind_snoozed = now.remind_snoozed.or(from.remind_snoozed);
@@ -215,12 +240,56 @@ mod tests {
             remind_snoozed: Some(1_794_009_600),
             fee_rate: Some(2_000),
             empty_hint_closed: Some(true),
+            keys_not_now: [(
+                "H5ttoybh42z3HukXBjA4Sb7qudXvRAfziTREdhPposwB".to_owned(),
+                ["dashpay-decryption".to_owned()].into(),
+            )]
+            .into(),
         };
         save(&path, &prefs).unwrap();
         assert_eq!(load(&path), prefs);
         // FEAT-0040 (R-12): the fee rate is the wallet's, never the app's.
         let (app, wallet) = split(&prefs);
         assert_eq!((app.fee_rate, wallet.fee_rate), (None, Some(2_000)));
+        // BUG-286, BUG-298: «Not now» is the wallet's, by identity.
+        assert!(app.keys_not_now.is_empty());
+        assert_eq!(wallet.keys_not_now, prefs.keys_not_now);
+    }
+
+    /// BUG-286 r1 Should 1: «Not now» covers what was missing then; something new missing
+    /// (the sign-in key after the decryption one) is not covered. Mutant: any entry covers.
+    #[test]
+    fn not_now_covers_only_what_was_missing_then() {
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>();
+        let mut not_now = NotNow::new();
+        join_not_now(
+            &mut not_now,
+            &[("id".to_owned(), names(&["dashpay-decryption"]))].into(),
+        );
+        assert!(not_now_covers(
+            &not_now,
+            "id",
+            &names(&["dashpay-decryption"])
+        ));
+        assert!(!not_now_covers(
+            &not_now,
+            "id",
+            &names(&["dashpay-decryption", "sign-in"])
+        ));
+        assert!(!not_now_covers(
+            &not_now,
+            "other",
+            &names(&["dashpay-decryption"])
+        ));
+        join_not_now(
+            &mut not_now,
+            &[("id".to_owned(), names(&["sign-in"]))].into(),
+        );
+        assert!(not_now_covers(
+            &not_now,
+            "id",
+            &names(&["dashpay-decryption", "sign-in"])
+        ));
     }
 
     #[test]

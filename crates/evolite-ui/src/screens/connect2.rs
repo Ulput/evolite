@@ -886,6 +886,9 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
                 AppLinkRefusal::OldNetwork => t(tr!(
                     "The network does not take keys with a limit and a period yet."
                 )),
+                AppLinkRefusal::NoSignInKey => t(tr!(
+                    "The identity has no sign-in key (HIGH): add one in Keys."
+                )),
                 _ => t(tr!("The request is not well formed.")),
             };
             (t(tr!("Cannot connect")), reason, t(nothing))

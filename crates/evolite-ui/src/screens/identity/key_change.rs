@@ -20,6 +20,11 @@ pub enum ChangeKind {
     ReplaceDashPay,
     /// K5: a key for a ready purpose, chosen in the dialog.
     Add,
+    /// BUG-286, BUG-298: «Add the missing keys»: what other wallets need (the list taken when
+    /// the dialog opens, [`KeyChange::missing`]), in one update.
+    AddMissing,
+    /// BUG-298: the last sign-in key N disabled and a new one added in the same update.
+    ReplaceSignIn(u32),
 }
 
 /// One key change, from its dialog to the core's answer.
@@ -27,6 +32,11 @@ pub struct KeyChange {
     pub(crate) kind: ChangeKind,
     /// K5's choice.
     pub(crate) chosen: Option<KeyRequest>,
+    /// [`ChangeKind::AddMissing`]'s keys, as they were missing when it opened: the snapshot that
+    /// has them after the answer does not make it «nothing to add».
+    pub(crate) missing: Vec<KeyRequest>,
+    /// BUG-298: «Disable anyway» chosen over the last sign-in key's warning.
+    pub(crate) anyway: bool,
     /// The change's spend (TECH-spend-flow): its password, sent once, its own answer only.
     pub(crate) flow: crate::components::spend_flow::SpendFlow<()>,
     /// AC-T19: «I understand: a disabled key cannot be brought back» — asked when DashPay's pair
@@ -42,6 +52,8 @@ impl KeyChange {
         Self {
             kind,
             chosen: None,
+            missing: Vec::new(),
+            anyway: false,
             flow: Default::default(),
             understood: false,
             sent_once: false,
@@ -56,6 +68,13 @@ impl KeyChange {
         change
     }
 
+    /// BUG-286, BUG-298: «Add the missing keys» for an identity with `keys`.
+    pub fn add_missing(keys: &[IdentityKey]) -> Self {
+        let mut change = Self::new(ChangeKind::AddMissing);
+        change.missing = key_plan::missing_for_other_wallets(keys);
+        change
+    }
+
     /// What it asks the core for: the keys added and those disabled. DashPay's pair takes
     /// another's encryption keys with it (AC-T19): DashPay would pick them first; the dialog
     /// sends it only after «I understand».
@@ -65,6 +84,8 @@ impl KeyChange {
             ChangeKind::ReplaceMaster => (vec![KeyRequest::ReplaceMaster], Vec::new()),
             ChangeKind::ReplaceDashPay => (vec![KeyRequest::DashPay], Vec::new()),
             ChangeKind::Add => (self.chosen.into_iter().collect(), Vec::new()),
+            ChangeKind::AddMissing => (self.missing.clone(), Vec::new()),
+            ChangeKind::ReplaceSignIn(id) => (vec![KeyRequest::SignIn], vec![id]),
         };
         if add.contains(&KeyRequest::DashPay) {
             disable.extend(key_plan::foreign_encryption(keys));
@@ -148,7 +169,29 @@ fn purpose_words(request: KeyRequest) -> (&'static str, &'static str) {
         ),
         KeyRequest::Transfers => (tr!("For credit transfers"), "TRANSFER · CRITICAL"),
         KeyRequest::ReplaceMaster => (tr!("Replace the main key"), "MASTER"),
+        KeyRequest::SignIn => (
+            tr!("For signing in"),
+            tr!("Authentication · HIGH. Signing in to apps and NFTs"),
+        ),
+        KeyRequest::DashPayDecryption => (
+            tr!("For DashPay decryption"),
+            tr!("Decryption · MEDIUM, bound to DashPay: other wallets send contact requests to it"),
+        ),
     }
+}
+
+/// BUG-298: whether this dialog stops at the last sign-in key's warning: disabling it, with
+/// neither «Replace with a new one» nor «Disable anyway» chosen yet.
+fn warns_last_sign_in(
+    change: &KeyChange,
+    keys: &[IdentityKey],
+    plan: &Result<key_plan::KeyPlan, key_plan::KeyRefusal>,
+) -> bool {
+    matches!(change.kind, ChangeKind::Disable(_))
+        && !change.anyway
+        && plan
+            .as_ref()
+            .is_ok_and(|plan| key_plan::disables_last_sign_in(keys, plan))
 }
 
 /// The dialog of the change in `slot`, over K1, for identity `id` named `me`. Closed on
@@ -191,6 +234,8 @@ pub(super) fn change_dialog(
         Err(key_plan::KeyRefusal::Nothing) | Ok(_) => None,
         Err(r) => Some(r.clone()),
     };
+    // BUG-298: the last sign-in key: said, and chosen, before the password.
+    let last_sign_in = warns_last_sign_in(change, &id.keys, &plan);
     let fee = key_plan::fee(&add, &cx.wallet().fees);
     // BUG-183 AC-T4: credits short of the fee are said before the password (BUG-108's estimate,
     // never below what testnet charged).
@@ -217,6 +262,18 @@ pub(super) fn change_dialog(
             false,
         ),
         ChangeKind::Add => (tr!("Add a key").to_string(), "key", tr!("Add key"), false),
+        ChangeKind::AddMissing => (
+            tr!("Add the missing keys").to_string(),
+            "key",
+            tr!("Add keys"),
+            false,
+        ),
+        ChangeKind::ReplaceSignIn(_) => (
+            tr!("Replace the sign-in key").to_string(),
+            "key",
+            tr!("Replace key"),
+            false,
+        ),
     };
     let mut switch_to: Option<ChangeKind> = None;
     let closed = crate::components::dialog_with_summary(
@@ -232,7 +289,7 @@ pub(super) fn change_dialog(
             // the tick the button waits for (AC-T19) and the fee. Nothing after the answer or a
             // refusal: nothing is signed then.
             if part == Part::Summary {
-                if !change.answered() && refusal.is_none() {
+                if !change.answered() && refusal.is_none() && !last_sign_in {
                     ui.spacing_mut().item_spacing.y = 10.0;
                     summary(ui, a, change, &plan, (&foreign, fee, credits_short), me);
                     // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
@@ -279,6 +336,34 @@ pub(super) fn change_dialog(
                             close = true;
                         }
                     });
+                    return close;
+                }
+                // BUG-298: the replacement first (the architect: the default), then «anyway».
+                if last_sign_in {
+                    let mut anyway = false;
+                    button_row(ui, |ui| {
+                        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                            close = true;
+                        }
+                        anyway = button(ui, a, tr!("Disable anyway"), ButtonKind::Secondary, None)
+                            .clicked();
+                        if button(
+                            ui,
+                            a,
+                            tr!("Replace with a new one"),
+                            ButtonKind::Primary,
+                            None,
+                        )
+                        .clicked()
+                            && let ChangeKind::Disable(n) = change.kind
+                        {
+                            switch_to = Some(ChangeKind::ReplaceSignIn(n));
+                        }
+                    });
+                    // Set on the click only: the footer may be drawn twice in a frame.
+                    if anyway {
+                        change.anyway = true;
+                    }
                     return close;
                 }
                 // The password is asked for every key change (R-6).
@@ -379,6 +464,18 @@ pub(super) fn change_dialog(
                                 .line_height(18.0),
                         );
                     }
+                    if last_sign_in {
+                        notice(
+                            ui,
+                            a,
+                            "warning",
+                            p.accent,
+                            tr!(
+                                "This is the last sign-in key. Without it, signing in to apps and NFTs will not work, and other wallets (for example Dash Desktop Wallet) will not show your contacts."
+                            ),
+                        );
+                        return false;
+                    }
                     notice(
                         ui,
                         a,
@@ -443,6 +540,46 @@ pub(super) fn change_dialog(
                     // FEAT-0020-resend R-1–R-3: the requests sent again after it, and their fee.
                     if plan.is_ok() {
                         super::resend::before_password(ui, a, cx.wallet(), fee);
+                    }
+                }
+                ChangeKind::AddMissing => {
+                    ui.add(
+                        crate::components::para(
+                            tr!(
+                                "evolite derives the keys from this wallet's phrase and adds them in one update. Other wallets (for example Dash Desktop Wallet) then see the identity as ready, contacts included."
+                            ),
+                            13.0,
+                            Weight::Regular,
+                            p.muted,
+                        )
+                        .line_height(18.0),
+                    );
+                    for request in &change.missing {
+                        let (name, about) = purpose_words(*request);
+                        ui.label(txt(name, 13.0, Weight::SemiBold, p.text));
+                        ui.add(
+                            crate::components::para(about, 12.0, Weight::Regular, p.muted)
+                                .line_height(16.0),
+                        );
+                    }
+                }
+                ChangeKind::ReplaceSignIn(n) => {
+                    ui.add(
+                        crate::components::para(
+                            tr!(
+                                "evolite derives the new sign-in key from this wallet's phrase. The old one is disabled in the same update."
+                            ),
+                            13.0,
+                            Weight::Regular,
+                            p.muted,
+                        )
+                        .line_height(18.0),
+                    );
+                    if let Some(key) = id.keys.iter().find(|k| k.id == n) {
+                        ui.add(
+                            crate::components::para(&stops(key), 13.0, Weight::Regular, p.muted)
+                                .line_height(18.0),
+                        );
                     }
                 }
                 ChangeKind::Add => {
@@ -561,6 +698,41 @@ fn summary(
                         tr!("{} · from the phrase"),
                         list(&mut plan.add.iter().map(|k| k.id))
                     ),
+                    style(UI),
+                );
+            }
+            // Each missing purpose with its key's number and level (one key each, in order).
+            ChangeKind::AddMissing => {
+                let keys = change
+                    .missing
+                    .iter()
+                    .zip(&plan.add)
+                    .map(|(r, k)| {
+                        format!(
+                            "{} · {} · {}",
+                            k.id,
+                            purpose_words(*r).0,
+                            text::key_level(k.level)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                crate::components::kv_row_fit(ui, &p, tr!("Is added"), &keys, style(UI));
+            }
+            ChangeKind::ReplaceSignIn(old) => {
+                let new = plan.add.first().map_or(0, |k| k.id);
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Is disabled"),
+                    &format!(tr!("{} · sign-in · HIGH"), old),
+                    style(UI),
+                );
+                kv_row(
+                    ui,
+                    &p,
+                    tr!("Is added"),
+                    &format!(tr!("{} · sign-in · HIGH · from the phrase"), new),
                     style(UI),
                 );
             }

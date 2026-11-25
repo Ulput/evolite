@@ -1213,6 +1213,9 @@ pub enum AppLinkRefusal {
     UnknownField,
     /// The network's protocol is older than 14: keys with a budget and an end are not taken.
     OldNetwork,
+    /// BUG-298: the identity has no acting sign-in key (AUTHENTICATION HIGH) of this wallet: the
+    /// response could not be signed. Said before the dialog, not after the password; added in Keys.
+    NoSignInKey,
     /// Not well formed.
     Malformed,
 }

@@ -202,6 +202,11 @@ impl KeysState {
         ));
     }
 
+    /// BUG-286, BUG-298: «Add the missing keys» for an identity with `keys`.
+    pub fn open_add_missing(&mut self, keys: &[IdentityKey]) {
+        self.open_change(super::key_change::KeyChange::add_missing(keys));
+    }
+
     /// Opens a key change.
     pub(crate) fn open_change(&mut self, change: super::key_change::KeyChange) {
         self.menu = None;
@@ -342,6 +347,10 @@ pub fn identity_keys(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Keys
     // K7: an identity made elsewhere without encryption keys gets DashPay's pair here (AC-D8).
     if needs_dashpay(id) && enable_dashpay_card(ui, a, id, &me, &cx.wallet().fees) {
         state.open_enable_dashpay();
+    }
+    // BUG-286, BUG-298: here always, «Not now» or not: this is where keys are added.
+    if missing_keys_card(ui, a, id, cx.wallet(), false) == Some(MissingKeys::Add) {
+        state.open_add_missing(&id.keys);
     }
     if state.changed {
         notice(
@@ -484,6 +493,154 @@ pub fn enable_dashpay_card(
         });
     });
     clicked
+}
+
+/// What was clicked on [`missing_keys_card`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MissingKeys {
+    Add,
+    NotNow,
+}
+
+/// BUG-286, BUG-298: what `id` lacks for other wallets, when there is something and DashPay
+/// itself works (else K7 says it, [`needs_dashpay`]).
+pub fn missing_keys(id: &Identity) -> Vec<evolite_api::key_plan::KeyRequest> {
+    if needs_dashpay(id) {
+        return Vec::new();
+    }
+    evolite_api::key_plan::missing_for_other_wallets(&id.keys)
+}
+
+/// BUG-286 r1: what is missing, by stable names (kept in the wallet's settings with «Not now»).
+pub fn missing_names(
+    missing: &[evolite_api::key_plan::KeyRequest],
+) -> std::collections::BTreeSet<String> {
+    use evolite_api::key_plan::KeyRequest;
+    missing
+        .iter()
+        .map(|r| match r {
+            KeyRequest::SignIn => "sign-in",
+            KeyRequest::DashPayDecryption => "dashpay-decryption",
+            KeyRequest::DashPay => "dashpay",
+            KeyRequest::Tokens => "tokens",
+            KeyRequest::Transfers => "transfers",
+            KeyRequest::ReplaceMaster => "replace-master",
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+/// BUG-286, BUG-298: the warning on Contacts, Identity and the keys screen: what does not work
+/// without the keys, and «Add the missing keys · ≈ X DASH» (one update, FEAT-0020's dialog).
+/// Credits short: the button off, with what is needed. A change the plan refuses (the main key
+/// another wallet's): why, instead of the button. `not_now`: with «Not now» (not on the keys
+/// screen). Nothing drawn when nothing is missing.
+pub fn missing_keys_card(
+    ui: &mut Ui,
+    a: &mut Assets,
+    id: &Identity,
+    wallet: &evolite_api::Wallet,
+    not_now: bool,
+) -> Option<MissingKeys> {
+    use evolite_api::key_plan::{self, KeyRequest};
+    let missing = missing_keys(id);
+    if missing.is_empty() {
+        return None;
+    }
+    let p = a.p;
+    let fee = key_plan::fee(&missing, &wallet.fees);
+    let plan = key_plan::plan(&id.keys, &missing, &[]);
+    let credits = &wallet.balances;
+    let short = credits.credits_checked && fee > credits.credits;
+    let mut clicked = None;
+    card(&p, Margin::same(20)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.spacing_mut().item_spacing.y = 8.0;
+        if missing.contains(&KeyRequest::DashPayDecryption) {
+            ui.add(crate::components::para(
+                tr!(
+                    "Other wallets (for example Dash Desktop Wallet) will not see your contacts: the identity has no DashPay decryption key"
+                ),
+                14.0,
+                Weight::SemiBold,
+                p.text,
+            ));
+        }
+        if missing.contains(&KeyRequest::SignIn) {
+            ui.add(crate::components::para(
+                tr!(
+                    "The identity has no sign-in key (HIGH): signing in to apps and NFTs does not work, and other wallets (for example Dash Desktop Wallet) take it as not ready"
+                ),
+                14.0,
+                Weight::SemiBold,
+                p.text,
+            ));
+        }
+        if let Err(refusal) = &plan {
+            ui.add(
+                crate::components::para(
+                    &evolite_core::key_refusal::words(refusal),
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                )
+                .line_height(18.0),
+            );
+        }
+        ui.horizontal_wrapped(|ui| {
+            if plan.is_ok() {
+                let label = format!(
+                    tr!("Add the missing keys · ≈ {}"),
+                    crate::format::amount(fee)
+                );
+                if crate::components::button_enabled(
+                    ui,
+                    a,
+                    &label,
+                    ButtonKind::Secondary,
+                    None,
+                    !short,
+                )
+                .clicked()
+                {
+                    clicked = Some(MissingKeys::Add);
+                }
+            }
+            if not_now
+                && crate::components::button(ui, a, tr!("Not now"), ButtonKind::Ghost, None)
+                    .clicked()
+            {
+                clicked = Some(MissingKeys::NotNow);
+            }
+        });
+        if plan.is_ok() && short {
+            ui.label(txt(
+                &format!(
+                    tr!("≈ {} of credits needed"),
+                    crate::format::amount(fee)
+                ),
+                12.0,
+                Weight::Regular,
+                p.danger,
+            ));
+        }
+    });
+    clicked
+}
+
+/// The warning on a screen other than the keys one (Contacts, Identity): hidden after «Not
+/// now»; its button opens the keys screen with the dialog.
+pub fn missing_keys_notice(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, id: &Identity) {
+    let missing = missing_names(&missing_keys(id));
+    if cx.keys_not_now(&id.id, &missing) {
+        return;
+    }
+    let wallet = cx.wallet();
+    match missing_keys_card(ui, a, id, wallet, true) {
+        Some(MissingKeys::Add) => cx.add_missing_keys(),
+        Some(MissingKeys::NotNow) => cx.choose_keys_not_now(&id.id, missing),
+        None => {}
+    }
 }
 
 /// The columns' left edges as parts of the row's width: №, purpose, level, whose, state.

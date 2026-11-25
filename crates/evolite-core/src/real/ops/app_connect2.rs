@@ -372,6 +372,10 @@ impl Real {
                     .await
                     .map_err(CoreError::NotAvailable)?;
                 let me = who.id_bytes();
+                // BUG-298: no key to sign the response with: said now, not after the password.
+                if !who.can_sign_in() {
+                    return Err(CoreError::AppLink(AppLinkRefusal::NoSignInKey));
+                }
                 let request = &link.request;
                 if request.identity_hint.is_some_and(|hint| hint != me) {
                     return Err(CoreError::NotAvailable(

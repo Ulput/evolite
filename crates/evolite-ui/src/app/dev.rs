@@ -130,6 +130,12 @@ pub(super) struct DevState {
     /// `--screen identity-keys-foreign`, `key-enable-dashpay-foreign` (FEAT-0020 AC-T19): the
     /// demo's key 6 another wallet's — «Encryption · unbound», and K7 over it.
     foreign_key_preset: bool,
+    /// `--screen identity-keys-no-decryption`, `contacts-no-decryption` (BUG-286): the demo
+    /// identity without its decryption key, as one made by another wallet — the missing keys'
+    /// warning.
+    no_decryption_preset: bool,
+    /// `--screen identity-no-sign-in` (BUG-298): the demo's sign-in key 1 disabled.
+    no_sign_in_preset: bool,
     /// `--screen overview-syncing` / `send-syncing`: the screen while the sync still runs.
     syncing_preset: bool,
     /// `--screen sync-stale-30`, `sync-stale-60` (SPV item 2a): synced, and no new block for 34
@@ -361,6 +367,9 @@ impl DevState {
             broken_channel_preset: dev.preset("contacts-channel-broken"),
             foreign_key_preset: dev.preset("identity-keys-foreign")
                 || dev.preset("key-enable-dashpay-foreign"),
+            no_decryption_preset: dev.preset("identity-keys-no-decryption")
+                || dev.preset("contacts-no-decryption"),
+            no_sign_in_preset: dev.preset("identity-no-sign-in"),
             syncing_preset: dev.preset("overview-syncing") || dev.preset("send-syncing"),
             stale_preset: if dev.preset("sync-stale-30") {
                 Some(34)
@@ -694,6 +703,27 @@ impl App {
                 .and_then(|i| i.keys.iter_mut().find(|k| k.id == 6))
         {
             key.owner = evolite_api::KeyOwner::Other;
+        }
+        // The decryption key goes too where it would be DashPay's instead of key 6 (AC-T19's
+        // frames are of an identity without one); and in BUG-286's.
+        if (self.dev.foreign_key_preset || self.dev.no_decryption_preset)
+            && let Some(id) = self
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+                .and_then(|w| w.identity.as_mut())
+        {
+            id.keys.retain(|k| !k.decrypts);
+        }
+        if self.dev.no_sign_in_preset
+            && let Some(key) = self
+                .snapshot
+                .as_mut()
+                .and_then(|s| s.wallet.as_mut())
+                .and_then(|w| w.identity.as_mut())
+                .and_then(|i| i.keys.iter_mut().find(|k| k.id == 1))
+        {
+            key.disabled_at = Some(1_762_300_800);
         }
         if self.dev.no_encryption_preset
             && let Some(id) = self

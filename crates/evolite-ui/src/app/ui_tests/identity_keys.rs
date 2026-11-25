@@ -315,6 +315,9 @@ fn key_now(kit: &Kit, id: u32) -> Option<evolite_api::IdentityKey> {
 
 /// Types `password` into the open change dialog and presses its main button `act`.
 fn confirm(kit: &mut Kit, password: &str, act: &str) {
+    // BUG-298: after the last sign-in key's warning its button is gone: the field is clicked.
+    kit.get_by_role(Role::PasswordInput).click();
+    kit.run_steps(2);
     kit.get_by_role(Role::PasswordInput).type_text(password);
     kit.run_steps(3);
     button(kit, act).click();
@@ -364,6 +367,14 @@ fn open_disable(kit: &mut Kit, id: u32) {
     kit.run_steps(3);
     button(kit, "Disable key…").click();
     kit.run_steps(3);
+    // BUG-298: key 1 is the demo's last sign-in key: its warning first (missing_keys.rs).
+    if kit
+        .query_by_role_and_label(Role::Button, "Disable anyway")
+        .is_some()
+    {
+        button(kit, "Disable anyway").click();
+        kit.run_steps(3);
+    }
 }
 
 /// K4, R-2, AC-T3: the main key is replaced one for one — the new one at max+1, the old one
@@ -374,10 +385,10 @@ fn the_main_key_is_replaced_one_for_one() {
     button(&kit, "Replace the main key").click();
     kit.run_steps(3);
     assert!(has_words(&kit, "0 · main · MASTER"));
-    assert!(has_words(&kit, "7 · main · MASTER · from the phrase"));
+    assert!(has_words(&kit, "8 · main · MASTER · from the phrase"));
     confirm(&mut kit, "demo", "Replace key");
     wait_for(&mut kit, "a new main key", |k| {
-        key_now(k, 7).is_some_and(|k| k.level == evolite_api::KeyLevel::Master)
+        key_now(k, 8).is_some_and(|k| k.level == evolite_api::KeyLevel::Master)
     });
     assert!(key_now(&kit, 0).unwrap().disabled_at.is_some());
 }
@@ -407,7 +418,7 @@ fn a_key_is_added_for_a_ready_purpose() {
     let (_turn, mut kit) = k1("identity-keys");
     button(&kit, "+ Add a key").click();
     kit.run_steps(3);
-    assert!(has_words(&kit, "with the next number — 7."));
+    assert!(has_words(&kit, "with the next number — 8."));
     let add = |kit: &Kit| !button(kit, "Add key").accesskit_node().is_disabled();
     let choose = |kit: &mut Kit, name: &str| {
         kit.get_by_role_and_label(Role::RadioButton, name).click();
@@ -422,8 +433,8 @@ fn a_key_is_added_for_a_ready_purpose() {
     choose(&mut kit, "For credit transfers");
     assert!(add(&kit));
     button(&kit, "Add key").click();
-    wait_for(&mut kit, "key 7 for transfers", |k| {
-        key_now(k, 7).is_some_and(|k| k.purpose == evolite_api::KeyPurpose::Transfers)
+    wait_for(&mut kit, "key 8 for transfers", |k| {
+        key_now(k, 8).is_some_and(|k| k.purpose == evolite_api::KeyPurpose::Transfers)
     });
 }
 
@@ -717,12 +728,12 @@ fn an_added_key_the_snapshot_shows_after_an_unclear_answer_is_done() {
         .expect("an identity")
         .keys[0]
         .clone();
-    transfer.id = 7;
+    transfer.id = 8;
     transfer.purpose = evolite_api::KeyPurpose::Transfers;
     transfer.level = evolite_api::KeyLevel::Critical;
     transfer.disabled_at = None;
-    with_identity(&mut kit, "key 7 added", |i| {
-        if !i.keys.iter().any(|k| k.id == 7) {
+    with_identity(&mut kit, "key 8 added", |i| {
+        if !i.keys.iter().any(|k| k.id == 8) {
             i.keys.push(transfer.clone());
         }
     });

@@ -27,6 +27,12 @@ pub struct Ctx<'a> {
     top_up: bool,
     /// FEAT-0020 K7: the keys screen asked for with «For DashPay» chosen.
     enable_dashpay: bool,
+    /// BUG-286, BUG-298: the keys screen asked for with «Add the missing keys» open.
+    add_missing_keys: bool,
+    /// BUG-286, BUG-298: the identities whose missing keys' warning got «Not now» (the wallet's
+    /// settings, set by `App` each frame), and the one that got it this frame.
+    keys_not_now: crate::prefs::NotNow,
+    keys_not_now_chosen: Option<(String, std::collections::BTreeSet<String>)>,
     /// The Identity screen asked for with a claim's contest card open (FEAT-0021 N5): the
     /// identity that claimed and the label.
     contest: Option<(String, String)>,
@@ -101,6 +107,9 @@ impl<'a> Ctx<'a> {
             pay: None,
             top_up: false,
             enable_dashpay: false,
+            add_missing_keys: false,
+            keys_not_now: Default::default(),
+            keys_not_now_chosen: None,
             contest: None,
             history_query: None,
             fund: None,
@@ -252,6 +261,40 @@ impl<'a> Ctx<'a> {
     /// Whether [`Self::enable_dashpay`] was asked this frame.
     pub fn take_enable_dashpay(&mut self) -> bool {
         std::mem::take(&mut self.enable_dashpay)
+    }
+
+    /// BUG-286, BUG-298: opens the identity's keys with «Add the missing keys» (the warning's
+    /// button on Contacts and Identity).
+    pub fn add_missing_keys(&mut self) {
+        self.add_missing_keys = true;
+        self.go(Screen::IdentityKeys);
+    }
+
+    /// Whether [`Self::add_missing_keys`] was asked this frame.
+    pub fn take_add_missing_keys(&mut self) -> bool {
+        std::mem::take(&mut self.add_missing_keys)
+    }
+
+    /// `App` says it once a frame, from the wallet's settings.
+    pub fn set_keys_not_now(&mut self, not_now: crate::prefs::NotNow) {
+        self.keys_not_now = not_now;
+    }
+
+    /// Whether identity `id`'s missing keys' warning got «Not now».
+    pub fn keys_not_now(&self, id: &str, missing: &std::collections::BTreeSet<String>) -> bool {
+        crate::prefs::not_now_covers(&self.keys_not_now, id, missing)
+    }
+
+    /// «Not now» on identity `id`'s warning: hidden from this frame, kept by `App`.
+    pub fn choose_keys_not_now(&mut self, id: &str, missing: std::collections::BTreeSet<String>) {
+        let said = [(id.to_owned(), missing.clone())].into();
+        crate::prefs::join_not_now(&mut self.keys_not_now, &said);
+        self.keys_not_now_chosen = Some((id.to_owned(), missing));
+    }
+
+    /// What [`Self::choose_keys_not_now`] asked for this frame.
+    pub fn take_keys_not_now(&mut self) -> Option<(String, std::collections::BTreeSet<String>)> {
+        self.keys_not_now_chosen.take()
     }
 
     /// Opens Identity with the contest card of `identity`'s claim on `label` (FEAT-0021): one way

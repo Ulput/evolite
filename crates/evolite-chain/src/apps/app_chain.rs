@@ -44,6 +44,13 @@ impl SignInIdentity {
         self.keys.iter().map(|k| k.id() + 1).max().unwrap_or(0)
     }
 
+    /// BUG-298: whether the response can be signed: an acting AUTHENTICATION HIGH of this phrase,
+    /// ECDSA, unbound (the one [`Self::signer`] takes). Checked before the dialog.
+    pub fn can_sign_in(&self) -> bool {
+        self.signer(Purpose::AUTHENTICATION, SecurityLevel::HIGH)
+            .is_some()
+    }
+
     /// A signer of only the key of `purpose` and `level` this phrase reproduces (ECDSA), unbound
     /// (App Connect v2 signs its response with no bound, limited key).
     pub(crate) fn signer(
@@ -110,5 +117,50 @@ impl Chain {
             slot,
             found,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dpp::identity::identity_public_key::contract_bounds::ContractBounds;
+    use dpp::identity::identity_public_key::v0::IdentityPublicKeyV0;
+    use dpp::platform_value::BinaryData;
+
+    fn key(id: u32, level: SecurityLevel, bound: bool, disabled: bool) -> IdentityPublicKey {
+        IdentityPublicKey::V0(IdentityPublicKeyV0 {
+            id,
+            purpose: Purpose::AUTHENTICATION,
+            security_level: level,
+            contract_bounds: bound.then(|| ContractBounds::SingleContract {
+                id: Identifier::from([7; 32]),
+            }),
+            key_type: KeyType::ECDSA_SECP256K1,
+            read_only: false,
+            data: BinaryData::new(vec![2; 33]),
+            disabled_at: disabled.then_some(1),
+        })
+    }
+
+    fn reproduced(keys: Vec<IdentityPublicKey>) -> SignInIdentity {
+        let mut who = SignInIdentity::for_tests(Identifier::from([1; 32]), keys.clone());
+        who.found = keys.into_iter().map(|k| (k, [3; 32])).collect();
+        who
+    }
+
+    /// BUG-298: App Connect refuses before its dialog unless an acting, unbound HIGH of this
+    /// phrase signs the response: CRITICAL (DashPay takes it) is not one, nor a disabled or bound
+    /// HIGH, nor a HIGH this phrase does not reproduce. Mutant: `can_sign_in` true → red.
+    #[test]
+    fn only_an_acting_unbound_high_of_this_phrase_signs_in() {
+        let high = key(1, SecurityLevel::HIGH, false, false);
+        assert!(reproduced(vec![high.clone()]).can_sign_in());
+        assert!(!reproduced(vec![key(2, SecurityLevel::CRITICAL, false, false)]).can_sign_in());
+        assert!(!reproduced(vec![key(1, SecurityLevel::HIGH, false, true)]).can_sign_in());
+        assert!(!reproduced(vec![key(1, SecurityLevel::HIGH, true, false)]).can_sign_in());
+        assert!(
+            !SignInIdentity::for_tests(Identifier::from([1; 32]), vec![high]).can_sign_in(),
+            "on the identity, not of this phrase"
+        );
     }
 }

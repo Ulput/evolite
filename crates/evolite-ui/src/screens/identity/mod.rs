@@ -5,7 +5,7 @@ mod add_name;
 pub(crate) mod contest;
 mod contest_card;
 mod imgur;
-mod key_change;
+pub(crate) mod key_change;
 mod key_reveal;
 mod keys;
 mod profile;
@@ -13,7 +13,10 @@ pub(crate) mod resend;
 mod top_up;
 
 pub use add_name::*;
-pub use keys::{KeysState, enable_dashpay_card, identity_keys, identity_named, needs_dashpay};
+pub use keys::{
+    KeysState, enable_dashpay_card, identity_keys, identity_named, missing_keys_notice,
+    needs_dashpay,
+};
 pub use profile::*;
 pub use top_up::*;
 
@@ -324,6 +327,8 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                 asked.push(Command::FindIdentities);
             }
             ui.spacing_mut().item_spacing.y = 20.0;
+            // BUG-286, BUG-298: what other wallets need, before the cards.
+            keys::missing_keys_notice(ui, a, cx, identity);
             let total = ui.available_width();
             // Two rows of two cards on one grid, halves with a gap of 20 (design review
             // 2026-11-05 №7); below 760 px of content everything goes in one column.

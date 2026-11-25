@@ -131,6 +131,8 @@ pub struct SettingsState {
     pub backup_file: BackupFileState,
     /// FEAT-0041 R-13: the empty restored wallet's banner is not shown again (this wallet's).
     pub empty_hint_closed: bool,
+    /// BUG-286, BUG-298: «Not now» on the missing keys' warning, by identity (this wallet's).
+    pub keys_not_now: crate::prefs::NotNow,
     /// "Restart evolite" was pressed: the app starts again (a new Core node).
     pub restart: bool,
     pub phrase_dialog: bool,
@@ -316,6 +318,7 @@ impl SettingsState {
             collections: Default::default(),
             backup_file: Default::default(),
             empty_hint_closed: false,
+            keys_not_now: Default::default(),
             restart: false,
             phrase_dialog: phrase,
             password: Zeroizing::default(),
@@ -399,6 +402,7 @@ impl SettingsState {
         self.remind_snoozed = None;
         self.fee = Default::default();
         self.empty_hint_closed = false;
+        self.keys_not_now.clear();
         self.toggles
             .retain(|k, _| crate::prefs::APP_TOGGLES.contains(k));
         for (k, v) in fresh.toggles {
@@ -624,6 +628,7 @@ impl SettingsState {
             empty_hint_closed: self.empty_hint_closed.then_some(true),
             lang: self.lang.map(|l| l.code().to_owned()),
             fee_rate: self.fee.carried(),
+            keys_not_now: self.keys_not_now.clone(),
         }
     }
 
@@ -673,6 +678,7 @@ impl SettingsState {
             }
         }
         trusted.extend(prefs.trusted_issuers.iter().cloned());
+        crate::prefs::join_not_now(&mut self.keys_not_now, &prefs.keys_not_now);
         if let Some(lang) = prefs.lang.as_deref().and_then(crate::i18n::Lang::from_code) {
             self.lang = Some(lang);
         }
