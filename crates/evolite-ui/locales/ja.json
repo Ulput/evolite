@@ -2844,5 +2844,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "ミキシング済みコインから @{} に支払えるのは DashPay の連絡先としてのみです。連絡先に追加するか、Core アドレスを入力してください。",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "ミキシング済みコインからは Core アドレスまたは DashPay の連絡先に支払えます。",
   "To @{} · their Core address for you": "@{} へ · あなた用の相手の Core アドレス",
-  "Sent to @{} · from mixed coins": "@{} に送金 · ミキシング済みコインから"
+  "Sent to @{} · from mixed coins": "@{} に送金 · ミキシング済みコインから",
+  "You added": "あなたが追加",
+  "They added": "相手が追加",
+  "Request sent": "リクエスト送信済み",
+  "Request received": "リクエスト受信",
+  "Time of the write in Platform": "Platform に書き込まれた時刻",
+  "still looking for payments…": "支払いをまだ探しています…"
 }

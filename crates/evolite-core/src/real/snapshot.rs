@@ -1505,6 +1505,9 @@ impl Real {
         }
         convert::name_contact_payments(history, &keys, contacts);
         convert::count_contact_payments(history, &keys, me, contacts);
+        // FEAT-0057 П5: the sums each way, from the same lines.
+        let receipts = convert::own_contact_receipts(&wallet.state().await.core_wallet);
+        convert::total_contact_payments(history, &keys, &receipts, me, contacts);
     }
 
     /// How many coins the wallet's DashPay receiving accounts hold (BUG-221: what a contacts'

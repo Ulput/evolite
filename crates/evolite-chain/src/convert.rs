@@ -239,6 +239,91 @@ pub fn count_contact_payments(
     }
 }
 
+/// FEAT-0057 П5 (R-5.2): what was paid each way with each of `me`'s established contacts, from
+/// FEAT-0056's seam: a Sent line's outputs to others, each its address and amount. One for
+/// now — the line's address, its amount less the network's fee, or with the fee in it when the
+/// fee is not known (`exact: false`); FEAT-0056 gives each recipient of `Detail.recipients`.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct SentOutput {
+    pub address: String,
+    pub amount: evolite_api::Duffs,
+    pub exact: bool,
+}
+
+pub fn sent_outputs(a: &Activity) -> Vec<SentOutput> {
+    let Some(address) = a.address.clone() else {
+        return Vec::new();
+    };
+    let paid = -a.amount;
+    let (amount, exact) = match a.fee {
+        Some(fee) => ((paid - fee).max(0), true),
+        None => (paid.max(0), false),
+    };
+    vec![SentOutput {
+        address,
+        amount,
+        exact,
+    }]
+}
+
+/// History's lines — the same pair rule as [`count_contact_payments`] (BUG-196). Out: a line to
+/// an address of the contact's key (`keys`), its amount less the network's fee. In: a line to our
+/// account for that contact (`receipts`, [`own_contact_receipts`]), its amount.
+pub fn total_contact_payments(
+    history: &[Activity],
+    keys: &std::collections::HashMap<String, (String, String)>,
+    receipts: &std::collections::HashMap<String, (String, String)>,
+    me: Option<&str>,
+    contacts: &mut [Contact],
+) {
+    let Some(me) = me else {
+        return;
+    };
+    for c in contacts
+        .iter_mut()
+        .filter(|c| c.state == ContactState::Established)
+    {
+        let ours = |m: &std::collections::HashMap<String, (String, String)>, address: &str| {
+            m.get(address)
+                .is_some_and(|(ours, friend)| ours == me && *friend == c.identity_id)
+        };
+        let pair = |m: &std::collections::HashMap<String, (String, String)>, a: &Activity| {
+            a.address.as_deref().is_some_and(|ad| ours(m, ad))
+        };
+        let (mut sent, mut sent_count, mut received, mut received_count) = (0, 0u32, 0, 0u32);
+        let mut sent_exact = true;
+        for a in history {
+            match a.kind {
+                ActivityKind::Sent { .. } => {
+                    // What the contact got: the outputs to its key's addresses (Must 3: a fee not
+                    // known makes the sum «≈», never a fee of 0).
+                    let to_them: Vec<SentOutput> = sent_outputs(a)
+                        .into_iter()
+                        .filter(|o| ours(keys, &o.address))
+                        .collect();
+                    if !to_them.is_empty() {
+                        sent_count += 1;
+                    }
+                    for o in to_them {
+                        sent += o.amount;
+                        sent_exact &= o.exact;
+                    }
+                }
+                ActivityKind::Received { .. } if a.amount > 0 && pair(receipts, a) => {
+                    received += a.amount;
+                    received_count += 1;
+                }
+                _ => {}
+            }
+        }
+        c.record.sent = sent;
+        c.record.sent_count = sent_count;
+        c.record.sent_exact = sent_exact;
+        c.record.received = received;
+        c.record.received_count = received_count;
+    }
+}
+
 /// A ChainLock on block `chainlocked` locks every block under it too: payments in those blocks
 /// are as final as the locked one, whatever key-wallet recorded when it saw them (a record
 /// stored before the lock came, or read back after a restart, stays "in a block").
@@ -3149,6 +3234,162 @@ mod tests {
         );
     }
 
+    /// FEAT-0057 П5, A5.2, A5.6: what was paid each way with a contact, from History's lines and
+    /// by the pair (BUG-196): out without the network's fee (the mutant: with it), in as it came,
+    /// another identity's payment to the same contact not counted.
+    #[test]
+    fn a_contacts_payments_are_summed_each_way_from_history() {
+        use std::collections::HashMap;
+        let line = |kind, amount: i64, fee: Option<i64>, address: &str| Activity {
+            id: 1,
+            kind,
+            chain: Chain::Core,
+            at: 1_800_000_000,
+            amount,
+            proof: Proof::ChainLock,
+            txid: None,
+            fee,
+            block: None,
+            address: Some(address.into()),
+            layers: 1,
+            flow: Flow::Out,
+            key: String::new(),
+            detail: None,
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        let sent = |amount, fee, address| {
+            line(
+                ActivityKind::Sent { to: "@bob".into() },
+                amount,
+                Some(fee),
+                address,
+            )
+        };
+        let received = |amount, address| {
+            line(
+                ActivityKind::Received {
+                    from: Some("@bob".into()),
+                },
+                amount,
+                None,
+                address,
+            )
+        };
+        let keys: HashMap<String, (String, String)> = [
+            (
+                "ybob1".to_string(),
+                ("Me111".to_string(), "Bob".to_string()),
+            ),
+            (
+                "ybob2".to_string(),
+                ("Other".to_string(), "Bob".to_string()),
+            ),
+        ]
+        .into();
+        let receipts: HashMap<String, (String, String)> = [(
+            "ymine".to_string(),
+            ("Me111".to_string(), "Bob".to_string()),
+        )]
+        .into();
+        let history = vec![
+            sent(-100_226, 226, "ybob1"),
+            sent(-250_226, 226, "ybob1"),
+            sent(-900_226, 226, "ybob2"),
+            received(50_000, "ymine"),
+        ];
+        let mut contacts = vec![Contact {
+            identity_id: "Bob".into(),
+            name: Some("bob".into()),
+            profile: Default::default(),
+            state: ContactState::Established,
+            payments: 0,
+            last_payment: None,
+            channel_broken: false,
+            record: Default::default(),
+        }];
+        total_contact_payments(&history, &keys, &receipts, Some("Me111"), &mut contacts);
+        let r = contacts[0].record;
+        assert_eq!(
+            (r.sent, r.sent_count),
+            (350_000, 2),
+            "ours only, the fee left out"
+        );
+        assert_eq!((r.received, r.received_count), (50_000, 1));
+    }
+
+    /// FEAT-0057 П5 r2, Must 3: a payment whose fee is not known (a restored line) — the sum has
+    /// the fee in it and says so (`sent_exact: false`, «≈» on the card), the count still exact;
+    /// never a fee of 0 taken for known (the mutant: `sent_exact` left true).
+    #[test]
+    fn a_fee_not_known_makes_the_sent_sum_approximate() {
+        let paid = |fee| Activity {
+            id: 1,
+            kind: ActivityKind::Sent { to: "@bob".into() },
+            chain: Chain::Core,
+            at: 1_800_000_000,
+            amount: -100_226,
+            proof: Proof::ChainLock,
+            txid: None,
+            fee,
+            block: None,
+            address: Some("ybob1".into()),
+            layers: 1,
+            flow: Flow::Out,
+            key: String::new(),
+            detail: None,
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        assert_eq!(
+            sent_outputs(&paid(Some(226))),
+            vec![SentOutput {
+                address: "ybob1".into(),
+                amount: 100_000,
+                exact: true
+            }]
+        );
+        let keys: std::collections::HashMap<String, (String, String)> = [(
+            "ybob1".to_string(),
+            ("Me111".to_string(), "Bob".to_string()),
+        )]
+        .into();
+        let bob = || Contact {
+            identity_id: "Bob".into(),
+            name: Some("bob".into()),
+            profile: Default::default(),
+            state: ContactState::Established,
+            payments: 0,
+            last_payment: None,
+            channel_broken: false,
+            record: Default::default(),
+        };
+        let summed = |history: &[Activity]| {
+            let mut contacts = vec![bob()];
+            total_contact_payments(
+                history,
+                &keys,
+                &Default::default(),
+                Some("Me111"),
+                &mut contacts,
+            );
+            contacts[0].record
+        };
+        let known = summed(&[paid(Some(226)), paid(Some(226))]);
+        assert_eq!(
+            (known.sent, known.sent_count, known.sent_exact),
+            (200_000, 2, true)
+        );
+        let restored = summed(&[paid(Some(226)), paid(None)]);
+        assert_eq!(
+            (restored.sent, restored.sent_count, restored.sent_exact),
+            (200_226, 2, false),
+            "the unknown fee in the sum, said approximate"
+        );
+    }
+
     /// BUG-232 review (QA batch 31) condition 2: the live side of «ours» leaves out the
     /// addresses we pay a contact at (`DashpayExternalAccount`), so a payment to a contact never
     /// becomes a transfer between own; our own contact-receiving account's are in.
@@ -3306,10 +3547,10 @@ mod tests {
             name: Some("bob".into()),
             profile: Default::default(),
             state: ContactState::Established,
-            since: 0,
             payments: 0,
             last_payment: None,
             channel_broken: false,
+            record: Default::default(),
         };
         let keys = [(
             contact_key.to_string(),
@@ -3350,10 +3591,10 @@ mod tests {
             name: name.map(Into::into),
             profile: Default::default(),
             state: ContactState::Established,
-            since: 0,
             payments: 0,
             last_payment: None,
             channel_broken: false,
+            record: Default::default(),
         };
         let keys = [
             (
@@ -3423,10 +3664,10 @@ mod tests {
             name: Some("carol".into()),
             profile: Default::default(),
             state: ContactState::Established,
-            since: 0,
             payments,
             last_payment: None,
             channel_broken: false,
+            record: Default::default(),
         };
         // A's account for C, and B's: their own addresses.
         let keys: std::collections::HashMap<String, (String, String)> = [

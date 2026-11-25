@@ -2844,5 +2844,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Dari koin tercampur Anda hanya bisa membayar @{} sebagai kontak DashPay. Tambahkan ke kontak atau masukkan alamat Core-nya.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "Dari koin tercampur Anda bisa membayar ke alamat Core atau ke kontak DashPay.",
   "To @{} · their Core address for you": "Ke @{} · alamat Core-nya untuk Anda",
-  "Sent to @{} · from mixed coins": "Dikirim ke @{} · dari koin tercampur"
+  "Sent to @{} · from mixed coins": "Dikirim ke @{} · dari koin tercampur",
+  "You added": "Anda menambahkan",
+  "They added": "Anda ditambahkan",
+  "Request sent": "Permintaan terkirim",
+  "Request received": "Permintaan diterima",
+  "Time of the write in Platform": "Waktu pencatatan di Platform",
+  "still looking for payments…": "masih mencari pembayaran…"
 }

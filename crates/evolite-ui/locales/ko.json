@@ -2844,5 +2844,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "믹싱된 코인으로는 @{}에게 DashPay 연락처로만 결제할 수 있습니다. 연락처에 추가하거나 Core 주소를 입력하세요.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "믹싱된 코인으로는 Core 주소 또는 DashPay 연락처에 결제할 수 있습니다.",
   "To @{} · their Core address for you": "@{}에게 · 당신을 위한 상대의 Core 주소",
-  "Sent to @{} · from mixed coins": "@{}에게 보냄 · 믹싱된 코인에서"
+  "Sent to @{} · from mixed coins": "@{}에게 보냄 · 믹싱된 코인에서",
+  "You added": "내가 추가함",
+  "They added": "상대가 추가함",
+  "Request sent": "요청 보냄",
+  "Request received": "요청 받음",
+  "Time of the write in Platform": "Platform에 기록된 시각",
+  "still looking for payments…": "아직 결제를 찾는 중…"
 }

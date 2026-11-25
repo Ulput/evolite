@@ -2844,5 +2844,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "从已混合币只能以 DashPay 联系人的身份向 @{} 付款。请将其加入联系人，或输入其 Core 地址。",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "从已混合币可以向 Core 地址或 DashPay 联系人付款。",
   "To @{} · their Core address for you": "给 @{} · 对方给你的 Core 地址",
-  "Sent to @{} · from mixed coins": "已发送给 @{} · 来自已混合币"
+  "Sent to @{} · from mixed coins": "已发送给 @{} · 来自已混合币",
+  "You added": "你添加了",
+  "They added": "对方添加了你",
+  "Request sent": "已发送请求",
+  "Request received": "已收到请求",
+  "Time of the write in Platform": "写入 Platform 的时间",
+  "still looking for payments…": "仍在查找付款…"
 }

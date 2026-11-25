@@ -2884,5 +2884,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Aus gemischten Münzen kannst du @{} nur als DashPay-Kontakt bezahlen. Füge ihn zu den Kontakten hinzu oder gib seine Core-Adresse ein.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "Aus gemischten Münzen kannst du an eine Core-Adresse oder an einen DashPay-Kontakt zahlen.",
   "To @{} · their Core address for you": "An @{} · seine Core-Adresse für dich",
-  "Sent to @{} · from mixed coins": "Gesendet an @{} · aus gemischten Münzen"
+  "Sent to @{} · from mixed coins": "Gesendet an @{} · aus gemischten Münzen",
+  "You added": "Du hast hinzugefügt",
+  "They added": "Du wurdest hinzugefügt",
+  "Request sent": "Anfrage gesendet",
+  "Request received": "Anfrage erhalten",
+  "Time of the write in Platform": "Zeitpunkt des Eintrags in Platform",
+  "still looking for payments…": "Zahlungen werden noch gesucht…"
 }

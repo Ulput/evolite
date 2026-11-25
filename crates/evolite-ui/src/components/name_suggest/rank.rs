@@ -233,10 +233,10 @@ mod tests {
                 ..Profile::default()
             },
             state: ContactState::Established,
-            since: 0,
             payments: u32::from(paid.is_some()),
             last_payment: paid,
             channel_broken: false,
+            record: Default::default(),
         }
     }
 

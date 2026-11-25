@@ -76,21 +76,59 @@ impl Person {
 /// @dash-core-dev made, ours to @kate not answered yet.
 pub fn demo_contacts(now: Timestamp) -> Vec<Contact> {
     let day = 24 * 3600;
-    let contact = |i: usize, state, since, payments, last: Option<Timestamp>| Contact {
-        identity_id: PEOPLE[i].id.into(),
-        name: Some(PEOPLE[i].name.into()),
-        profile: PEOPLE[i].profile(),
-        state,
-        since: now - since,
-        payments,
-        last_payment: last.map(|ago| now - ago),
-        channel_broken: false,
-    };
+    // FEAT-0057 П5: the two dates — ours first, theirs four days later, as on frame П5 — and the
+    // payments each way.
+    let contact =
+        |i: usize,
+         state,
+         since,
+         payments,
+         last: Option<Timestamp>,
+         (sent, sent_count, received, received_count): (Duffs, u32, Duffs, u32)| {
+            let (you_added, they_added) = match state {
+                ContactState::Established => (Some(now - since), Some(now - since + 4 * day)),
+                ContactState::Outgoing => (Some(now - since), None),
+                ContactState::Incoming => (None, Some(now - since)),
+            };
+            Contact {
+                identity_id: PEOPLE[i].id.into(),
+                name: Some(PEOPLE[i].name.into()),
+                profile: PEOPLE[i].profile(),
+                state,
+                payments,
+                last_payment: last.map(|ago| now - ago),
+                channel_broken: false,
+                record: evolite_api::ContactRecord {
+                    you_added,
+                    they_added,
+                    sent,
+                    sent_count,
+                    sent_exact: true,
+                    received,
+                    received_count,
+                },
+            }
+        };
+    let none = (0, 0, 0, 0);
     vec![
-        contact(2, ContactState::Incoming, 3 * 3600, 0, None),
-        contact(1, ContactState::Established, 18 * day, 4, Some(day)),
-        contact(3, ContactState::Established, 27 * day, 1, Some(3 * day)),
-        contact(4, ContactState::Outgoing, 2 * 3600, 0, None),
+        contact(2, ContactState::Incoming, 3 * 3600, 0, None, none),
+        contact(
+            1,
+            ContactState::Established,
+            18 * day,
+            4,
+            Some(day),
+            (35_000_000, 3, 25_000_000, 1),
+        ),
+        contact(
+            3,
+            ContactState::Established,
+            27 * day,
+            1,
+            Some(3 * day),
+            (10_000_000, 1, 0, 0),
+        ),
+        contact(4, ContactState::Outgoing, 2 * 3600, 0, None, none),
     ]
 }
 

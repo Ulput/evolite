@@ -2884,5 +2884,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "मिश्रित सिक्कों से आप @{} को केवल DashPay संपर्क के रूप में भुगतान कर सकते हैं। उन्हें संपर्कों में जोड़ें या उनका Core पता दर्ज करें।",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "मिश्रित सिक्कों से आप किसी Core पते या DashPay संपर्क को भुगतान कर सकते हैं।",
   "To @{} · their Core address for you": "@{} को · आपके लिए उनका Core पता",
-  "Sent to @{} · from mixed coins": "@{} को भेजा · मिश्रित सिक्कों से"
+  "Sent to @{} · from mixed coins": "@{} को भेजा · मिश्रित सिक्कों से",
+  "You added": "आपने जोड़ा",
+  "They added": "आपको जोड़ा गया",
+  "Request sent": "अनुरोध भेजा",
+  "Request received": "अनुरोध मिला",
+  "Time of the write in Platform": "Platform में दर्ज होने का समय",
+  "still looking for payments…": "भुगतान अभी खोजे जा रहे हैं…"
 }

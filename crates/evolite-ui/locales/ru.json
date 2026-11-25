@@ -2931,5 +2931,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Из перемешанных монет заплатить @{} можно только как контакту DashPay. Добавьте его в контакты или укажите его адрес Core.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "Из перемешанных монет можно платить на адрес Core или контакту DashPay.",
   "To @{} · their Core address for you": "@{} · его адрес Core для вас",
-  "Sent to @{} · from mixed coins": "Отправлено @{} · из перемешанных монет"
+  "Sent to @{} · from mixed coins": "Отправлено @{} · из перемешанных монет",
+  "You added": "Вы добавили",
+  "They added": "Вас добавили",
+  "Request sent": "Вы отправили запрос",
+  "Request received": "Запрос получен",
+  "Time of the write in Platform": "Время записи в Platform",
+  "still looking for payments…": "ещё ищем платежи…"
 }

@@ -1082,14 +1082,58 @@ pub struct Contact {
     pub name: Option<String>,
     pub profile: Profile,
     pub state: ContactState,
-    /// When the first request between us was made.
-    pub since: Timestamp,
     pub payments: u32,
     pub last_payment: Option<Timestamp>,
     /// BUG-231: an established contact whose request points to a disabled key
     /// (platform-wallet's `payment_channel_broken`): no address of theirs can be derived, so
     /// it cannot be paid by DashPay until it sends a new request. Receiving still works.
     pub channel_broken: bool,
+    /// FEAT-0057 П5: the two dates and the payments each way.
+    pub record: ContactRecord,
+}
+
+/// FEAT-0057 П5 (BUG-292): a contact's two dates — each the time its request was written in
+/// Platform, by the side that sent it — and what was paid each way, from History (R-5.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ContactRecord {
+    /// Our request to them (`outgoing_request.created_at`); `None`: not sent.
+    pub you_added: Option<Timestamp>,
+    /// Theirs to us (`incoming_request.created_at`); `None`: not received.
+    pub they_added: Option<Timestamp>,
+    /// Paid to them, the network's fee left out, and in how many payments.
+    pub sent: Duffs,
+    pub sent_count: u32,
+    /// `false`: some payment's fee is not known (a restored line), so `sent` has that fee in it
+    /// and is shown «≈» (§8d); the count is exact either way.
+    pub sent_exact: bool,
+    /// Received from them on their account for us, and in how many payments.
+    pub received: Duffs,
+    pub received_count: u32,
+}
+
+impl Default for ContactRecord {
+    /// No dates, nothing paid: a sum of nothing is exact.
+    fn default() -> Self {
+        Self {
+            you_added: None,
+            they_added: None,
+            sent: 0,
+            sent_count: 0,
+            sent_exact: true,
+            received: 0,
+            received_count: 0,
+        }
+    }
+}
+
+impl ContactRecord {
+    /// When both sides had a request: the later of the two dates (UC-5.2); else the one there is.
+    pub fn mutual(&self) -> Option<Timestamp> {
+        match (self.you_added, self.they_added) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
+    }
 }
 
 impl Contact {

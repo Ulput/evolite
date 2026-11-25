@@ -2884,5 +2884,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Karıştırılmış coinlerle @{} kişisine yalnızca DashPay kişisi olarak ödeme yapabilirsiniz. Kişilere ekleyin ya da Core adresini girin.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "Karıştırılmış coinlerle bir Core adresine veya bir DashPay kişisine ödeme yapabilirsiniz.",
   "To @{} · their Core address for you": "@{} kişisine · sizin için Core adresi",
-  "Sent to @{} · from mixed coins": "@{} kişisine gönderildi · karıştırılmış coinlerden"
+  "Sent to @{} · from mixed coins": "@{} kişisine gönderildi · karıştırılmış coinlerden",
+  "You added": "Siz eklediniz",
+  "They added": "Sizi ekledi",
+  "Request sent": "İstek gönderildi",
+  "Request received": "İstek alındı",
+  "Time of the write in Platform": "Platform’a yazılma zamanı",
+  "still looking for payments…": "ödemeler hâlâ aranıyor…"
 }

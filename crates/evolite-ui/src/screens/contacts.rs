@@ -219,11 +219,16 @@ pub(crate) fn about_line(c: &Contact, now: DateTime<Local>) -> String {
             } else {
                 plural(c.payments, tr!("payment"), tr!("payments"))
             };
-            let since = format!(tr!("contact with {}"), text::date_day(c.since, now));
-            match display {
-                Some(d) => format!("{d} · {since} · {payments}"),
-                None => format!("{since} · {payments}"),
-            }
+            // BUG-292 (R-5.1): the date both had a request, the later one; none known — no date.
+            let since = c
+                .record
+                .mutual()
+                .map(|at| format!(tr!("contact with {}"), text::date_day(at, now)));
+            [display.map(str::to_owned), since, Some(payments)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · ")
         }
     }
 }
@@ -246,13 +251,23 @@ pub(crate) fn about_shown(
     })
 }
 
+/// A request's date; not known — said so, never another date in its place (BUG-292, §8d).
+fn day_or_unknown(at: Option<evolite_api::Timestamp>, now: DateTime<Local>) -> String {
+    at.map_or_else(|| tr!("time unknown").into(), |at| text::when(at, now))
+}
+
 /// The small label and value on the right of a row.
 fn when_line(c: &Contact, now: DateTime<Local>) -> (&'static str, String) {
     match (c.state, c.last_payment) {
-        (ContactState::Incoming, _) => (tr!("received"), text::when(c.since, now)),
-        (ContactState::Outgoing, _) => (tr!("request sent"), text::when(c.since, now)),
+        // FEAT-0057 П5 (UC-5.2): the date of each side's request, both for a contact (the later).
+        (ContactState::Incoming, _) => (tr!("received"), day_or_unknown(c.record.they_added, now)),
+        (ContactState::Outgoing, _) => {
+            (tr!("request sent"), day_or_unknown(c.record.you_added, now))
+        }
         (ContactState::Established, Some(last)) => (tr!("last payment"), text::when(last, now)),
-        (ContactState::Established, None) => (tr!("in contacts"), text::when(c.since, now)),
+        (ContactState::Established, None) => {
+            (tr!("in contacts"), day_or_unknown(c.record.mutual(), now))
+        }
     }
 }
 
@@ -436,9 +451,15 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
     privacy_dialog(ui, a, state);
     if let Some(id) = state.profile.clone() {
         match wallet.contacts.iter().find(|c| c.identity_id == id) {
-            Some(contact) => {
-                profile_dialog(ui, a, contact, &wallet.activity, now, state, &mut asked)
-            }
+            Some(contact) => profile_dialog(
+                ui,
+                a,
+                contact,
+                (&wallet.activity, cx.snap.sync.contacts_rescan),
+                now,
+                state,
+                &mut asked,
+            ),
             None => state.profile = None,
         }
     }
@@ -656,7 +677,8 @@ fn profile_dialog(
     ui: &mut Ui,
     a: &mut Assets,
     c: &Contact,
-    activity: &[Activity],
+    // History's lines, and whether the contacts' accounts are still rescanned (FEAT-0057 П5).
+    (activity, rescan): (&[Activity], bool),
     now: DateTime<Local>,
     state: &mut ContactsState,
     asked: &mut Vec<Command>,
@@ -717,12 +739,93 @@ fn profile_dialog(
             }
             about_block(ui, a, &c.profile);
             let value = mono(13.0, Weight::Medium);
-            let state_line = match c.state {
-                ContactState::Established => format!(tr!("since {}"), text::date_long(c.since)),
-                ContactState::Outgoing => tr!("waiting for an answer to your request").into(),
-                ContactState::Incoming => tr!("waiting for your answer").into(),
-            };
-            kv_row(ui, &p, tr!("In contacts"), &state_line, value.clone());
+            // FEAT-0057 П5 (BUG-292): each side's date, the day of the write in Platform (R-5.3),
+            // and what was paid each way with how many payments (R-5.5) — no third date.
+            let day =
+                |at: Option<evolite_api::Timestamp>| at.map_or("—".to_string(), text::date_long);
+            match c.state {
+                ContactState::Established => {
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("You added"),
+                        &day(c.record.you_added),
+                        value.clone(),
+                    );
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("They added"),
+                        &day(c.record.they_added),
+                        value.clone(),
+                    );
+                    ui.label(txt(
+                        tr!("Time of the write in Platform"),
+                        11.0,
+                        Weight::Regular,
+                        p.muted,
+                    ));
+                    let way = |total: evolite_api::Duffs, count: u32, exact: bool| {
+                        let amount = crate::format::balance(total);
+                        // A fee not known: the sum has it in it (Must 3, §8d).
+                        let amount = if exact {
+                            amount
+                        } else {
+                            format!("≈ {amount}")
+                        };
+                        if count == 0 {
+                            amount
+                        } else {
+                            format!(
+                                "{amount} · {}",
+                                crate::i18n::t(&plural(count, tr!("payment"), tr!("payments")))
+                            )
+                        }
+                    };
+                    let sums = mono(13.0, Weight::Medium);
+                    crate::components::kv_row_eye(
+                        ui,
+                        a,
+                        tr!("Sent"),
+                        &way(c.record.sent, c.record.sent_count, c.record.sent_exact),
+                        sums.clone(),
+                    );
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Received"),
+                        &way(c.record.received, c.record.received_count, true),
+                        sums,
+                    );
+                    // §8d: the contacts' receiving accounts still being rescanned (BUG-221).
+                    if rescan {
+                        ui.label(txt(
+                            tr!("still looking for payments…"),
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    }
+                }
+                ContactState::Outgoing => {
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Request sent"),
+                        &day(c.record.you_added),
+                        value.clone(),
+                    );
+                }
+                ContactState::Incoming => {
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("Request received"),
+                        &day(c.record.they_added),
+                        value.clone(),
+                    );
+                }
+            }
             if c.state == ContactState::Established {
                 let count = plural(c.payments, tr!("payment"), tr!("payments"));
                 let payments = match c.last_payment {

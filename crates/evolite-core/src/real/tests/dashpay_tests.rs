@@ -222,10 +222,10 @@ async fn a_contact_is_paid_only_to_the_address_shown() {
         name: Some("bob".into()),
         profile: Profile::default(),
         state: ContactState::Established,
-        since: 0,
         payments: 0,
         last_payment: None,
         channel_broken: false,
+        record: Default::default(),
     }];
     assert!(matches!(
         core.send(
@@ -358,10 +358,10 @@ async fn a_name_from_the_file_selects_no_payee_until_the_network_confirms_it() {
         name: Some("bob".into()),
         profile: Profile::default(),
         state: ContactState::Established,
-        since: 0,
         payments: 0,
         last_payment: None,
         channel_broken: false,
+        record: Default::default(),
     }];
     core.names_cached.lock().unwrap().insert(id.into());
     match core.core_payee("@bob") {

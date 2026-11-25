@@ -185,10 +185,10 @@ pub fn name_payments(
                 identity_id: id,
                 profile: Profile::default(),
                 state: ContactState::Established,
-                since: 0,
                 payments: 0,
                 last_payment: None,
                 channel_broken: false,
+                record: Default::default(),
             }
             .handle();
             (txid.as_str(), shown)
@@ -263,6 +263,15 @@ pub fn fetches_picture(state: ContactState) -> bool {
 /// from hidden senders left out. `names`: DPNS labels known for identities; `avatar`: the
 /// picture key for an identity, when the core has it; `paid_at`: when the wallet's history has
 /// the transaction with this txid (DashPay keeps payments by txid, without a time).
+/// FEAT-0057 П5 (R-5.1): an established contact's two dates — our request to them, theirs to us —
+/// as each side wrote it in Platform (milliseconds).
+pub fn contact_dates(contact: &platform_wallet::EstablishedContact) -> (Option<u64>, Option<u64>) {
+    (
+        Some(contact.outgoing_request.created_at),
+        Some(contact.incoming_request.created_at),
+    )
+}
+
 pub fn contacts_of(
     managed: &ManagedIdentity,
     names: &HashMap<String, Option<String>>,
@@ -295,50 +304,63 @@ pub fn contacts_of(
         (count, last)
     };
     let mut out = Vec::new();
-    let mut add = |id: &Identifier, state, since: u64, channel_broken: bool| {
-        let key = base58(id);
-        let (payments, last_payment) = if state == ContactState::Established {
-            payments(id)
-        } else {
-            (0, None)
+    let mut add =
+        |id: &Identifier, state, channel_broken: bool, (you, they): (Option<u64>, Option<u64>)| {
+            let key = base58(id);
+            let (payments, last_payment) = if state == ContactState::Established {
+                payments(id)
+            } else {
+                (0, None)
+            };
+            out.push(Contact {
+                name: names.get(&key).cloned().flatten(),
+                identity_id: key,
+                profile: profile(id, state),
+                state,
+                payments,
+                last_payment,
+                channel_broken,
+                record: evolite_api::ContactRecord {
+                    you_added: you.map(ms),
+                    they_added: they.map(ms),
+                    ..Default::default()
+                },
+            });
         };
-        out.push(Contact {
-            name: names.get(&key).cloned().flatten(),
-            identity_id: key,
-            profile: profile(id, state),
-            state,
-            since: ms(since),
-            payments,
-            last_payment,
-            channel_broken,
-        });
-    };
     for (id, contact) in dashpay.established_contacts() {
         if contact.is_hidden {
             continue;
         }
-        let since = contact
-            .outgoing_request
-            .created_at
-            .min(contact.incoming_request.created_at);
         add(
             id,
             ContactState::Established,
-            since,
             contact.payment_channel_broken,
+            contact_dates(contact),
         );
     }
     for (id, request) in dashpay.sent_contact_requests() {
         if !dashpay.established_contacts().contains_key(id) {
-            add(id, ContactState::Outgoing, request.created_at, false);
+            add(
+                id,
+                ContactState::Outgoing,
+                false,
+                (Some(request.created_at), None),
+            );
         }
     }
     for (id, request) in dashpay.incoming_contact_requests() {
         if !dashpay.established_contacts().contains_key(id) && !managed.is_sender_ignored(id) {
-            add(id, ContactState::Incoming, request.created_at, false);
+            add(
+                id,
+                ContactState::Incoming,
+                false,
+                (None, Some(request.created_at)),
+            );
         }
     }
-    out.sort_by_key(|c| std::cmp::Reverse(c.since));
+    // UC-5.2: by the date both had a request (the later one), the newest first.
+    // A contact with no date known goes last (`None` is the smallest), not by another date.
+    out.sort_by_key(|c| std::cmp::Reverse(c.record.mutual()));
     out
 }
 
@@ -397,6 +419,21 @@ mod tests {
     use evolite_api::{Chain, Proof};
 
     /// BUG-13: a request is held back by what platform-wallet has for the sending identity.
+    /// FEAT-0057 П5, A5.1: «You added» is our request's time, «They added» theirs — not the other
+    /// way round (the mutant: swapped).
+    #[test]
+    fn a_contacts_two_dates_are_each_sides_request() {
+        let (me, them) = (Identifier::from([1; 32]), Identifier::from([2; 32]));
+        let request = |from, to, at| {
+            platform_wallet::ContactRequest::new(from, to, 0, 0, 0, Vec::new(), 1, at)
+        };
+        let day = 24 * 3600 * 1000;
+        let ours = request(me, them, 15 * day);
+        let theirs = request(them, me, 19 * day);
+        let contact = platform_wallet::EstablishedContact::new(them, ours, theirs);
+        assert_eq!(contact_dates(&contact), (Some(15 * day), Some(19 * day)));
+    }
+
     #[test]
     fn a_contact_stands_by_the_strongest_tie() {
         assert_eq!(

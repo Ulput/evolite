@@ -2279,10 +2279,10 @@ mod tests {
             name: name.map(str::to_owned),
             profile: Default::default(),
             state,
-            since: 0,
             payments: 0,
             last_payment: None,
             channel_broken: false,
+            record: Default::default(),
         }
     }
 

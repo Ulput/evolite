@@ -16,10 +16,10 @@ fn contact(n: u8) -> Contact {
         name: Some(format!("friend{n}")),
         profile: Profile::default(),
         state: ContactState::Established,
-        since: 1_790_000_000,
         payments: 0,
         last_payment: None,
         channel_broken: false,
+        record: Default::default(),
     }
 }
 

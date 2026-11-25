@@ -2844,5 +2844,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "Từ coin đã trộn bạn chỉ có thể trả cho @{} như một liên hệ DashPay. Hãy thêm vào danh bạ hoặc nhập địa chỉ Core của họ.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "Từ coin đã trộn bạn có thể trả đến một địa chỉ Core hoặc một liên hệ DashPay.",
   "To @{} · their Core address for you": "Đến @{} · địa chỉ Core của họ dành cho bạn",
-  "Sent to @{} · from mixed coins": "Đã gửi đến @{} · từ coin đã trộn"
+  "Sent to @{} · from mixed coins": "Đã gửi đến @{} · từ coin đã trộn",
+  "You added": "Bạn đã thêm",
+  "They added": "Đã thêm bạn",
+  "Request sent": "Đã gửi yêu cầu",
+  "Request received": "Đã nhận yêu cầu",
+  "Time of the write in Platform": "Thời điểm ghi vào Platform",
+  "still looking for payments…": "vẫn đang tìm các khoản thanh toán…"
 }

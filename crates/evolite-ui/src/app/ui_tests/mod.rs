@@ -25,6 +25,7 @@ mod card;
 mod coins;
 mod collection_filter;
 mod collection_grid;
+mod contact_card;
 mod contact_resend;
 mod contacts_privacy;
 mod contested_names;

@@ -3044,5 +3044,11 @@
   "From mixed coins you can pay @{} only as a DashPay contact. Add them to contacts or enter their Core address.": "من العملات المخلوطة يمكنك الدفع إلى @{} فقط كجهة اتصال في DashPay. أضفه إلى جهات الاتصال أو أدخل عنوان Core الخاص به.",
   "From mixed coins you can pay to a Core address or to a DashPay contact.": "من العملات المخلوطة يمكنك الدفع إلى عنوان Core أو إلى جهة اتصال في DashPay.",
   "To @{} · their Core address for you": "إلى @{} · عنوان Core الخاص به لك",
-  "Sent to @{} · from mixed coins": "أُرسل إلى @{} · من العملات المخلوطة"
+  "Sent to @{} · from mixed coins": "أُرسل إلى @{} · من العملات المخلوطة",
+  "You added": "أضفتَه",
+  "They added": "أضافك",
+  "Request sent": "أرسلتَ الطلب",
+  "Request received": "وصل الطلب",
+  "Time of the write in Platform": "وقت التسجيل في Platform",
+  "still looking for payments…": "ما زلنا نبحث عن المدفوعات…"
 }
