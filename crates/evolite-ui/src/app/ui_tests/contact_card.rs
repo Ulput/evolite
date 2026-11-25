@@ -61,11 +61,17 @@ fn hidden_amounts_and_the_rescan_are_said_on_the_card() {
     assert!(!has_words(&kit, "0.3500 DASH"), "the sum hidden");
     assert!(has_words(&kit, "You added"), "the dates stay");
     kit.state_mut().settings.flip_hide_amounts();
-    if let Some(s) = kit.state_mut().snapshot.as_mut() {
-        s.sync.contacts_rescan = true;
-    }
-    kit.run_steps(1);
-    assert!(has_words(&kit, "still looking for payments"));
+    show_edited(
+        &mut kit,
+        1,
+        "the contacts' accounts rescanned",
+        |app| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.sync.contacts_rescan = true;
+            }
+        },
+        |kit| has_words(kit, "still looking for payments"),
+    );
 }
 
 /// BUG-292 in the list (r2, Must 2): «contact with» is the date both had a request, the later
