@@ -545,7 +545,8 @@ fn an_own_spend_is_a_line_only_when_it_went_through() {
     let done: Result<(), CoreError> = Ok(());
     let line =
         own_spend(&done, kind(), Some(5_000_000), Some(4_993_400), me.clone()).expect("a line");
-    assert_eq!(line.spent, 6);
+    // BUG-303: whole duffs of each balance, as the screens show them: 0.00005000 → 0.00004993.
+    assert_eq!(line.spent, 7);
     assert_eq!(line.moved, 0);
     assert_eq!(line.identity, me);
     assert_eq!(line.kind, Some(kind()));

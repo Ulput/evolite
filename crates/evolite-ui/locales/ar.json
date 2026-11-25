@@ -881,7 +881,6 @@
   "credits not added": "لم تُضف الأرصدة",
   "not added": "لم تُضف",
   "your identity": "هويتك",
-  "Credits added: +{}.": "أُضيفت أرصدة: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "أُرسلت الأرصدة: أكدت Platform التحويل بإثبات.",
   "Credits · @{}": "الأرصدة · @{}",
   "Currency": "العملة",
@@ -3020,5 +3019,7 @@
   "Apps appear once you have an identity": "تظهر التطبيقات عندما تكون لديك هوية",
   "You sign in to Dash apps on behalf of an identity.": "تسجّل الدخول إلى تطبيقات Dash باسم هوية.",
   "You have no identity yet": "ليست لديك هوية بعد",
-  "An identity is your record on the Dash network: a name, keys and credits.": "الهوية هي سجلّك على شبكة Dash: اسم ومفاتيح وأرصدة."
+  "An identity is your record on the Dash network: a name, keys and credits.": "الهوية هي سجلّك على شبكة Dash: اسم ومفاتيح وأرصدة.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "أُضيفت أرصدة: +{} على الأقل. ما لم تأخذه Platform من رسومها يُضاف أيضًا: المبلغ الدقيق في سطر السجل.",
+  "credits +{}": "أرصدة +{}"
 }

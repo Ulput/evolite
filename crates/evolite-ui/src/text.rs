@@ -1005,6 +1005,16 @@ pub fn activity_credits(a: &Activity) -> Option<(String, Tone)> {
 /// the one ours went from: "from @name" (BUG-69).
 pub fn activity_for(a: &Activity) -> Option<String> {
     match &a.kind {
+        // BUG-303: what the top-up added to the identity, measured (its amount and what Platform
+        // did not take of the fee on top, BUG-93): the History's lines add up to the credits.
+        ActivityKind::TopUp {
+            credits: Credits::Added,
+            ..
+        } => a
+            .detail
+            .as_ref()
+            .and_then(|d| d.credits_added)
+            .map(|added| format!(tr!("credits +{}"), crate::format::amount(added))),
         // BUG-194: who paid whom, and what moved (the analyst; words, not an arrow, BUG-151).
         ActivityKind::IdentityTransfer { from, to, moved } => Some(format!(
             tr!("from {} to {} · {}"),

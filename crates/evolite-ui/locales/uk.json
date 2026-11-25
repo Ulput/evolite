@@ -855,7 +855,6 @@
   "credits not added": "кредити не зараховано",
   "not added": "не зараховано",
   "your identity": "ваша ідентичність",
-  "Credits added: +{}.": "Кредити додано: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Кредити надіслано: Platform підтвердила переказ доказом.",
   "Credits · @{}": "Кредити · @{}",
   "Currency": "Валюта",
@@ -2940,5 +2939,7 @@
   "Apps appear once you have an identity": "Застосунки з’являться, коли у вас буде ідентичність",
   "You sign in to Dash apps on behalf of an identity.": "У застосунки Dash входять від імені ідентичності.",
   "You have no identity yet": "У вас поки немає ідентичності",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Ідентичність — ваш запис у мережі Dash: ім’я, ключі й кредити."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Ідентичність — ваш запис у мережі Dash: ім’я, ключі й кредити.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Кредити додано: щонайменше +{}. Що Platform не взяла зі своєї комісії, теж додано: точна сума — у рядку Історії.",
+  "credits +{}": "кредитам +{}"
 }

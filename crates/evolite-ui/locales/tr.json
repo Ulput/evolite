@@ -829,7 +829,6 @@
   "credits not added": "krediler eklenmedi",
   "not added": "eklenmedi",
   "your identity": "kimliğiniz",
-  "Credits added: +{}.": "Kredi eklendi: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Krediler gönderildi: Platform aktarımı bir kanıtla onayladı.",
   "Credits · @{}": "Krediler · @{}",
   "Currency": "Para birimi",
@@ -2860,5 +2859,7 @@
   "Apps appear once you have an identity": "Bir kimliğiniz olduğunda uygulamalar görünür",
   "You sign in to Dash apps on behalf of an identity.": "Dash uygulamalarına bir kimlik adına giriş yaparsınız.",
   "You have no identity yet": "Henüz bir kimliğiniz yok",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Kimlik, Dash ağındaki kaydınızdır: bir ad, anahtarlar ve krediler."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Kimlik, Dash ağındaki kaydınızdır: bir ad, anahtarlar ve krediler.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Kredi eklendi: en az +{}. Platform'un ücretinden almadığı kısım da eklenir: tam tutar Geçmiş'teki satırda.",
+  "credits +{}": "kredi +{}"
 }

@@ -816,7 +816,6 @@
   "credits not added": "积分未到账",
   "not added": "未到账",
   "your identity": "您的身份",
-  "Credits added: +{}.": "已添加积分：+{}。",
   "Credits sent: Platform confirmed the transfer with a proof.": "积分已发送：Platform 已用证明确认转账。",
   "Credits · @{}": "积分 · @{}",
   "Currency": "货币",
@@ -2820,5 +2819,7 @@
   "Apps appear once you have an identity": "有了身份后会显示应用",
   "You sign in to Dash apps on behalf of an identity.": "你以身份的名义登录 Dash 应用。",
   "You have no identity yet": "你还没有身份",
-  "An identity is your record on the Dash network: a name, keys and credits.": "身份是你在 Dash 网络上的记录：名称、密钥和积分。"
+  "An identity is your record on the Dash network: a name, keys and credits.": "身份是你在 Dash 网络上的记录：名称、密钥和积分。",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "已添加积分：至少 +{}。Platform 未用完的手续费也会加入：确切金额见历史中的该行。",
+  "credits +{}": "积分 +{}"
 }

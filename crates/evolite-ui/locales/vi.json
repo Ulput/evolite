@@ -816,7 +816,6 @@
   "credits not added": "chưa thêm tín dụng",
   "not added": "chưa thêm",
   "your identity": "danh tính của bạn",
-  "Credits added: +{}.": "Đã thêm tín dụng: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Đã gửi tín dụng: Platform đã xác nhận việc chuyển bằng bằng chứng.",
   "Credits · @{}": "Tín dụng · @{}",
   "Currency": "Tiền tệ",
@@ -2820,5 +2819,7 @@
   "Apps appear once you have an identity": "Ứng dụng xuất hiện khi bạn có danh tính",
   "You sign in to Dash apps on behalf of an identity.": "Bạn đăng nhập vào ứng dụng Dash thay mặt một danh tính.",
   "You have no identity yet": "Bạn chưa có danh tính",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Danh tính là bản ghi của bạn trên mạng Dash: tên, khóa và tín dụng."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Danh tính là bản ghi của bạn trên mạng Dash: tên, khóa và tín dụng.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Đã thêm tín dụng: ít nhất +{}. Phần phí Platform không lấy cũng được thêm: số chính xác có ở dòng trong Lịch sử.",
+  "credits +{}": "tín dụng +{}"
 }

@@ -829,7 +829,6 @@
   "credits not added": "Credits nicht gutgeschrieben",
   "not added": "nicht gutgeschrieben",
   "your identity": "Ihre Identität",
-  "Credits added: +{}.": "Credits hinzugefügt: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Credits gesendet: Platform hat die Überweisung durch einen Beweis bestätigt.",
   "Credits · @{}": "Credits · @{}",
   "Currency": "Währung",
@@ -2860,5 +2859,7 @@
   "Apps appear once you have an identity": "Apps erscheinen, sobald du eine Identität hast",
   "You sign in to Dash apps on behalf of an identity.": "Bei Dash-Apps meldest du dich im Namen einer Identität an.",
   "You have no identity yet": "Du hast noch keine Identität",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Eine Identität ist dein Eintrag im Dash-Netzwerk: ein Name, Schlüssel und Credits."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Eine Identität ist dein Eintrag im Dash-Netzwerk: ein Name, Schlüssel und Credits.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Credits hinzugefügt: mindestens +{}. Was Platform von ihrer Gebühr nicht genommen hat, kommt ebenfalls hinzu: Die genaue Summe steht in der Zeile im Verlauf.",
+  "credits +{}": "Credits +{}"
 }

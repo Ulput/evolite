@@ -800,7 +800,14 @@ pub(super) fn top_up_done_text(
     result: &Result<(), CoreError>,
 ) -> Option<String> {
     match result {
-        Ok(()) => Some(format!(tr!("Credits added: +{}."), dash(duffs))),
+        // BUG-303: at least the amount: what Platform does not take of its fee on top (BUG-93)
+        // comes too; the exact sum is on the line in History.
+        Ok(()) => Some(format!(
+            tr!(
+                "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History."
+            ),
+            dash(duffs)
+        )),
         Err(CoreError::NotAvailable(why)) if why == TOP_UP_SETTLED => Some(format!("{why}.")),
         Err(_) => None,
     }

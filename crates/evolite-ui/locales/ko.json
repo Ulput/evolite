@@ -247,7 +247,7 @@
     "other": "파일 쪽이 더 새로운 메모 {}개"
   },
   "{} record|{} records": {
-    "other": "기록 {}개"
+    "other": "레코드 {}개"
   },
   "{} token|{} tokens": {
     "other": "토큰 {}개"
@@ -816,7 +816,6 @@
   "credits not added": "크레딧 미추가",
   "not added": "미추가",
   "your identity": "내 아이덴티티",
-  "Credits added: +{}.": "크레딧 추가됨: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "크레딧을 보냈습니다: Platform이 증명으로 송금을 확인했습니다.",
   "Credits · @{}": "크레딧 · @{}",
   "Currency": "통화",
@@ -2820,5 +2819,7 @@
   "Apps appear once you have an identity": "아이덴티티가 생기면 앱이 나타납니다",
   "You sign in to Dash apps on behalf of an identity.": "Dash 앱에는 아이덴티티의 이름으로 로그인합니다.",
   "You have no identity yet": "아직 아이덴티티가 없습니다",
-  "An identity is your record on the Dash network: a name, keys and credits.": "아이덴티티는 Dash 네트워크에 있는 당신의 기록입니다: 이름, 키, 크레딧."
+  "An identity is your record on the Dash network: a name, keys and credits.": "아이덴티티는 Dash 네트워크에 있는 당신의 기록입니다: 이름, 키, 크레딧.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "크레딧 추가됨: 최소 +{}. Platform이 수수료에서 쓰지 않은 금액도 추가됩니다. 정확한 금액은 내역의 줄에 있습니다.",
+  "credits +{}": "크레딧 +{}"
 }

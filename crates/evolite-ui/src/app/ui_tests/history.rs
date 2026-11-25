@@ -1178,3 +1178,28 @@ fn deleting_warns_of_locked_dash_during_the_sync() {
         |kit| has_words(kit, WARNING),
     );
 }
+
+/// BUG-303: a top-up's line says what it added to the identity, measured — its amount and what
+/// Platform did not take of the fee on top (BUG-93) — so History's lines add up to the credits;
+/// not said while not known. Mutant: the line without it → red.
+#[test]
+fn a_top_ups_line_says_the_credits_it_added() {
+    use evolite_api::Credits;
+    let (_turn, mut kit) = demo_app("activity", "en");
+    with_the_demos_first_lines(&mut kit);
+    // The demo's top-up of @satoshi: 0.4999 DASH added, measured.
+    assert!(says(
+        &kit,
+        &format!(" · credits +{}", crate::format::amount(49_990_000))
+    ));
+    kit.state_mut().history.filters.layer = 5;
+    with_op(&mut kit, &lock(false, Credits::Added));
+    assert!(says(&kit, "Top-up of @werner555 · "));
+    assert!(
+        !kit.query_all_by(|n| n
+            .label()
+            .is_some_and(|l| l.contains("@werner555") && l.contains("credits +")))
+            .any(|_| true),
+        "not known: not said"
+    );
+}

@@ -1131,9 +1131,12 @@ pub(in crate::real) fn watch_creation(
 
 /// What a Platform write took from the identity's credits, in duffs (1 duff = 1000 credits),
 /// when both balances are known and it went down.
+/// BUG-303: whole duffs of each balance, as the screens show them (and as the apps' line,
+/// `app_spent_step`), not of the difference: lines that add up to the screens' change, never
+/// 1 duff off.
 pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) -> Option<Duffs> {
-    let spent = before?.checked_sub(after?)?;
-    (spent > 0).then_some((spent / 1000) as Duffs)
+    let spent = identity::credits_as_duffs(before?) - identity::credits_as_duffs(after?);
+    (spent > 0).then_some(spent)
 }
 
 /// TECH-bug-prevention (TEAM.md §8d-4): what a Platform write took from the identity's credits,
@@ -1381,13 +1384,50 @@ fn keep_added(journal: &journal::Journal, lock: Option<String>, before: Option<u
     if let (Some(txid), Some(before)) = (lock, before)
         && after > before
     {
-        journal.keep_top_up(&txid, identity::credits_as_duffs(after - before));
+        // BUG-303: whole duffs of each balance, as [`spent_credits`].
+        let added = identity::credits_as_duffs(after) - identity::credits_as_duffs(before);
+        journal.keep_top_up(&txid, added);
     }
 }
 
 #[cfg(test)]
 mod top_up_amount_tests {
-    use super::{lock_owner, new_lock};
+    use super::{lock_owner, new_lock, spent_credits};
+
+    /// BUG-303: a line is the change of the balances as the screens show them, whole duffs of
+    /// each: 1 050 353 000 → 902 301 999 credits is 0.01050353 → 0.00902301 on screen, a
+    /// line of 148 052 duffs (148 051 from the difference). Lines add up to the screens'.
+    /// Mutant: whole duffs of the difference → red.
+    #[test]
+    fn a_line_is_the_change_of_the_balances_as_shown() {
+        assert_eq!(
+            spent_credits(Some(1_050_353_000), Some(902_301_999)),
+            Some(148_052)
+        );
+        assert_eq!(
+            spent_credits(Some(5_000), Some(5_000)),
+            None,
+            "nothing spent"
+        );
+        assert_eq!(
+            spent_credits(Some(5_000), Some(6_000)),
+            None,
+            "credits came"
+        );
+        assert_eq!(spent_credits(None, Some(1)), None, "not known");
+        // Many writes in a row: their lines add up to the change shown, whatever the fractions.
+        let balances = [
+            2_902_301_999u64,
+            2_834_837_001,
+            2_767_473_500,
+            2_532_304_999,
+        ];
+        let lines: i64 = balances
+            .windows(2)
+            .map(|w| spent_credits(Some(w[0]), Some(w[1])).unwrap())
+            .sum();
+        assert_eq!(lines, 2_902_301 - 2_532_304);
+    }
 
     fn set(ids: &[&str]) -> std::collections::HashSet<String> {
         ids.iter().map(|s| s.to_string()).collect()

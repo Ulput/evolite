@@ -799,7 +799,6 @@
   "credits not added": "кредиты не зачислены",
   "not added": "не зачислены",
   "your identity": "ваша личность",
-  "Credits added: +{}.": "Кредиты зачислены: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Кредиты переведены: Platform подтвердила перевод доказательством.",
   "Credits · @{}": "Кредиты · @{}",
   "Currency": "Валюта",
@@ -2907,5 +2906,7 @@
   "Apps appear once you have an identity": "Приложения появятся, когда у вас будет личность",
   "You sign in to Dash apps on behalf of an identity.": "В приложения Dash входят от имени личности.",
   "You have no identity yet": "У вас пока нет личности",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Личность — ваша запись в сети Dash: имя, ключи и кредиты."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Личность — ваша запись в сети Dash: имя, ключи и кредиты.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Кредиты зачислены: не меньше +{}. Что Platform не взяла из своей комиссии, тоже зачислено: точная сумма — в строке Истории.",
+  "credits +{}": "кредитам +{}"
 }

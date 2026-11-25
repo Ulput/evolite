@@ -247,7 +247,7 @@
     "other": "ファイルの方が新しいメモ {} 件"
   },
   "{} record|{} records": {
-    "other": "記録 {} 件"
+    "other": "{} 件の記録"
   },
   "{} token|{} tokens": {
     "other": "トークン {} 件"
@@ -816,7 +816,6 @@
   "credits not added": "クレジット未追加",
   "not added": "未追加",
   "your identity": "あなたのアイデンティティ",
-  "Credits added: +{}.": "クレジットを追加しました：+{}。",
   "Credits sent: Platform confirmed the transfer with a proof.": "クレジットを送りました：Platform が証明で送金を確認しました。",
   "Credits · @{}": "クレジット · @{}",
   "Currency": "通貨",
@@ -2820,5 +2819,7 @@
   "Apps appear once you have an identity": "アイデンティティを持つとアプリが表示されます",
   "You sign in to Dash apps on behalf of an identity.": "Dash のアプリにはアイデンティティの名義でサインインします。",
   "You have no identity yet": "まだアイデンティティがありません",
-  "An identity is your record on the Dash network: a name, keys and credits.": "アイデンティティは Dash ネットワーク上のあなたの記録です: 名前、鍵、クレジット。"
+  "An identity is your record on the Dash network: a name, keys and credits.": "アイデンティティは Dash ネットワーク上のあなたの記録です: 名前、鍵、クレジット。",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "クレジットを追加しました：少なくとも +{}。Platform が手数料から使わなかった分も追加されます。正確な額は履歴の行にあります。",
+  "credits +{}": "クレジット +{}"
 }

@@ -247,7 +247,7 @@
     "other": "{} catatan lebih baru di berkas"
   },
   "{} record|{} records": {
-    "other": "{} catatan riwayat"
+    "other": "{} catatan"
   },
   "{} token|{} tokens": {
     "other": "{} token"
@@ -816,7 +816,6 @@
   "credits not added": "kredit belum ditambahkan",
   "not added": "belum ditambahkan",
   "your identity": "identitas Anda",
-  "Credits added: +{}.": "Kredit ditambahkan: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Kredit terkirim: Platform mengonfirmasi transfer dengan bukti.",
   "Credits · @{}": "Kredit · @{}",
   "Currency": "Mata uang",
@@ -2820,5 +2819,7 @@
   "Apps appear once you have an identity": "Aplikasi muncul setelah Anda punya identitas",
   "You sign in to Dash apps on behalf of an identity.": "Anda masuk ke aplikasi Dash atas nama sebuah identitas.",
   "You have no identity yet": "Anda belum punya identitas",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Identitas adalah catatan Anda di jaringan Dash: nama, kunci, dan kredit."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Identitas adalah catatan Anda di jaringan Dash: nama, kunci, dan kredit.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Kredit ditambahkan: setidaknya +{}. Bagian biaya yang tidak diambil Platform juga ditambahkan: jumlah pastinya ada di baris Riwayat.",
+  "credits +{}": "kredit +{}"
 }

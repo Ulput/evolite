@@ -256,7 +256,7 @@
   },
   "{} record|{} records": {
     "one": "{} registro",
-    "many": "{} registros",
+    "many": "{} de registros",
     "other": "{} registros"
   },
   "{} token|{} tokens": {
@@ -842,7 +842,6 @@
   "credits not added": "créditos no acreditados",
   "not added": "no acreditados",
   "your identity": "su identidad",
-  "Credits added: +{}.": "Créditos añadidos: +{}.",
   "Credits sent: Platform confirmed the transfer with a proof.": "Créditos enviados: Platform confirmó la transferencia con una prueba.",
   "Credits · @{}": "Créditos · @{}",
   "Currency": "Moneda",
@@ -2896,5 +2895,7 @@
   "Apps appear once you have an identity": "Las apps aparecen cuando tengas una identidad",
   "You sign in to Dash apps on behalf of an identity.": "Inicias sesión en las apps de Dash en nombre de una identidad.",
   "You have no identity yet": "Aún no tienes una identidad",
-  "An identity is your record on the Dash network: a name, keys and credits.": "Una identidad es tu registro en la red Dash: un nombre, claves y créditos."
+  "An identity is your record on the Dash network: a name, keys and credits.": "Una identidad es tu registro en la red Dash: un nombre, claves y créditos.",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "Créditos añadidos: al menos +{}. Lo que Platform no tomó de su comisión también se añade: la suma exacta está en la línea del Historial.",
+  "credits +{}": "créditos +{}"
 }

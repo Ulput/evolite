@@ -829,7 +829,6 @@
   "credits not added": "क्रेडिट नहीं जोड़े गए",
   "not added": "नहीं जोड़े गए",
   "your identity": "आपकी पहचान",
-  "Credits added: +{}.": "क्रेडिट जोड़े गए: +{}।",
   "Credits sent: Platform confirmed the transfer with a proof.": "क्रेडिट भेजे गए: Platform ने प्रमाण से ट्रांसफ़र की पुष्टि की।",
   "Credits · @{}": "क्रेडिट · @{}",
   "Currency": "मुद्रा",
@@ -2860,5 +2859,7 @@
   "Apps appear once you have an identity": "पहचान होने पर ऐप्स दिखेंगे",
   "You sign in to Dash apps on behalf of an identity.": "Dash ऐप्स में आप एक पहचान की ओर से साइन इन करते हैं।",
   "You have no identity yet": "आपकी अभी कोई पहचान नहीं है",
-  "An identity is your record on the Dash network: a name, keys and credits.": "पहचान Dash नेटवर्क पर आपका रिकॉर्ड है: एक नाम, कुंजियाँ और क्रेडिट।"
+  "An identity is your record on the Dash network: a name, keys and credits.": "पहचान Dash नेटवर्क पर आपका रिकॉर्ड है: एक नाम, कुंजियाँ और क्रेडिट।",
+  "Credits added: at least +{}. What Platform did not take of its fee is added too: the exact sum is on the line in History.": "क्रेडिट जोड़े गए: कम से कम +{}। Platform ने अपने शुल्क में से जो नहीं लिया, वह भी जुड़ता है: सटीक राशि इतिहास की पंक्ति में है।",
+  "credits +{}": "क्रेडिट +{}"
 }
