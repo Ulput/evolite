@@ -143,6 +143,20 @@ pub struct WorkshopState {
     /// W7 «Given», by (contract, model); asked once a visit.
     given: HashMap<(String, String), evolite_api::workshop::Given>,
     pub(crate) given_asked: HashMap<(String, String), Retry>,
+    /// BUG-314: the identity's sales (DocumentHistory's `purchase`s), asked once a visit:
+    /// «Sold» and the sales' History lines are the core's reading of them. A model's counts are
+    /// asked once they answered, and again after a first good answer.
+    sales_asked: Retry,
+    /// The sales answered (well or not): the counts may go.
+    sales_answered: bool,
+    /// The sales were read well.
+    sales_read: bool,
+    /// BUG-314 r1: when they were last read well (the frame's time): a visit to a model page
+    /// reads them again once [`SALES_AGAIN`] passed since.
+    sales_at: Option<f64>,
+    /// The pass a model page was last drawn in: one drawn now, not in the pass before, is a
+    /// visit.
+    model_seen_pass: Option<u64>,
     /// The last frame's time: an answer that failed is timed by it (the reads' pauses).
     now: f64,
     /// W7 r1: «Retry» pressed: the failed reads go again on the next frame.
@@ -155,6 +169,10 @@ pub struct WorkshopState {
     /// W4: «About the collection» open.
     about: bool,
 }
+
+/// BUG-314 r1 (the coordinator, 2026-11-25): the sales are read again on a visit to a model
+/// page at most this often (seconds).
+pub(super) const SALES_AGAIN: f64 = 60.0;
 
 impl WorkshopState {
     /// [`evolite_api::Event::Workshop`]: kept when it is for what was asked.
@@ -221,8 +239,97 @@ impl WorkshopState {
                     r.failed(self.now);
                 }
             }
+            // BUG-314: the counts read before the sales (the collection's page, or after a failed
+            // read of them) are asked again: «Sold» is known now.
+            (WorkshopAsk::Sales, result) if result.is_ok() => {
+                self.sales_asked.answered();
+                if self.sales_at.is_none() {
+                    self.counts.clear();
+                    self.counts_asked.clear();
+                } else if let Ok(WorkshopRead::Sales(new)) = result {
+                    // BUG-314 r1: read again on a visit, the core from its cursor — only the
+                    // sales since; the models they sold are counted again.
+                    self.recount_sold(new);
+                }
+                self.sales_answered = true;
+                self.sales_read = true;
+                self.sales_at = Some(self.now);
+            }
+            (WorkshopAsk::Sales, Err(_)) => {
+                self.sales_asked.failed(self.now);
+                self.sales_answered = true;
+            }
             _ => {}
         }
+    }
+
+    /// BUG-314 in tests: the model's «Sold» as its counts were read — `None`: no counts yet,
+    /// `Some(None)`: read with «Sold» unknown.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn sold_read(&self, contract: &str, model: &str) -> Option<Option<u32>> {
+        self.counts
+            .get(&(contract.to_owned(), model.to_owned()))
+            .map(|c| c.sold)
+    }
+
+    /// BUG-314 r1: the counts of the models `new` sold are read again; a sale whose model is
+    /// gone may have been any one's: all are.
+    fn recount_sold(&mut self, new: &[evolite_api::workshop::Sale]) {
+        if new.iter().any(|s| s.model_id.is_none()) {
+            self.counts.clear();
+            self.counts_asked.clear();
+            return;
+        }
+        for sale in new {
+            let key = (
+                sale.contract.clone(),
+                sale.model_id.clone().unwrap_or_default(),
+            );
+            self.counts.remove(&key);
+            self.counts_asked.remove(&key);
+        }
+    }
+
+    /// BUG-314 r1: a model page drawn in pass `pass` at `now`. Entered (not drawn in the pass
+    /// before) once [`SALES_AGAIN`] passed since the sales were read, they are asked again —
+    /// the core reads from its cursor, so only what came since.
+    pub(super) fn on_model_page(&mut self, pass: u64, now: f64) {
+        let entered = self.model_seen_pass.is_none_or(|p| p + 1 < pass);
+        self.model_seen_pass = Some(pass);
+        if entered && self.sales_read && self.sales_at.is_some_and(|t| now - t >= SALES_AGAIN) {
+            self.sales_read = false;
+            self.sales_asked = Retry::default();
+        }
+    }
+
+    /// BUG-314 r1 in tests: when the sales were last read well.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn sales_read_at(&self) -> Option<f64> {
+        self.sales_at
+    }
+
+    /// BUG-314: the sales are asked again (another identity).
+    fn forget_sales(&mut self) {
+        self.sales_asked = Retry::default();
+        self.sales_answered = false;
+        self.sales_read = false;
+        self.sales_at = None;
+    }
+
+    /// BUG-314: the identity's sales asked when they are not read (and their pause is over);
+    /// whether the model's counts may be asked now — after the sales answered.
+    pub(super) fn ask_sales(&mut self, cx: &mut Ctx, now: f64, again: bool) -> bool {
+        if !self.sales_read {
+            if again {
+                self.sales_asked.again(now);
+            }
+            if self.sales_asked.ask(now) {
+                cx.send(Command::ReadWorkshop {
+                    ask: WorkshopAsk::Sales,
+                });
+            }
+        }
+        self.sales_answered
     }
 
     /// The collections to be read again (a registration, «Try again»).
@@ -249,6 +356,7 @@ impl WorkshopState {
         self.instances.clear();
         self.given.clear();
         self.given_asked.clear();
+        self.forget_sales();
         self.about = false;
         if !self.new.signed() {
             self.new.forget();
@@ -698,6 +806,7 @@ impl WorkshopState {
             |m: &HashMap<(String, String), Retry>| m.get(&key).is_some_and(|r| r.is_failed());
         failed(&self.counts_asked)
             || failed(&self.given_asked)
+            || self.sales_asked.is_failed()
             || [false, true].iter().any(|s| {
                 self.instances
                     .get(&(contract.to_owned(), model.to_owned(), *s))

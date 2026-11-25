@@ -113,6 +113,8 @@ struct Mock {
     /// Collections «registered» in this run (FEAT-0038 W2): their ids and names, listed by the
     /// Workshop's reading after the example's.
     collections_made: Vec<(String, String)>,
+    /// BUG-314: the Workshop's sales were asked: «Sold» and the sale's History line from then on.
+    sales_read: bool,
     /// BUG-266: the check of a collection named [`workshop::SYNC_PENDING`] said «not synced»
     /// once — as a sync that ends after the form was opened.
     not_synced_said: bool,
@@ -1127,10 +1129,32 @@ impl Mock {
                 }
             }
             // The Workshop's example reading (FEAT-0038 item 2); nothing is asked of a network.
-            Command::ReadWorkshop { ask } => Event::Workshop {
-                result: Ok(workshop::read(&ask, &self.collections_made)),
-                ask,
-            },
+            // BUG-314: the sales read write the sale's History line, as the real core's do.
+            Command::ReadWorkshop { ask } => {
+                // BUG-314 r1: read again, the core answers what came since its cursor — the
+                // example's one sale only the first time.
+                let since = ask == evolite_api::workshop::WorkshopAsk::Sales && self.sales_read;
+                if ask == evolite_api::workshop::WorkshopAsk::Sales {
+                    self.sales_read = true;
+                    let line = demo::sale_line();
+                    if let Some(w) = self.snapshot.wallet.as_mut()
+                        && !w.activity.iter().any(|a| a.key == line.key)
+                    {
+                        w.activity.insert(0, line);
+                        changed = true;
+                    }
+                }
+                let read = if since {
+                    evolite_api::workshop::WorkshopRead::Sales(Vec::new())
+                } else {
+                    workshop::read(&ask, &self.collections_made, self.sales_read)
+                };
+                let _ = out.send(Event::Workshop {
+                    result: Ok(read),
+                    ask,
+                });
+                return changed;
+            }
             // The example network's tokens (FEAT-0019 AC-T7); nothing is asked of a network.
             Command::FindToken { id } => Event::TokenFound {
                 result: Ok(tokens::find(&id)),
@@ -2389,6 +2413,7 @@ pub fn run(
         passphrases: HashMap::new(),
         made: Vec::new(),
         collections_made: Vec::new(),
+        sales_read: false,
         not_synced_said: false,
     };
     let send_snapshot = |mock: &Mock| {
@@ -2457,6 +2482,7 @@ mod tests {
             passphrases: HashMap::new(),
             made: Vec::new(),
             collections_made: Vec::new(),
+            sales_read: false,
             not_synced_said: false,
         };
         (m, tx, rx)

@@ -225,7 +225,10 @@ pub(super) fn page(
     let now = ui.input(|i| i.time);
     state.now = now;
     let again = std::mem::take(&mut state.retry_reads);
-    if super::ask_now(&mut state.counts_asked, &key, now, again) {
+    state.on_model_page(ui.ctx().cumulative_pass_nr(), now);
+    // BUG-314: «Sold» is the sales the core read: they first, then the counts.
+    if state.ask_sales(cx, now, again) && super::ask_now(&mut state.counts_asked, &key, now, again)
+    {
         cx.send(Command::ReadWorkshop {
             ask: WorkshopAsk::Counts {
                 contract: contract.to_owned(),

@@ -275,6 +275,36 @@ mod tests {
         assert_eq!(state.sold("other", "c", "m"), None);
     }
 
+    /// BUG-314 r1: a second sale, read after the first from the cursor (only what came since) —
+    /// «Продано 2» with both prices, and two History lines; the first read again adds nothing.
+    #[test]
+    fn a_sale_after_the_first_read_makes_two() {
+        let state = WorkshopState::default();
+        let dir = std::env::temp_dir().join(format!("evolite-two-sales-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = journal::Journal::new(dir.join("platform-history.json"));
+        let read = |new: Vec<Sale>| {
+            journal
+                .merge_network(new.iter().map(|s| sale_entry(s, "me")).collect())
+                .unwrap();
+            state.add("me", &new, SalesCursor::default());
+        };
+        read(vec![sale("p1", "m")]);
+        assert_eq!(state.sold("me", "c", "m"), Some((1, 10)));
+        read(vec![sale("p2", "m")]);
+        read(vec![sale("p1", "m")]);
+        assert_eq!(state.sold("me", "c", "m"), Some((2, 20)), "«Продано 2»");
+        let restarted = journal::Journal::new(dir.join("platform-history.json"));
+        let lines = restarted
+            .entries()
+            .iter()
+            .filter(|e| e.key.as_deref().is_some_and(|k| k.starts_with("nftsold:")))
+            .count();
+        assert_eq!(lines, 2, "two lines, after a restart too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// R-15, AC-T-W4: a sale's History line is keyed by its `purchase` and brings its price in;
     /// the buyer is shown by name when known.
     #[test]

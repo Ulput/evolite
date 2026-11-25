@@ -84,7 +84,9 @@ pub fn main_contract(id: &str) -> Result<String, evolite_api::contracts::Contrac
     }
 }
 
-pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
+/// The example's reading; `sales_read`: `Sales` was asked (BUG-314) — before it «Sold» is not
+/// known, as the real core's count of sales is the sales it read.
+pub fn read(ask: &WorkshopAsk, made: &[(String, String)], sales_read: bool) -> WorkshopRead {
     match ask {
         WorkshopAsk::Collections => WorkshopRead::Collections(
             std::iter::once(Collection {
@@ -124,9 +126,9 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)]) -> WorkshopRead {
                     complete: true,
                 }),
                 prices: vec![(PRICE, 4)],
-                sold: Some(1),
+                sold: sales_read.then_some(1),
                 // BUG-276: the one sale of the demo's History, at its price.
-                sold_for: Some(PRICE),
+                sold_for: sales_read.then_some(PRICE),
                 issued: Some(ISSUED),
                 checked_at: AT,
             })
@@ -207,7 +209,7 @@ mod tests {
     #[test]
     fn every_demo_model_has_a_picture_and_numbers_that_add_up() {
         let gallery = crate::demo::demo_art();
-        let WorkshopRead::Collections(all) = read(&WorkshopAsk::Collections, &[]) else {
+        let WorkshopRead::Collections(all) = read(&WorkshopAsk::Collections, &[], true) else {
             panic!("collections")
         };
         let models: Vec<_> = all
@@ -222,7 +224,7 @@ mod tests {
                 "{}: not in the gallery",
                 m.name
             );
-            let ask = |ask| read(&ask, &[]);
+            let ask = |ask| read(&ask, &[], true);
             let WorkshopRead::Counts(n) = ask(WorkshopAsk::Counts {
                 contract: c.contract.clone(),
                 model: m.id.clone(),
@@ -288,8 +290,11 @@ mod tests {
                     s.serial
                 );
             }
-            // The sale's line in History, the one «Recent» shows.
-            let wallet = crate::demo::demo_wallet(crate::demo::now());
+            // The sale's line in History, the one «Recent» shows (written when the sales are read).
+            let wallet = evolite_api::Wallet {
+                activity: vec![crate::demo::sale_line()],
+                ..crate::demo::demo_wallet(crate::demo::now())
+            };
             for s in &these {
                 assert!(
                     wallet.activity.iter().any(|a| a.key == format!("nftsold:{}", s.purchase)
@@ -302,4 +307,24 @@ mod tests {
             }
         }
     }
+}
+
+/// BUG-314: «Sold» is not known before the sales are asked — the demo hid that nobody asked.
+#[test]
+fn sold_is_not_known_before_the_sales_are_read() {
+    let counts = |sales_read| {
+        let WorkshopRead::Counts(c) = read(
+            &WorkshopAsk::Counts {
+                contract: CONTRACT.into(),
+                model: MODEL.into(),
+            },
+            &[],
+            sales_read,
+        ) else {
+            panic!("counts")
+        };
+        (c.sold, c.sold_for)
+    };
+    assert_eq!(counts(false), (None, None), "«—», not 1");
+    assert_eq!(counts(true), (Some(1), Some(PRICE)));
 }

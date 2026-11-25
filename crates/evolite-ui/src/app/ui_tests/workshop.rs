@@ -319,7 +319,8 @@ fn a_model_page_shows_its_numbers() {
     // «Given» from DocumentHistory (the architect, 2026-11-22): the demo's one gift.
     wait_for(&mut kit, "the gifts", |kit| has_words(kit, ", @alice"));
     assert!(has_words(&kit, "last: "));
-    assert!(has_words(&kit, "— 4"), "the price group");
+    // BUG-314: the counts are read again once the sales answer.
+    wait_for(&mut kit, "the price group", |kit| has_words(kit, "— 4"));
     // BUG-276: the copy sold shows its price though History here has no sale (another copy, a
     // cleared History): the sum is the core's, of the same sales as the count.
     show_wallet_edited(
@@ -654,4 +655,123 @@ fn the_demo_model_has_its_picture_and_its_sale_in_recent() {
     assert!(!has_text(&kit, "No events yet"));
     // Your numbers are an ask of their own: 13 and 14 are not held.
     wait_for(&mut kit, "your numbers", |kit| has_words(kit, "no. 1–12"));
+}
+
+/// BUG-314: the collection's page reads the counts without the sales — «Sold» not known
+/// (`None`, «—»), never the demo's 1 before anyone asked; the model's page asks the sales, then
+/// the counts again: «Sold 1 · for 1.0000 DASH», and the sale's History line in «Recent», written
+/// by that read.
+#[test]
+fn sold_comes_from_the_sales_the_page_asks_for() {
+    let (_turn, mut kit) = demo_app("workshop-collection", "en");
+    wait_for(&mut kit, "the counts", |kit| {
+        painted_has(kit, "issued 14 of 100")
+    });
+    assert_eq!(
+        kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL),
+        Some(None),
+        "no sales asked: «Sold» unknown"
+    );
+    assert!(
+        !kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| w
+                .activity
+                .iter()
+                .any(|a| matches!(a.kind, evolite_api::ActivityKind::NftSold { .. }))),
+        "no sale in History before the sales are read"
+    );
+    button(&kit, "Winter tram").click();
+    wait_for(&mut kit, "«Sold» from the sales", |kit| {
+        has_words(kit, "for 1.0000 DASH · credits to")
+    });
+    assert_eq!(
+        kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL),
+        Some(Some(1))
+    );
+    wait_for(&mut kit, "the sale in «Recent»", |kit| {
+        has_words(kit, "no. 14 · ")
+    });
+}
+
+/// BUG-314 r1 (the coordinator, 2026-11-25): a visit to the model page reads the sales again,
+/// at most once a minute — back within the minute, or a minute spent on the page, asks
+/// nothing; back after it, they are read again, and a sale that came since has the model
+/// counted again («Sold» from the core's sales: two after a second; the core's
+/// `a_sale_after_the_first_read_makes_two`).
+#[test]
+fn a_visit_after_a_minute_reads_the_sales_again() {
+    use evolite_api::workshop::{Sale, WorkshopAsk, WorkshopRead};
+    let (_turn, mut kit) = demo_app("workshop-collection", "en");
+    let open_model = |kit: &mut Kit| {
+        wait_for(kit, "W4", |kit| painted_has(kit, "Winter tram"));
+        button(kit, "Winter tram").click();
+        wait_for(kit, "W7", |kit| has_text(kit, "You have"));
+    };
+    let back = |kit: &mut Kit| {
+        kit.query_all_by(|n| {
+            // «‹ Seasons of the city», a link named «Back: …».
+            n.role() == Role::Link && n.label().is_some_and(|l| l.starts_with("Back: "))
+        })
+        .next()
+        .expect("back to the collection")
+        .click();
+        wait_for(kit, "W4", |kit| !has_text(kit, "You have"));
+    };
+    let read_at = |kit: &Kit| kit.state().workshop.sales_read_at();
+    let time = |kit: &Kit| kit.ctx.input(|i| i.time);
+    open_model(&mut kit);
+    wait_for(&mut kit, "the sales read", |kit| read_at(kit).is_some());
+    settle(&mut kit);
+    let first = read_at(&kit);
+    back(&mut kit);
+    open_model(&mut kit);
+    settle(&mut kit);
+    assert_eq!(
+        read_at(&kit),
+        first,
+        "back within the minute: not read again"
+    );
+    // A minute on the page: not a visit.
+    let since = time(&kit);
+    while time(&kit) - since < 61.0 {
+        kit.step();
+    }
+    settle(&mut kit);
+    assert_eq!(read_at(&kit), first, "staying on the page reads nothing");
+    back(&mut kit);
+    open_model(&mut kit);
+    wait_for(&mut kit, "the sales read again", |kit| read_at(kit) > first);
+    settle(&mut kit);
+    assert_eq!(
+        kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL),
+        Some(Some(1)),
+        "nothing new since: the counts kept"
+    );
+    // That read brought a sale of this model: its counts are read again.
+    kit.state_mut().workshop.on_read(
+        &WorkshopAsk::Sales,
+        &Ok(WorkshopRead::Sales(vec![Sale {
+            purchase: "demo-purchase-2".into(),
+            contract: DEMO_CONTRACT.into(),
+            instance: "i".into(),
+            model_id: Some(DEMO_MODEL.into()),
+            model: Some("Winter tram".into()),
+            serial: Some(12),
+            buyer: "b".into(),
+            buyer_name: None,
+            price: 100_000_000,
+            at: 1,
+        }])),
+    );
+    assert_eq!(
+        kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL),
+        None,
+        "the model is counted again"
+    );
+    wait_for(&mut kit, "the counts read again", |kit| {
+        kit.state().workshop.sold_read(DEMO_CONTRACT, DEMO_MODEL) == Some(Some(1))
+    });
 }

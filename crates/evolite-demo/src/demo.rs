@@ -217,6 +217,37 @@ pub fn demo_art() -> HashMap<String, Stored> {
         .collect()
 }
 
+/// BUG-312, BUG-314: the History line of the Workshop's one sale ([`crate::workshop::read`],
+/// `Sales`), keyed by its purchase with its price in, as the real core writes it when it reads
+/// the sale — not before.
+pub(crate) fn sale_line() -> Activity {
+    let kind = ActivityKind::NftSold {
+        model: Some("Winter tram".into()),
+        serial: Some(crate::workshop::SOLD_SERIAL),
+        buyer: "@alice".into(),
+    };
+    let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
+    Activity {
+        id: 37,
+        kind,
+        chain: Chain::Platform,
+        at: crate::workshop::AT,
+        amount: crate::workshop::PRICE,
+        proof: Proof::Proved,
+        txid: None,
+        fee: None,
+        block: None,
+        address: None,
+        layers,
+        flow,
+        key: format!("nftsold:{}", crate::workshop::PURCHASE),
+        detail: None,
+        note: None,
+        rate: None,
+        tax_transfer: false,
+    }
+}
+
 /// A Core line's card in full (FEAT-0005a), as the real core builds it from the record.
 fn core_detail(
     proof: Proof,
@@ -910,24 +941,6 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                     Chain::Platform,
                     5 * day,
                     0,
-                    Proof::Proved,
-                )
-            },
-            // BUG-312: the Workshop's one sale (`workshop::read`, `Sales`), as a copy that read
-            // it keeps it — keyed by its purchase, the price in.
-            Activity {
-                at: crate::workshop::AT,
-                key: format!("nftsold:{}", crate::workshop::PURCHASE),
-                ..act(
-                    37,
-                    NftSold {
-                        model: Some("Winter tram".into()),
-                        serial: Some(crate::workshop::SOLD_SERIAL),
-                        buyer: "@alice".into(),
-                    },
-                    Chain::Platform,
-                    0,
-                    crate::workshop::PRICE,
                     Proof::Proved,
                 )
             },
