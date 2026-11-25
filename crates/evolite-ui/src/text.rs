@@ -419,6 +419,10 @@ pub fn row_place(act: &Activity) -> String {
         } else {
             format!(tr!("series · done {} of {}"), done, total)
         };
+        // Translated whole before it is joined: the line is translated later piece by piece
+        // over « · », and «series · done 1 of 1» in pieces stayed English but for «{} of {}»
+        // (batch 73, spoken_words ru/uk).
+        let series = crate::i18n::t_in(crate::i18n::current(), &series);
         let place = format!("{} · {series}", source(act));
         return if cost_unknown(act) {
             format!("{place} · {}", tr!("fee: no record"))
