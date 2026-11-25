@@ -1,4 +1,5 @@
-//! The small asks: the NFTs shown, the fiat rate, the disk space the data takes.
+//! The sm
+// default-ok: no cursor yet: the search starts from the oldest (a fresh copy)all asks: the NFTs shown, the fiat rate, the disk space the data takes.
 
 use crate::real::*;
 
@@ -102,6 +103,7 @@ impl Real {
                         // FEAT-0054 part 2: what came to the identity or it bought, from its
                         // cursor on (a fresh copy from the start), kept by the wallet.
                         let before =
+                            // default-ok: no cursor yet: the search starts from the oldest (a fresh copy)
                             search.read(|all| all.get(&owner).cloned().unwrap_or_default());
                         let found = chain.find_received(&owner, &before).await?;
                         if found != before {

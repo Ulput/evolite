@@ -82,8 +82,9 @@ pub fn contract_of(doc: &Document) -> Option<(String, u64)> {
         .to_identifier()
         .ok()?
         .to_string(Encoding::Base58);
-    // default-ok: a history document always has `$createdAt`; one without is only taken as
-    // the oldest — the cursor never moves back for it, and its contract is still a candidate.
+    // A history document always has `$createdAt`; one without is only taken as the oldest —
+    // the cursor never moves back for it, and its contract is still a candidate.
+    // default-ok: no `$createdAt` is the oldest, see above
     Some((contract, doc.created_at().unwrap_or(0)))
 }
 
