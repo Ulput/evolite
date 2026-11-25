@@ -101,6 +101,9 @@ pub(super) struct DevState {
     hidden_preset: bool,
     /// The contest card to open once the snapshot has the identity (`contest-card`, `contest-lost`).
     contest_preset: Option<&'static str>,
+    /// FEAT-0048: the pool's states for «Create an identity» (`create-identity-pool-*`,
+    /// `create-identity-core`), put into each snapshot.
+    pool_identity_preset: Option<&'static str>,
     /// `--screen contact-accept` / `contact-resend` (BUG-249 r3): «Accept the request» over the
     /// demo's incoming request, «Send the requests again» over its first contact, once the
     /// snapshot has them.
@@ -307,6 +310,23 @@ impl DevState {
             contact_preset: ["contact-accept", "contact-resend"]
                 .into_iter()
                 .find(|name| dev.preset(name)),
+            pool_identity_preset: CORE_FRAMES
+                .into_iter()
+                .find(|name| dev.preset(name))
+                .map(|_| "create-identity-core")
+                .or_else(|| {
+                    [
+                        "create-identity-pool-short",
+                        "create-identity-pool-connecting",
+                        "create-identity-pool-off",
+                        "create-identity-pool-checking",
+                        "create-identity-pool-refused",
+                        "create-identity-pool-refund",
+                        "create-identity-pool-not-delivered",
+                    ]
+                    .into_iter()
+                    .find(|name| dev.preset(name))
+                }),
             hidden_preset: dev.preset("contest-lost-hidden"),
             names_preset: [
                 "names-contested",
@@ -482,6 +502,11 @@ impl App {
     }
 
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if let Some(which) = self.dev.pool_identity_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            pool_identity_state(s, which);
+        }
         if self.dev.names_preset
             && let Some(w) = self.snapshot.as_mut().and_then(|s| s.wallet.as_mut())
             && let Some(id) = w.identity.as_mut()
@@ -1257,10 +1282,35 @@ impl App {
         // `--screen top-up-many-coins` / `top-up-not-final` (SPV Б2, item 3): 0.011 and 0.1 DASH
         // the coins cannot lock.
         let lock_coins = preset("top-up-many-coins") || preset("top-up-not-final");
-        self.identity.top_up = (preset("top-up") || preset("top-up-bad-amount") || lock_coins)
-            .then(|| {
+        // FEAT-0048 UC-7: `top-up-pool` opens by the order (the pool first), `top-up-mixed` from
+        // fully mixed coins with 0.05 typed and the coins' plan put in (the demo answers «not
+        // enough»); the frames before them are Core's.
+        let private = preset("top-up-pool") || preset("top-up-mixed");
+        self.identity.top_up =
+            (preset("top-up") || preset("top-up-bad-amount") || lock_coins || private).then(|| {
                 let mut form = screens::identity::TopUpForm::default();
-                if preset("top-up-bad-amount") {
+                if !private {
+                    form.from = Some(screens::identity::TopUpFrom::Core);
+                }
+                if preset("top-up-mixed") {
+                    form.from = Some(screens::identity::TopUpFrom::Mixed);
+                    form.amount = crate::format::input_text(5_000_000);
+                    form.suggested = Some(5_000_000);
+                    form.mixed.set(
+                        evolite_api::MixedTo::TopUp,
+                        5_000_000,
+                        Ok(evolite_api::MixedLockQuote {
+                            amount: 5_000_000,
+                            nominal: 10_000_000,
+                            exact: false,
+                            excess: 5_000_000,
+                            confirm: true,
+                            coins: 1,
+                            fee: 2_260,
+                            exactly: Some(3_000_000),
+                        }),
+                    );
+                } else if preset("top-up-bad-amount") {
                     form.amount = "1,234.56".into();
                 } else if lock_coins {
                     let amount = if preset("top-up-many-coins") {
@@ -1341,6 +1391,14 @@ impl App {
                 ..Default::default()
             });
         }
+        // FEAT-0048 UC-5: the advanced level's «Create from Core (not private)» chosen — and so
+        // for the frames of the Core form (FEAT-0014), which keep showing it.
+        self.create_identity.pool.core = CORE_FRAMES.into_iter().any(&preset);
+        // FEAT-0048: «Create privately», its review open over the form.
+        self.create_identity.pool.confirming = preset("create-identity-pool-review");
+        // UC-4 «Shield again» open over the refusal plate.
+        self.create_identity.pool.refund =
+            preset("create-identity-pool-refund").then_some(2_742_313);
         // `--screen add-contact` opens 20 with @carol, `--screen contact-profile` opens 22.
         self.contacts.adding = preset("add-contact").then(|| screens::contacts::AddContact {
             name: "@carol".into(),
@@ -1909,6 +1967,62 @@ pub(crate) fn contested_names(identity: &str, now: i64) -> Vec<evolite_api::Dpns
     ];
     names[0].primary = true;
     names
+}
+
+/// FEAT-0048: the frames of the Core form (FEAT-0014, the designer's 4–10): on the advanced
+/// level, «Create from Core (not private)» chosen, as the person gets there now (UC-5).
+/// `create-identity-pool` is the default, from the pool.
+const CORE_FRAMES: [&str; 8] = [
+    "create-identity",
+    "create-identity-nameless",
+    "create-identity-confirm",
+    "create-identity-short",
+    "create-identity-unchecked",
+    "create-identity-many-coins",
+    "creating",
+    "create-identity-core",
+];
+
+/// FEAT-0048: the pool as each `create-identity-pool-*` frame shows it — too little in it, its
+/// first check, unavailable (UC-6), sent and not known yet (UC-3), refused (UC-4) — and the
+/// advanced level for `create-identity-core` (UC-5).
+fn pool_identity_state(s: &mut evolite_api::Snapshot, which: &str) {
+    if which == "create-identity-core" {
+        s.advanced_features = true;
+    }
+    let Some(w) = s.wallet.as_mut() else {
+        return;
+    };
+    let now = chrono::Local::now().timestamp();
+    match which {
+        "create-identity-pool-short" => w.balances.shielded = 1_200_000,
+        "create-identity-pool-connecting" => {
+            w.pool.connecting = true;
+            w.pool.checked_at = None;
+        }
+        "create-identity-pool-off" => {
+            w.pool.address = None;
+            w.pool.connecting = false;
+        }
+        "create-identity-pool-checking"
+        | "create-identity-pool-refused"
+        | "create-identity-pool-refund"
+        | "create-identity-pool-not-delivered" => {
+            let refused = matches!(
+                which,
+                "create-identity-pool-refused" | "create-identity-pool-refund"
+            );
+            w.unfinished_pool_identity = Some(evolite_api::UnfinishedPoolIdentity {
+                exit: 3_000_000,
+                name: Some("satoshi-2026".into()),
+                sent_at: now - 7 * 60,
+                refusal_address: "tdashevo1qz7mv8w5c3n6k2r4y9x0l5p8t2h6j3d4f7g9s2a".into(),
+                refused: refused.then_some(2_742_313),
+                not_delivered: which == "create-identity-pool-not-delivered",
+            });
+        }
+        _ => {}
+    }
 }
 
 /// The first id of [`contest_lines`]: the demo's History has them once.

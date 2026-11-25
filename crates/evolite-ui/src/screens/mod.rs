@@ -11,6 +11,7 @@ pub mod delete_wallet;
 pub mod fund_address;
 pub mod identity;
 pub mod message;
+pub mod mixed_lock;
 pub mod onboarding;
 pub mod pause;
 pub mod receive;

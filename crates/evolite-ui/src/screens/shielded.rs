@@ -135,6 +135,9 @@ pub struct PoolState {
     /// "Shield" and "Unshield" (one move at a time; BUG-42): the password for every payment, sent
     /// once, its own answer only (TECH-spend-flow).
     pub flow: crate::components::spend_flow::SpendFlow<PoolMove>,
+    /// FEAT-0048 step 2 (UC-8): «From mixed coins» chosen in «Shield», and the core's plan.
+    pub from_mixed: bool,
+    pub mixed: crate::screens::mixed_lock::MixedLock,
 }
 
 impl PoolState {
@@ -585,8 +588,16 @@ fn action(
 }
 
 /// 09 · Shield into the private pool: where from, how much, the fee, and the proof being built.
-fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
+/// «Shield» over the pool's screen, and over «Create an identity» for its first step
+/// (FEAT-0048 UC-2).
+pub(crate) fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
     crate::format::fill_suggested(&mut state.amount, &mut state.suggested);
+    // UC-8: from fully mixed coins, a body of its own in the same window.
+    if state.from_mixed && mixed_spendable(cx.wallet()) > 0 {
+        shield_mixed_dialog(ui, a, cx, state);
+        return;
+    }
+    state.from_mixed = false;
     let sync = cx.snap.sync.clone();
     let wallet = cx.wallet();
     let sources = shield_sources(wallet, cx.advanced());
@@ -691,7 +702,16 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
                 return close;
             }
             let (source, _, _, balance) = &sources[state.from.min(sources.len() - 1)];
-            shield_source_rows(ui, a, state, &sources, busy, &shown, &unread);
+            shield_source_rows(
+                ui,
+                a,
+                state,
+                &sources,
+                busy,
+                &shown,
+                &unread,
+                mixed_spendable(wallet),
+            );
             // SPV item 2a: from Core over an hour with no new block.
             if *source == ShieldSource::Core {
                 crate::screens::stale_core_line(ui, &p, &sync);
@@ -764,6 +784,7 @@ fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolStat
 }
 
 /// «From»: the source chosen and, opened, the others to choose from.
+#[allow(clippy::too_many_arguments)]
 fn shield_source_rows(
     ui: &mut Ui,
     a: &mut Assets,
@@ -772,6 +793,7 @@ fn shield_source_rows(
     busy: bool,
     shown: &impl Fn(&ShieldSource, Duffs) -> String,
     unread: &impl Fn(&ShieldSource) -> bool,
+    mixed: Duffs,
 ) {
     let p = a.p;
     let (source, icon, title, balance) = &sources[state.from.min(sources.len() - 1)];
@@ -798,8 +820,224 @@ fn shield_source_rows(
                     state.forget_result(PoolMove::Shield);
                 }
             }
+            // UC-8, A16: fully mixed coins, on both levels — the person's choice (R-M4).
+            if mixed > 0
+                && select_row(
+                    ui,
+                    a,
+                    "shield",
+                    tr!("From mixed coins"),
+                    Some(&crate::format::balance(mixed)),
+                )
+                .clicked()
+            {
+                state.from_mixed = true;
+                state.sources_open = false;
+                state.forget_result(PoolMove::Shield);
+            }
         }
     });
+}
+
+/// The fully mixed denominations «Shield» may take (UC-8): 0 with none.
+fn mixed_spendable(w: &Wallet) -> Duffs {
+    w.balances.mixed.map_or(0, |m| m.spendable)
+}
+
+/// UC-8: «Shield» from fully mixed coins (R-M2, R-M3): the amount, «Exactly from denominations»
+/// with «Take», the plan (the coins, the Core fee, «exactly, no excess» or what more goes into
+/// the pool, with its yes above 0.01), what arrives; then `Spend::ShieldFromMixed`. Done, its
+/// answer and «Done» (BUG-274).
+fn shield_mixed_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolState) {
+    use crate::screens::mixed_lock::{self, POOL};
+    use evolite_api::MixedTo;
+    let wallet = cx.wallet();
+    let sources = shield_sources(wallet, cx.advanced());
+    let mixed = mixed_spendable(wallet);
+    let platform_fee = wallet.fees.shield_from_core;
+    let core = CardAmount::core(&wallet.balances);
+    let now = cx.now;
+    let shown = |source: &ShieldSource, balance: Duffs| match source {
+        ShieldSource::Core => text::core_amount(&wallet.balances, core, now),
+        _ => CardAmount::platform(true, balance).balance(),
+    };
+    let busy = state.progress.is_some();
+    let amount = crate::format::parse_amount(&state.amount).filter(|d| *d > 0);
+    let preview = amount.and_then(|d| state.mixed.ask_in(ui.ctx(), POOL, MixedTo::Pool, d));
+    let answer = result_of(&state.result, PoolMove::Shield)
+        .filter(|_| !state.flow.password.is_wrong())
+        .cloned();
+    let done = matches!(answer, Some(Ok(())));
+    let mut send = None;
+    let mut back_to = None;
+    let closed = crate::components::dialog_with_summary(
+        ui,
+        a,
+        "shield-dialog",
+        "shield",
+        tr!("Shield into the private pool"),
+        462.0,
+        |ui, a, part| {
+            let p = a.p;
+            match part {
+                Part::Summary => {
+                    if !done && let Some(d) = amount {
+                        mixed_lock::plan_lines(ui, a, &mut state.mixed, MixedTo::Pool, d);
+                        state.flow.password.summary_tick(ui, &p);
+                    }
+                    false
+                }
+                Part::Footer => {
+                    if done {
+                        let mut close = false;
+                        button_row(ui, |ui| {
+                            close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
+                        });
+                        return close;
+                    }
+                    let ask = password_asked(cx.snap) && !busy;
+                    let entered = state.flow.password.field(ui, &p, "shield-password", ask);
+                    let mut close = false;
+                    crate::components::button_row_spend(ui, |ui| {
+                        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                            close = true;
+                        }
+                        let ready = !busy
+                            && amount.is_some_and(|d| state.mixed.ready(MixedTo::Pool, d))
+                            && state.flow.password.ready(ask);
+                        let label = if busy {
+                            tr!("Shielding…")
+                        } else {
+                            tr!("Shield")
+                        };
+                        if button_enabled(ui, a, label, ButtonKind::Primary, None, ready).clicked()
+                            || (entered && ready)
+                        {
+                            send = amount;
+                        }
+                    });
+                    close
+                }
+                Part::Middle => {
+                    if done {
+                        notice(
+                            ui,
+                            a,
+                            "confirmed",
+                            p.accent,
+                            tr!("The funds are in the pool."),
+                        );
+                        return false;
+                    }
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        field_label(ui, &p, tr!("From"));
+                        if select_row(
+                            ui,
+                            a,
+                            "shield",
+                            tr!("From mixed coins"),
+                            Some(&crate::format::balance(mixed)),
+                        )
+                        .clicked()
+                            && !busy
+                        {
+                            state.sources_open = !state.sources_open;
+                        }
+                        if state.sources_open {
+                            for (i, (source, icon, title, balance)) in sources.iter().enumerate() {
+                                if select_row(ui, a, icon, title, Some(&shown(source, *balance)))
+                                    .clicked()
+                                {
+                                    back_to = Some(i);
+                                }
+                            }
+                        }
+                    });
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        field_label(ui, &p, tr!("Amount"));
+                        let field = crate::components::amount_field(
+                            ui,
+                            &p,
+                            "shield-mixed-amount",
+                            &mut state.amount,
+                            false,
+                        );
+                        if field.response.changed() {
+                            state.forget_result(PoolMove::Shield);
+                        }
+                    });
+                    match amount.and_then(|d| state.mixed.quote_for(MixedTo::Pool, d)) {
+                        Some(Ok(q)) => {
+                            if let Some(take) = mixed_lock::exactly_hint(ui, a, q) {
+                                state.amount = crate::format::input_text(take);
+                            }
+                            let arrives = q.nominal - q.fee - platform_fee;
+                            kv_row(
+                                ui,
+                                &p,
+                                tr!("Arrives in the pool"),
+                                &format!("≈ {}", crate::format::amount(arrives.max(0))),
+                                mono(13.0, Weight::Medium),
+                            );
+                        }
+                        Some(Err(e)) => {
+                            ui.label(txt(
+                                &mixed_lock::error_text(e),
+                                12.0,
+                                Weight::Regular,
+                                p.danger,
+                            ));
+                        }
+                        None => {}
+                    }
+                    if let Some(fraction) = state.progress {
+                        proof_progress(ui, a, fraction);
+                    }
+                    if let Some(Err(e)) = &answer {
+                        error_notice(
+                            ui,
+                            a,
+                            &crate::text::failed(tr!("Not shielded"), e),
+                            crate::text::error_details(e).as_deref(),
+                        );
+                    }
+                    false
+                }
+            }
+        },
+    );
+    if let Some(command) = preview {
+        cx.send(command);
+    }
+    if let Some(i) = back_to {
+        state.from_mixed = false;
+        state.from = i;
+        state.sources_open = false;
+        state.forget_result(PoolMove::Shield);
+    } else if let Some(amount) = send {
+        let accept_excess = state.mixed.accept_excess(MixedTo::Pool, amount);
+        let ask = password_asked(cx.snap);
+        if let Some(command) = state.flow.command(
+            Spend::ShieldFromMixed {
+                amount,
+                accept_excess,
+            },
+            ask,
+            PoolMove::Shield,
+        ) {
+            cx.send(command);
+            state.progress = Some(0.0);
+            state.result = None;
+        }
+    } else if closed && !busy {
+        state.shielding = false;
+        state.from_mixed = false;
+        state.forget_result(PoolMove::Shield);
+        state.flow.password.forget();
+        state.mixed.forget();
+    }
 }
 
 /// The amount to shield, and the limits it has to keep (`say_limits`: it does not keep them).
@@ -924,7 +1162,7 @@ fn shield_answer(ui: &mut Ui, a: &mut Assets, state: &mut PoolState) {
 }
 
 /// The proof being built: shared by "Hide" and "Unshield".
-fn proof_progress(ui: &mut Ui, a: &mut Assets, fraction: f32) {
+pub(crate) fn proof_progress(ui: &mut Ui, a: &mut Assets, fraction: f32) {
     let p = a.p;
     egui::Frame::new()
         .fill(p.raised)

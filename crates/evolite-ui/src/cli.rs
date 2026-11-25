@@ -240,7 +240,8 @@ pub const PRESETS: &[&str] = &[
     "activity-fiat", "activity-card-fiat", "activity-card-fiat-old", "activity-apps", "activity-tokens",
     "identity", "identity-unfinished", "identity-created", "top-up-stopped", "top-up-awaiting",
     "edit-profile", "edit-profile-password", "edit-profile-imgur-page",
-    "top-up", "top-up-bad-amount", "top-up-many-coins", "top-up-not-final", "add-name",
+    "top-up", "top-up-bad-amount", "top-up-many-coins", "top-up-not-final", "top-up-pool",
+    "top-up-mixed", "add-name",
     "names-contested", "contest-card", "contest-lost", "add-name-contested", "add-name-review",
     "add-name-sent", "add-name-fund-rose", "contest-lost-hidden",
     "contacts", "add-contact", "contact-profile", "my-qr", "contacts-no-encryption",
@@ -250,6 +251,10 @@ pub const PRESETS: &[&str] = &[
     "key-enable-dashpay-foreign",
     "create-identity", "creating", "create-identity-nameless", "create-identity-confirm",
     "create-identity-short", "create-identity-unchecked", "create-identity-many-coins",
+    "create-identity-pool-short", "create-identity-pool-connecting", "create-identity-pool-off",
+    "create-identity-pool-checking", "create-identity-pool-refused", "create-identity-core",
+    "create-identity-pool-review", "create-identity-pool", "create-identity-pool-refund",
+    "create-identity-pool-not-delivered",
     "shielded", "shield", "shield-core", "unshield", "unshield-bad-amount", "unshield-identity", "pool-address",
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
@@ -459,6 +464,8 @@ fn dev_args<'a>(
                 | "top-up-bad-amount"
                 | "top-up-many-coins"
                 | "top-up-not-final"
+                | "top-up-pool"
+                | "top-up-mixed"
                 | "add-name"
                 | "names-contested"
                 | "contest-card"
@@ -492,7 +499,17 @@ fn dev_args<'a>(
                 | "create-identity-confirm"
                 | "create-identity-short"
                 | "create-identity-unchecked"
-                | "create-identity-many-coins",
+                | "create-identity-many-coins"
+                | "create-identity-pool-short"
+                | "create-identity-pool-connecting"
+                | "create-identity-pool-off"
+                | "create-identity-pool-checking"
+                | "create-identity-pool-refused"
+                | "create-identity-core"
+                | "create-identity-pool-review"
+                | "create-identity-pool"
+                | "create-identity-pool-refund"
+                | "create-identity-pool-not-delivered",
             ),
         ) => Screen::CreateIdentity,
         // FEAT-0020 K1.

@@ -916,9 +916,15 @@ impl App {
                 }
                 // FEAT-0030: the plan of a payment from «Mixed».
                 Event::MixedPreview { ask, result } => self.send.on_mixed_preview(*ask, result),
-                // FEAT-0048 step 2: no screen asks for it yet (the creation, top-up and shield
-                // screens are developer 2's).
-                Event::MixedLockPreview { .. } => {}
+                // FEAT-0048 step 2: the plan of fully mixed coins to Platform — each screen takes
+                // only its own ask's.
+                Event::MixedLockPreview { ask, result } => {
+                    self.create_identity.pool.mixed.on_preview(*ask, result);
+                    self.pool.mixed.on_preview(*ask, result);
+                    if let Some(top_up) = self.identity.top_up.as_mut() {
+                        top_up.mixed.on_preview(*ask, result);
+                    }
+                }
                 Event::Done {
                     what: DoneWhat::Gift,
                     result,
@@ -1119,7 +1125,8 @@ impl App {
                 }
                 // "Hide" and "Unshield" share the pool's progress: one move at a time.
                 Event::Progress {
-                    what: "shield" | "unshield" | "pool-top-up",
+                    what: "shield" | "unshield" | "pool-top-up" | "shield-refund"
+                        | "shield-from-mixed",
                     fraction,
                 } => self.pool.progress = Some(*fraction),
                 Event::Done {
@@ -1127,8 +1134,11 @@ impl App {
                     result,
                     ask,
                 } => {
-                    let done = screens::shielded::PoolMove::of(*what);
-                    self.pool.on_done(*ask, done, result);
+                    // UC-7: a top-up from the pool sent from «Top up the identity» is its own.
+                    if !(*what == DoneWhat::PoolTopUp && self.identity.on_top_up_done(*ask, result)) {
+                        let done = screens::shielded::PoolMove::of(*what);
+                        self.pool.on_done(*ask, done, result);
+                    }
                 }
                 // FEAT-0021 R-11: a vote's result, even with the window in the background.
                 Event::NameContestEnded {
@@ -1175,11 +1185,18 @@ impl App {
                     what: "identity",
                     fraction,
                 } => self.create_identity.on_progress(*fraction),
+                // FEAT-0048: a creation from the pool: a timer, said as its steps.
+                Event::Progress {
+                    what: "identity-from-pool",
+                    fraction,
+                } => self.create_identity.on_pool_progress(*fraction),
                 Event::Done {
                     what: DoneWhat::TopUp,
                     result,
                     ask,
-                } => self.identity.on_top_up_done(*ask, result),
+                } => {
+                    self.identity.on_top_up_done(*ask, result);
+                }
                 Event::AddressFunded { credited } => self.fund_address.on_funded(*credited),
                 // FEAT-0038 W2: the new collection's check, its registration and its answer.
                 Event::ContractChecked { draft, result, .. } => {
@@ -1995,6 +2012,7 @@ impl eframe::App for App {
                                 a,
                                 &mut cx,
                                 &mut self.create_identity,
+                                &mut self.pool,
                             ),
                             Screen::IdentityKeys => screens::identity::identity_keys(
                                 ui,

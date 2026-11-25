@@ -1535,8 +1535,9 @@ fn a_mainnet_platform_address_is_one_in_the_send_form() {
             })
         );
         assert!(
-            super::mixed::refusal(network, &platform, None, 1_000_000, Some(1_000))
-                .is_some_and(|why| why.starts_with("Mixed coins do not go to Platform")),
+            super::mixed::refusal(network, &platform, None, 1_000_000, Some(1_000)).is_some_and(
+                |why| why == "From mixed coins you can pay only to a Core address for now."
+            ),
             "{network:?}"
         );
     }

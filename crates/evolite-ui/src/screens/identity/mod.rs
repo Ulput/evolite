@@ -155,15 +155,17 @@ impl IdentityState {
     /// The core's answer to `TopUpIdentity` or `ResumeTopUp`, taken only by the flow that
     /// asked it (`ask`): the answer of a wallet left meanwhile is not this one's (BUG-45,
     /// BUG-214). A wrong password is said under its field, not as a failed top-up.
-    pub fn on_top_up_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
+    /// True: the answer was a top-up's of this screen (from Core, mixed coins or the pool).
+    pub fn on_top_up_done(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) -> bool {
         for flow in [&mut self.top_up_flow, &mut self.resume_flow] {
             if flow.on_done(ask, result) {
                 if let Some(answer) = flow.take_result() {
                     self.top_up_result = Some(answer);
                 }
-                return;
+                return true;
             }
         }
+        false
     }
 
     /// An identity was made (FEAT-0014): its banner, once the snapshot has it chosen. `before`:

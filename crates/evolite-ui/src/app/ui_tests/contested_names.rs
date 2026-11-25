@@ -357,6 +357,20 @@ fn a_contested_name_at_the_creation_is_claimed_right_after() {
                 && !b.accesskit_node().is_disabled()
         })
     });
+    let create_for = |kit: &Kit| {
+        kit.query_all_by_role(Role::Button)
+            .find(|b| {
+                b.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.starts_with("Create for "))
+            })
+            .expect("«Create for …»")
+            .scroll_to_me()
+    };
+    // In sight first: the Core form starts with its warning (FEAT-0048).
+    create_for(&kit);
+    // egui scrolls there over a few frames: the click comes once it stands.
+    kit.run_steps(10);
     kit.query_all_by_role(Role::Button)
         .find(|b| {
             b.accesskit_node()

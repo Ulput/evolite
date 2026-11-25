@@ -77,14 +77,19 @@ fn mixed_coins_go_only_to_a_core_address() {
     let (_turn, mut kit) = demo_app("send-mixed", "en");
     for (to, why) in [
         ("@alice", "only to a Core address"),
+        // FEAT-0048 A15: no «do not go to Platform» anywhere — the Core-only line.
         (
             "tdash1qq7x4m9n2r8v5k3j6h0w4p2s8d5f7g9l3c0zq",
-            "do not go to Platform",
+            "only to a Core address",
         ),
     ] {
         kit.state_mut().send.recipient = to.into();
         kit.run_steps(4);
         assert!(has_words(&kit, why), "{to}: «{why}»");
+        assert!(
+            !has_words(&kit, "do not go to Platform"),
+            "{to}: the old refusal gone"
+        );
         assert!(!ready(&kit), "{to}: the button grey");
     }
 }

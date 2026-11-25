@@ -92,19 +92,19 @@ async fn the_unlock_keys_hold_coinjoin_account_0_and_sign_its_coins() {
 #[tokio::test]
 async fn mixed_coins_go_only_to_a_dash_address() {
     let core = opened("mixed-payee", "pw-mixed");
-    let refused = |r: Result<MixedQuote, CoreError>, words: &str| match r {
-        Err(CoreError::NotAvailable(why)) => why.contains(words),
+    // FEAT-0048 A15: the core's words are the screen's, to the letter (`send::mixed::refusal`
+    // and its test say the same line).
+    const SCREEN: &str = "From mixed coins you can pay only to a Core address for now.";
+    let refused = |r: Result<MixedQuote, CoreError>| match r {
+        Err(CoreError::NotAvailable(why)) => why == SCREEN,
         _ => false,
     };
-    assert!(refused(
-        core.preview_mixed("@bob", 100_000).await,
-        "only to a Core address"
-    ));
+    assert!(refused(core.preview_mixed("@bob", 100_000).await));
     let platform = PlatformAddress::P2pkh([7; 20]).to_bech32m_string(key_wallet::Network::Testnet);
-    assert!(refused(
-        core.preview_mixed(&platform, 100_000).await,
-        "do not go to Platform"
-    ));
+    assert!(
+        refused(core.preview_mixed(&platform, 100_000).await),
+        "a Platform address: the screen's line, no «do not go to Platform»"
+    );
     assert!(matches!(
         core.preview_mixed("yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ", 100_000)
             .await,

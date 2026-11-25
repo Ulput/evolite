@@ -4,6 +4,13 @@
 //! «Check the new identity» with the password before anything is locked. The core does the
 //! asset lock and the rest.
 
+mod pool;
+
+pub use pool::PoolPath;
+// For the kittests only (`ui_tests`): not in a test build without the demo core and dev-tools.
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) use pool::{exit_for, pool_step};
+
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, CardAmount, CardColumn, FieldKind, Part, StepState, amount_field, button,
@@ -46,6 +53,8 @@ pub struct CreateIdentityForm {
     pub claim: Option<String>,
     /// The top-up is too small for that claim's write and fund (R-3): said before the password.
     pub claim_short: bool,
+    /// FEAT-0048: the private path, from the pool — the default (R-1).
+    pub pool: PoolPath,
 }
 
 impl CreateIdentityForm {
@@ -59,7 +68,12 @@ impl CreateIdentityForm {
         // A wrong password is said under its field, in the review it was typed in: nothing
         // was locked.
         let Some(((), result)) = self.flow.take_result() else {
-            self.confirming = true;
+            // The review it was signed in, again: the pool's or the Core one (FEAT-0048).
+            if self.pool.sent {
+                self.pool.confirming = true;
+            } else {
+                self.confirming = true;
+            }
             return false;
         };
         let made = result.is_ok();
@@ -86,6 +100,12 @@ impl CreateIdentityForm {
     /// The core's progress: `fraction` is the step it is on out of four.
     pub fn on_progress(&mut self, fraction: f32) {
         self.step = Some(((fraction * 4.0).round() as usize).clamp(1, 4));
+    }
+
+    /// FEAT-0048: the core's progress of a creation from the pool — a timer to 0.95 while the
+    /// proof is built and sent, never real progress (the lead): what the steps say, not a bar.
+    pub fn on_pool_progress(&mut self, fraction: f32) {
+        self.pool.progress = Some(fraction);
     }
 
     /// The creation (or its continuation) goes to the core from here: `chosen` is the identity
@@ -132,6 +152,7 @@ impl Default for CreateIdentityForm {
             steps_hidden: false,
             claim: None,
             claim_short: false,
+            pool: PoolPath::default(),
         }
     }
 }
@@ -204,7 +225,13 @@ fn example(wallet: &evolite_api::Wallet) -> String {
     }
 }
 
-pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut CreateIdentityForm) {
+pub fn create_identity(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    form: &mut CreateIdentityForm,
+    shield: &mut crate::screens::shielded::PoolState,
+) {
     let p = a.p;
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
     let wallet = cx.wallet();
@@ -259,6 +286,18 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
     // claim is a spend of its own on Identity right after — two spends, two passwords.
     let claim = matches!(&check, Some(Ok(c)) if c.contested()).then(|| label.clone());
     form.claim = claim.clone();
+    // FEAT-0048 (R-1): privately, from the pool, by default. The Core form below only when the
+    // pool path hands over to it — the advanced level's choice (UC-5) or the pool unavailable
+    // (UC-6) — with its warning above it.
+    let name_now = pool::NameNow {
+        label: &label,
+        check: &check,
+        nameless,
+        claim: claim.as_deref(),
+    };
+    let Some(banner) = pool::draw(ui, a, cx, form, shield, &name_now) else {
+        return;
+    };
     // BUG-192: the suggestion follows the name while the person has not changed it: 0.3 DASH
     // was more than a claim's write and fund together, put in unasked.
     let suggestion = if claim.is_some() {
@@ -383,9 +422,12 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
         });
     };
 
+    let mut back_to_pool = false;
     egui::ScrollArea::vertical()
         .auto_shrink(false)
         .show(ui, |ui| {
+            // FEAT-0048 (UC-5, UC-6): never private from Core — said first, in the scroll.
+            back_to_pool = pool::core_banner(ui, a, banner);
             if side {
                 ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.x = 24.0;
@@ -398,6 +440,10 @@ pub fn create_identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut Cre
                 draw_steps(ui, a);
             }
         });
+
+    if back_to_pool {
+        form.pool.core = false;
+    }
 
     // Frame 8 (AC-D9): while the core works, its steps over the form until «Hide»; they go on
     // in «What happens» beside it.
@@ -471,7 +517,15 @@ fn new_identity_card(
     card(&p, Margin::same(24)).show(ui, |ui| {
         ui.set_width(inner(form_w, 24));
         ui.spacing_mut().item_spacing.y = 16.0;
-        name_section(ui, a, form, v);
+        let name = NameFacts {
+            wallet: v.wallet,
+            more: v.more,
+            label: v.label,
+            check: v.check,
+            nameless: v.nameless,
+            name_ok: v.name_ok,
+        };
+        name_section(ui, a, form, &name);
         divider(ui, &p);
         ui.label(txt(tr!("2 · Top-up"), 15.0, Weight::SemiBold, p.text));
         pay_from(ui, a, v.core_text);
@@ -483,8 +537,18 @@ fn new_identity_card(
     });
 }
 
+/// What «1 · Name» knows, on the Core form and on the pool's (FEAT-0048).
+struct NameFacts<'a> {
+    wallet: &'a evolite_api::Wallet,
+    more: bool,
+    label: &'a str,
+    check: &'a Option<Result<NameCheck, CoreError>>,
+    nameless: bool,
+    name_ok: bool,
+}
+
 /// «1 · Name»: the field, what DPNS says of the name, and the note on contested names.
-fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &FormFacts) {
+fn name_section(ui: &mut Ui, a: &mut Assets, form: &mut CreateIdentityForm, v: &NameFacts) {
     let p = a.p;
     let wallet = v.wallet;
     let (more, label, check) = (v.more, v.label, v.check);
@@ -787,16 +851,16 @@ fn form_answer(ui: &mut Ui, a: &mut Assets, form: &CreateIdentityForm) {
 
 /// The four steps of «What happens» (frame 4) and of the steps over the form (frame 8): what
 /// is locked, the step the core is on, and the name's step (`None`: no name, so optional).
-struct Steps {
-    locked: Duffs,
-    current: Option<usize>,
-    name: Option<String>,
+pub(super) struct Steps {
+    pub(super) locked: Duffs,
+    pub(super) current: Option<usize>,
+    pub(super) name: Option<String>,
     /// A contested name (BUG-192): not written in this run, claimed right after with this fund.
-    claim_fund: Option<Duffs>,
+    pub(super) claim_fund: Option<Duffs>,
 }
 
 impl Steps {
-    fn draw(&self, ui: &mut Ui, a: &mut Assets) {
+    pub(super) fn draw(&self, ui: &mut Ui, a: &mut Assets) {
         let p = a.p;
         let state = |n| StepState::of(n, self.current);
         numbered_step_at(
@@ -1072,6 +1136,8 @@ fn check_new_identity(
                 None => tr!("Without a name nobody finds it by @name or adds it to DashPay contacts. You can add a name later on the Identity screen.").into(),
             };
             notice(ui, a, "eye", p.muted, &public);
+            // FEAT-0048 R-8 (A5): from Core is never private — said before the password.
+            notice(ui, a, "warning", p.danger, pool::core_link_warning());
             // FEAT-0021 UC-5 (AC-T23): the contested name is not part of this spend; its claim
             // and fund are, said here before the password.
             if let Some(label) = &form.claim {
@@ -1099,6 +1165,7 @@ fn check_new_identity(
             top_up: plan.top_up,
         };
         let command = form.flow.command(op, ask, ());
+        form.pool.sent = false;
         form.sent(command, chosen, cx);
         form.confirming = false;
     } else if closed {

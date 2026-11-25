@@ -5,15 +5,10 @@
 use crate::real::*;
 use evolite_chain::mixed_pay::{self, MixedPlan, MixedShort};
 
-/// To a contact or by `@name` (AC-T7, AC-A5): platform-wallet builds those payments from its own
-/// coins. The analyst's words.
+/// To a contact, by `@name` or to a Platform address (AC-T7, AC-A5; FEAT-0048 A15): the screen's
+/// own line. Mixed coins reach Platform from the identity's creation, its top-up and «Shield»
+/// (step 2), never as a payment to a Platform address.
 const NOT_TO_CONTACT: &str = tr!("From mixed coins you can pay only to a Core address for now.");
-
-/// To a Platform address, an identity or the pool (AC-T7, AC-A5): an asset lock would join the
-/// coins. The analyst's words.
-const NOT_TO_PLATFORM: &str = tr!(
-    "Mixed coins do not go to Platform: a top-up would put them into one transaction and show they are yours."
-);
 
 impl Real {
     /// BUG-260: the denominations' rounds to the journal, as counts by bucket, when they change.
@@ -38,7 +33,7 @@ impl Real {
     /// The Dash address a payment from «Mixed» goes to: never a contact, a name or Platform.
     fn mixed_payee(&self, to: &str) -> Result<key_wallet::dashcore::Address, CoreError> {
         if PlatformAddress::from_bech32m_string(to.trim()).is_ok() {
-            return Err(CoreError::NotAvailable(NOT_TO_PLATFORM.into()));
+            return Err(CoreError::NotAvailable(NOT_TO_CONTACT.into()));
         }
         match self.core_payee(to) {
             Ok(CorePayee::Address(address)) => Ok(address),

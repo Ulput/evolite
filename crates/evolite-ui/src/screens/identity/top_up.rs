@@ -2,6 +2,8 @@
 
 use super::*;
 use crate::components::{Part, dialog_with_summary};
+use crate::screens::mixed_lock::{self, MixedLock, TOP_UP};
+use evolite_api::{Duffs, MixedTo};
 
 /// "Top up the identity": DASH from Core into the identity's credits, what it costs and what
 /// it gives. Closing the window does not stop a top-up that is running.
@@ -21,6 +23,12 @@ pub(super) fn top_up_dialog(
         return;
     };
     crate::format::fill_suggested(&mut form.amount, &mut form.suggested);
+    // UC-7: from the pool or fully mixed coins, a body of its own in the same window.
+    let from = top_up_from(form, wallet);
+    if from != TopUpFrom::Core && form.signed.is_none() {
+        top_up_private_dialog(ui, a, state, wallet, from, asked);
+        return;
+    }
     let me = id
         .name()
         .map_or_else(|| "identity".to_string(), |n| format!("@{n}"));
@@ -160,6 +168,9 @@ pub(super) fn top_up_dialog(
                     }
                 });
                 return close;
+            }
+            if signed.is_none() {
+                from_rows(ui, a, form, wallet, TopUpFrom::Core, running.is_some(), now);
             }
             // SPV item 2a: Core coins over an hour with no new block.
             crate::screens::stale_core_line(ui, &p, sync);
@@ -463,12 +474,306 @@ pub(super) fn top_up_blocked_by(
 /// (BUG-182, the rule of BUG-172: no amount is put into what gets signed).
 #[derive(Default)]
 pub struct TopUpForm {
+    /// UC-7: where it comes from, as chosen; `None`: by the order — the pool when it holds some,
+    /// else fully mixed coins when there are some, else Core.
+    pub from: Option<TopUpFrom>,
+    pub sources_open: bool,
+    /// FEAT-0048 step 2: the core's plan for the amount from fully mixed coins.
+    pub mixed: MixedLock,
     pub amount: String,
     /// An amount put in for the person (`format::fill_suggested`) until they change it: none
     /// when the form opens; a `--screen` frame with an amount sets one.
     pub suggested: Option<i64>,
     /// What «Top up» signed (BUG-177): shown instead of the form until «Top up again».
     pub signed: Option<SignedTopUp>,
+}
+
+/// UC-7: where a top-up comes from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TopUpFrom {
+    /// `Spend::TopUpFromPool`.
+    Pool,
+    /// `Spend::TopUpFromMixed` (FEAT-0048 step 2).
+    Mixed,
+    /// `Spend::TopUpIdentity`: an asset lock on Core.
+    Core,
+}
+
+fn pool_has(w: &Wallet) -> bool {
+    w.pool.address.is_some() && w.balances.shielded > w.fees.pool_top_up
+}
+
+fn mixed_has(w: &Wallet) -> Duffs {
+    w.balances.mixed.map_or(0, |m| m.spendable)
+}
+
+/// The source as chosen, or by the order (UC-7): the pool, mixed coins, Core — only one that
+/// holds something.
+pub(super) fn top_up_from(form: &TopUpForm, w: &Wallet) -> TopUpFrom {
+    let can = |f: TopUpFrom| match f {
+        TopUpFrom::Pool => pool_has(w),
+        TopUpFrom::Mixed => mixed_has(w) > 0,
+        TopUpFrom::Core => true,
+    };
+    form.from.filter(|f| can(*f)).unwrap_or_else(|| {
+        [TopUpFrom::Pool, TopUpFrom::Mixed]
+            .into_iter()
+            .find(|f| can(*f))
+            .unwrap_or(TopUpFrom::Core)
+    })
+}
+
+/// «From»: the source chosen and, opened, the others that hold something (UC-7: chosen by hand).
+fn from_rows(
+    ui: &mut Ui,
+    a: &mut Assets,
+    form: &mut TopUpForm,
+    w: &Wallet,
+    from: TopUpFrom,
+    busy: bool,
+    now: chrono::DateTime<chrono::Local>,
+) {
+    let p = a.p;
+    let row = |f: TopUpFrom| -> (&'static str, &'static str, String) {
+        match f {
+            TopUpFrom::Pool => (
+                "shield",
+                tr!("From the pool"),
+                crate::format::balance(w.balances.shielded),
+            ),
+            TopUpFrom::Mixed => (
+                "shield",
+                tr!("From mixed coins"),
+                crate::format::balance(mixed_has(w)),
+            ),
+            TopUpFrom::Core => (
+                "core",
+                tr!("From the Core wallet"),
+                text::core_amount(&w.balances, CardAmount::core(&w.balances), now),
+            ),
+        }
+    };
+    let others: Vec<TopUpFrom> = [TopUpFrom::Pool, TopUpFrom::Mixed, TopUpFrom::Core]
+        .into_iter()
+        .filter(|f| {
+            *f != from
+                && match f {
+                    TopUpFrom::Pool => pool_has(w),
+                    TopUpFrom::Mixed => mixed_has(w) > 0,
+                    TopUpFrom::Core => true,
+                }
+        })
+        .collect();
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
+        field_label(ui, &p, tr!("From"));
+        let (icon, title, value) = row(from);
+        if crate::components::select_row(ui, a, icon, title, Some(&value)).clicked()
+            && !busy
+            && !others.is_empty()
+        {
+            form.sources_open = !form.sources_open;
+        }
+        if form.sources_open {
+            for f in others {
+                let (icon, title, value) = row(f);
+                if crate::components::select_row(ui, a, icon, title, Some(&value)).clicked() {
+                    form.from = Some(f);
+                    form.sources_open = false;
+                }
+            }
+        }
+    });
+}
+
+/// UC-7: a top-up from the pool (`TopUpFromPool`) or from fully mixed coins (`TopUpFromMixed`,
+/// R-M1): «From», the amount, «Exactly from denominations» with «Take» for mixed coins, the plan;
+/// once done, its answer and «Done» (BUG-274).
+fn top_up_private_dialog(
+    ui: &mut Ui,
+    a: &mut Assets,
+    state: &mut IdentityState,
+    wallet: &Wallet,
+    from: TopUpFrom,
+    asked: &mut Vec<Command>,
+) {
+    let running = state.topping_up();
+    let busy = running.is_some();
+    let fees = &wallet.fees;
+    let least = fees.top_up_amount_least();
+    let done = state
+        .top_up_result
+        .as_ref()
+        .is_some_and(|(duffs, result)| top_up_done_text(*duffs, result).is_some());
+    let answer = state.top_up_result.clone();
+    let flow = &mut state.top_up_flow;
+    let Some(form) = state.top_up.as_mut() else {
+        return;
+    };
+    let amount = crate::format::parse_amount(&form.amount).filter(|d| *d > 0);
+    if from == TopUpFrom::Mixed
+        && !done
+        && let Some(d) = amount
+        && let Some(command) = form.mixed.ask_in(ui.ctx(), TOP_UP, MixedTo::TopUp, d)
+    {
+        asked.push(command);
+    }
+    let credits = wallet.balances.credits;
+    let checked = wallet.balances.credits_checked;
+    let now = chrono::Local::now();
+    let mut send = None;
+    let close = dialog_with_summary(
+        ui,
+        a,
+        "top-up",
+        "top-up",
+        tr!("Top up the identity"),
+        464.0,
+        |ui, a, part| {
+            let p = a.p;
+            let value = style(UI.weight(Weight::Medium).mono());
+            match part {
+                Part::Summary => {
+                    if done {
+                        return false;
+                    }
+                    match from {
+                        TopUpFrom::Mixed => {
+                            if let Some(d) = amount {
+                                mixed_lock::plan_lines(ui, a, &mut form.mixed, MixedTo::TopUp, d);
+                            }
+                        }
+                        _ => kv_row(
+                            ui,
+                            &p,
+                            tr!("Platform fee"),
+                            &format!("≈ {}", dash(fees.pool_top_up)),
+                            value.clone(),
+                        ),
+                    }
+                    kv_row(
+                        ui,
+                        &p,
+                        tr!("On the identity after"),
+                        &if checked {
+                            crate::format::balance(credits.saturating_add(amount.unwrap_or(0)))
+                        } else {
+                            "—".to_string()
+                        },
+                        value,
+                    );
+                    flow.password.summary_tick(ui, &p);
+                    false
+                }
+                Part::Footer => {
+                    if done {
+                        let mut close = false;
+                        crate::components::button_row(ui, |ui| {
+                            close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
+                        });
+                        return close;
+                    }
+                    let ask = wallet.password_each_send && !busy;
+                    let entered = flow.password.field(ui, &p, "top-up-password", ask);
+                    let mut close = false;
+                    crate::components::button_row_spend(ui, |ui| {
+                        if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                            close = true;
+                        }
+                        let fits = amount.is_some_and(|d| match from {
+                            TopUpFrom::Mixed => d >= least && form.mixed.ready(MixedTo::TopUp, d),
+                            _ => d + fees.pool_top_up <= wallet.balances.shielded,
+                        });
+                        let label = match (busy, amount) {
+                            (true, _) => tr!("Topping up…").to_string(),
+                            (false, Some(d)) => format!(tr!("Top up by {}"), dash(d)),
+                            (false, None) => tr!("Top up").to_string(),
+                        };
+                        let ready = !busy && fits && flow.password.ready(ask);
+                        if button_enabled(ui, a, &label, ButtonKind::Primary, None, ready).clicked()
+                            || (entered && ready)
+                        {
+                            send = amount;
+                        }
+                    });
+                    close
+                }
+                Part::Middle => {
+                    if done {
+                        if let Some((duffs, result)) = &answer {
+                            top_up_answer(ui, a, *duffs, result);
+                        }
+                        return false;
+                    }
+                    from_rows(ui, a, form, wallet, from, busy, now);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 8.0;
+                        field_label(ui, &p, tr!("How much to turn into credits"));
+                        amount_field(ui, &p, "top-up-amount", &mut form.amount, false);
+                    });
+                    match from {
+                        TopUpFrom::Mixed => {
+                            if amount.is_some_and(|d| d < least) {
+                                ui.label(text(
+                                    &format!(
+                                        tr!("At least {} — Dash Platform takes no smaller asset lock"),
+                                        dash(least)
+                                    ),
+                                    SMALL,
+                                    p.danger,
+                                ));
+                            }
+                            match amount.and_then(|d| form.mixed.quote_for(MixedTo::TopUp, d)) {
+                                Some(Ok(q)) => {
+                                    let q = q.clone();
+                                    if let Some(take) = mixed_lock::exactly_hint(ui, a, &q) {
+                                        form.amount = crate::format::input_text(take);
+                                    }
+                                }
+                                Some(Err(e)) => {
+                                    ui.label(text(&mixed_lock::error_text(e), SMALL, p.danger));
+                                }
+                                None => {}
+                            }
+                        }
+                        _ => {
+                            if amount
+                                .is_some_and(|d| d + fees.pool_top_up > wallet.balances.shielded)
+                            {
+                                ui.label(text(
+                                    tr!("More than there is in the pool"),
+                                    SMALL,
+                                    p.danger,
+                                ));
+                            }
+                        }
+                    }
+                    if let Some((duffs, result @ Err(_))) = &answer {
+                        top_up_answer(ui, a, *duffs, result);
+                    }
+                    false
+                }
+            }
+        },
+    );
+    if let Some(amount) = send {
+        let op = match from {
+            TopUpFrom::Mixed => Spend::TopUpFromMixed {
+                amount,
+                accept_excess: form.mixed.accept_excess(MixedTo::TopUp, amount),
+            },
+            _ => Spend::TopUpFromPool { amount },
+        };
+        let ask = wallet.password_each_send;
+        if let Some(command) = flow.command(op, ask, amount) {
+            asked.push(command);
+            state.top_up_result = None;
+        }
+    } else if close && !busy {
+        state.top_up = None;
+        state.top_up_result = None;
+        state.top_up_flow.password.forget();
+    }
 }
 
 /// A top-up as it was signed: its amount and the balances and fees it was reckoned on.

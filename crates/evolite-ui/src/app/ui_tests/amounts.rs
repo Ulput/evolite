@@ -61,7 +61,10 @@ fn one_eye_per_screen_switches_the_whole_app() {
         let (_turn, mut kit) = demo_app(preset, "en");
         assert!(!hidden(&kit), "{preset}: shown at first");
         assert_eq!(buttons(&kit, HIDE), eyes, "{preset}: one eye");
-        // The last one: the menu's, over the screen.
+        // The last one: the menu's, over the screen — in sight first (FEAT-0048: the Core form
+        // of a new identity starts with its warning, its eye lower).
+        last_button(&kit, HIDE).scroll_to_me();
+        kit.run_steps(10);
         last_button(&kit, HIDE).click();
         kit.run_steps(3);
         assert!(hidden(&kit), "{preset}: one press hides");
