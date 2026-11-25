@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "목업의 예시입니다: 완전히 섞인 코인이 없습니다",
+  "The weekly copy is not being made: its setting could not be read": "주간 사본이 만들어지지 않습니다: 설정을 읽을 수 없습니다",
+  "Open the backup settings ›": "백업 설정 열기 ›",
+  "The backup setting could not be read": "백업 설정을 읽을 수 없습니다",
+  "the weekly copy's setting": "주간 사본 설정",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "폴더를 다시 선택할 때까지 주간 사본은 꺼진 상태로 유지됩니다. 이미 저장된 사본은 해당 폴더에 그대로 남습니다.",
   "The wallet's keys could not be checked yet — try again in a minute": "지갑의 키를 아직 확인하지 못했습니다. 1분 후에 다시 시도하세요",
   "Nothing was returned to put back into the pool": "풀에 다시 넣을 반환된 금액이 없습니다",
   "The identity from the pool is still being checked — wait for its outcome": "풀에서 만든 아이덴티티를 아직 확인하는 중입니다. 결과를 기다리세요",

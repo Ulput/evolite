@@ -1701,6 +1701,9 @@ pub enum LocalFile {
     /// `nft-series.json`: the «Workshop» series and the highest serial each model issued
     /// (FEAT-0038).
     NftSeries,
+    /// `auto-backup.json`: the automatic copies' folder and times (FEAT-0045 step 2); while it is
+    /// set aside no copy is written (TECH-bug-prevention (а2)).
+    AutoBackup,
 }
 
 /// A file that did not read (damaged, of a newer build, or held by another program) and was

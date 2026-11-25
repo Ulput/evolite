@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "यह मॉकअप का उदाहरण है: पूरी तरह मिश्रित कोई सिक्के नहीं हैं",
+  "The weekly copy is not being made: its setting could not be read": "साप्ताहिक प्रति नहीं बन रही: उसकी सेटिंग पढ़ी नहीं जा सकी",
+  "Open the backup settings ›": "बैकअप की सेटिंग खोलें ›",
+  "The backup setting could not be read": "बैकअप की सेटिंग पढ़ी नहीं जा सकी",
+  "the weekly copy's setting": "साप्ताहिक प्रति की सेटिंग",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "जब तक आप उसका फ़ोल्डर फिर से नहीं चुनते, साप्ताहिक प्रति बंद रहती है। पहले सहेजी गई प्रतियाँ अपने फ़ोल्डर में रहती हैं।",
   "The wallet's keys could not be checked yet — try again in a minute": "वॉलेट की कुंजियाँ अभी जाँची नहीं जा सकीं — एक मिनट बाद फिर कोशिश करें",
   "Nothing was returned to put back into the pool": "पूल में वापस डालने के लिए कुछ भी वापस नहीं आया",
   "The identity from the pool is still being checked — wait for its outcome": "पूल से बनी पहचान की अभी जाँच हो रही है — नतीजे का इंतज़ार करें",

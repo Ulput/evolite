@@ -56,6 +56,24 @@ fn each_file_set_aside_has_its_banner_on_its_screen() {
     ));
 }
 
+/// TECH-bug-prevention (а2), review r1: the weekly copy's setting did not read — no copy is
+/// written, and Overview says so (not only Settings, where the person may not look for months).
+/// Its link opens the backup settings with the banner.
+#[test]
+fn a_backup_setting_set_aside_is_said_on_overview() {
+    let (_turn, mut kit) = demo_app("backup-set-aside", "en");
+    let line = "The weekly copy is not being made: its setting could not be read";
+    wait_for(&mut kit, "the line on Overview", |kit| has_words(kit, line));
+    button(&kit, "Open the backup settings ›").click();
+    kit.run_steps(3);
+    assert_eq!(kit.state().screen, Screen::Settings);
+    assert!(kit.state().settings.section == crate::screens::settings::Section::Backup);
+    wait_for(&mut kit, "the banner", |kit| {
+        has_words(kit, "The backup setting could not be read")
+    });
+    button(&kit, "Try again");
+}
+
 /// AC-A6: the banner names the file set aside and never its folder.
 #[test]
 fn the_banner_names_the_file_not_the_folder() {

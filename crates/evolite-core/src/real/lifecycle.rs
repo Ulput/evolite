@@ -58,6 +58,7 @@ impl Real {
             backup_key: Default::default(),
             auto: Default::default(),
             own_scan: Default::default(),
+            auto_file: Arc::new(ops::auto_backup::AutoStore::new(paths.auto_backup.clone())),
             payouts: Default::default(),
             first_seen: Default::default(),
             attempts,

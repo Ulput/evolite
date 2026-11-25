@@ -717,6 +717,8 @@ struct Real {
     auto: Arc<std::sync::Mutex<ops::auto_backup::AutoState>>,
     /// BUG-271: this run's passes for the identity's own contracts.
     own_scan: Arc<std::sync::Mutex<ops::own_contracts::OwnScan>>,
+    /// `auto-backup.json` (TECH-bug-prevention (а2)): set aside when it does not read.
+    auto_file: Arc<ops::auto_backup::AutoStore>,
     /// BUG-275: the payouts' origins, read in the background.
     payouts: Arc<std::sync::Mutex<ops::pool_payouts::Payouts>>,
     /// Which history lines this unlock has seen, for the rate of operations first seen

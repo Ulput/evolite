@@ -410,3 +410,115 @@ async fn an_old_copy_that_stays_does_not_make_a_copy_every_hour() {
     drop(held);
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// TECH-bug-prevention (а2), TEAM.md §8d-4: a weekly copy's setting that does not read is not
+/// quietly «off». Read anew by another start (none of this run's memory): the file is set aside
+/// (`LocalFile::AutoBackup`), no copy is written, a change is refused with the screen's line and
+/// nothing is written over it. «Try again» once it reads brings the folder back and the copies
+/// with it; «Start over» is off, said by the person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_backup_setting_that_does_not_read_is_not_quietly_off() {
+    let name = "backup-auto-unread";
+    let folder = std::env::temp_dir().join(format!("evolite-test-auto-un-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    let copies = || {
+        std::fs::read_dir(&folder)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with("-auto.evbackup"))
+            .count()
+    };
+    let mut core = unlocked(name).await;
+    let (event, _) = core
+        .handle(Command::SetAutoBackup {
+            folder: Some(folder.clone()),
+            settings: None,
+        })
+        .await;
+    assert_eq!(answer_of(event), (DoneWhat::AutoBackup, Ok(())));
+    let path = core.paths.auto_backup.clone();
+    let good = std::fs::read(&path).unwrap();
+    let damaged = b"{\"folder\": \"C:\\\\cop".to_vec();
+    std::fs::write(&path, &damaged).unwrap();
+    drop(core);
+
+    // Another start: what it knows is what the disk says.
+    let dir = std::env::temp_dir().join(format!("evolite-test-{name}-{}", std::process::id()));
+    let mut core = core_at(&dir, TEST_WALLET);
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let aside = core.set_aside_files();
+    assert_eq!(
+        aside.iter().map(|a| a.file).collect::<Vec<_>>(),
+        vec![LocalFile::AutoBackup],
+        "set aside, for its banner"
+    );
+    assert!(core.auto_backup_view().is_none());
+    core.auto_backup_tick();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(copies(), 0, "no copy while the setting is not known");
+    let (event, _) = core
+        .handle(Command::SetAutoBackup {
+            folder: Some(folder.clone()),
+            settings: None,
+        })
+        .await;
+    assert_eq!(
+        answer_of(event),
+        (
+            DoneWhat::AutoBackup,
+            Err(CoreError::NotAvailable(
+                "The backup setting could not be read".into()
+            ))
+        )
+    );
+    let kept = std::path::PathBuf::from(&aside[0].path);
+    assert_eq!(std::fs::read(&kept).unwrap(), damaged, "kept as it was");
+    assert!(!path.exists(), "nothing written in its place");
+
+    // Another program held it, say: it reads again — the folder is back, and the copies.
+    std::fs::write(&kept, &good).unwrap();
+    let (event, _) = core
+        .handle(Command::TryFileAgain {
+            file: LocalFile::AutoBackup,
+        })
+        .await;
+    assert_eq!(answer_of(event), (DoneWhat::LocalFile, Ok(())));
+    assert!(core.set_aside_files().is_empty());
+    assert_eq!(
+        core.auto_backup_view().map(|a| a.folder),
+        Some(folder.to_string_lossy().into_owned())
+    );
+    core.auto_backup_tick();
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while copies() == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(copies(), 1, "written again");
+
+    // Damaged once more and started over: off, as the person chose; a new folder is kept.
+    while core.auto_backup_view().and_then(|a| a.last_at).is_none() {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    std::fs::write(&path, &damaged).unwrap();
+    let mut core = core_at(&dir, TEST_WALLET);
+    assert_eq!(core.set_aside_files().len(), 1);
+    let (event, _) = core
+        .handle(Command::StartFileOver {
+            file: LocalFile::AutoBackup,
+        })
+        .await;
+    assert_eq!(answer_of(event), (DoneWhat::LocalFile, Ok(())));
+    assert!(core.set_aside_files().is_empty());
+    assert!(core.auto_backup_view().is_none(), "off, said by the person");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let (event, _) = core
+        .handle(Command::SetAutoBackup {
+            folder: Some(folder.clone()),
+            settings: None,
+        })
+        .await;
+    assert_eq!(answer_of(event), (DoneWhat::AutoBackup, Ok(())));
+    assert!(core_at(&dir, TEST_WALLET).auto_backup_view().is_some());
+    let _ = std::fs::remove_dir_all(&folder);
+}

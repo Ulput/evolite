@@ -1858,20 +1858,27 @@ impl eframe::App for App {
                                             &mut self.settings,
                                             remind,
                                         );
-                                        // FEAT-0045 UC-5: the automatic copy not written.
-                                        if let Some(failed) = cx
-                                            .wallet()
-                                            .auto_backup
-                                            .as_ref()
-                                            .and_then(|auto| auto.failed)
+                                        // FEAT-0045 UC-5: the automatic copy not written;
+                                        // TECH-bug-prevention (а2): its setting not read.
+                                        if let Some((line, to_setting)) =
+                                            screens::settings::auto_backup_notice(cx.wallet())
                                         {
                                             crate::components::notice(
-                                                ui,
-                                                a,
-                                                "warning",
-                                                a.p.danger,
-                                                &screens::settings::auto_failed_text(failed),
+                                                ui, a, "warning", a.p.danger, &line,
                                             );
+                                            if to_setting
+                                                && crate::components::text_action(
+                                                    ui,
+                                                    a,
+                                                    "warning",
+                                                    tr!("Open the backup settings ›"),
+                                                )
+                                                .clicked()
+                                            {
+                                                self.settings.section =
+                                                    screens::settings::Section::Backup;
+                                                cx.go(Screen::Settings);
+                                            }
                                             ui.add_space(6.0);
                                         }
                                         screens::overview(

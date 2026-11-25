@@ -17,7 +17,7 @@ mod wallets;
 use about::{about, notifications};
 use appearance::appearance;
 pub(crate) use appearance::language_and_theme;
-pub use backup::{KEPT_HERE, KEPT_HERE_TEXT, STAYS_ON_NETWORK, auto_failed_text, check_reminder};
+pub use backup::{KEPT_HERE, KEPT_HERE_TEXT, STAYS_ON_NETWORK, auto_backup_notice, check_reminder};
 use backup::{backup, check_dialog, phrase_dialog};
 use network::network;
 pub use network::nodes_dialog;
@@ -742,6 +742,14 @@ pub fn settings(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut SettingsS
                     Section::Backup => {
                         // How the open wallet came here: the phrase line says so (BUG-59).
                         let origin = cx.snap.wallets.iter().find(|w| w.open).map(|w| w.origin);
+                        // TECH-bug-prevention (а2): the weekly copy's setting did not read — no
+                        // copy is written until «Try again» or «Start over».
+                        crate::screens::set_aside::banners(
+                            ui,
+                            a,
+                            cx,
+                            &[evolite_api::LocalFile::AutoBackup],
+                        );
                         backup(ui, a, state, wallet, origin)
                     }
                     Section::Appearance => appearance(ui, a, state, cx.snap.fiat.as_ref()),

@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "Đây là ví dụ từ bản thiết kế: không có đồng nào được trộn hoàn toàn",
+  "The weekly copy is not being made: its setting could not be read": "Bản sao hằng tuần không được tạo: không đọc được cài đặt của nó",
+  "Open the backup settings ›": "Mở cài đặt sao lưu ›",
+  "The backup setting could not be read": "Không đọc được cài đặt sao lưu",
+  "the weekly copy's setting": "cài đặt bản sao hằng tuần",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Bản sao hằng tuần sẽ tắt cho đến khi bạn chọn lại thư mục của nó. Các bản sao đã lưu vẫn nằm trong thư mục của chúng.",
   "The wallet's keys could not be checked yet — try again in a minute": "Chưa thể kiểm tra các khóa của ví — hãy thử lại sau một phút",
   "Nothing was returned to put back into the pool": "Không có gì được hoàn lại để đưa trở lại pool",
   "The identity from the pool is still being checked — wait for its outcome": "Danh tính từ pool vẫn đang được kiểm tra — hãy chờ kết quả",

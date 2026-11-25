@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "これはモックアップの例です：完全にミックスされたコインはありません",
+  "The weekly copy is not being made: its setting could not be read": "週ごとのコピーが作成されていません: 設定を読み込めませんでした",
+  "Open the backup settings ›": "バックアップの設定を開く ›",
+  "The backup setting could not be read": "バックアップの設定を読み込めませんでした",
+  "the weekly copy's setting": "週ごとのコピーの設定",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "フォルダを選び直すまで、週ごとのコピーはオフのままです。保存済みのコピーはそのフォルダに残ります。",
   "The wallet's keys could not be checked yet — try again in a minute": "ウォレットの鍵をまだ確認できません。1分後にもう一度お試しください",
   "Nothing was returned to put back into the pool": "プールに戻すために返金されたものはありません",
   "The identity from the pool is still being checked — wait for its outcome": "プールからのアイデンティティはまだ確認中です。結果を待ってください",

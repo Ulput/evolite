@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "这是设计稿中的示例：没有完全混合的币",
+  "The weekly copy is not being made: its setting could not be read": "每周副本未在创建：无法读取其设置",
+  "Open the backup settings ›": "打开备份设置 ›",
+  "The backup setting could not be read": "无法读取备份设置",
+  "the weekly copy's setting": "每周副本的设置",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "在你重新选择文件夹之前，每周副本保持关闭。已保存的副本仍留在原文件夹中。",
   "The wallet's keys could not be checked yet — try again in a minute": "暂时无法核对钱包的密钥——请一分钟后再试",
   "Nothing was returned to put back into the pool": "没有退回的资金可放回池中",
   "The identity from the pool is still being checked — wait for its outcome": "来自池的身份仍在核对中——请等待结果",

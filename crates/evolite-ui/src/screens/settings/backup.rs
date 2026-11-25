@@ -252,6 +252,22 @@ pub fn auto_failed_text(failed: evolite_api::backup::AutoFailed) -> String {
     .replacen("{}", &crate::i18n::t(why), 1)
 }
 
+/// What Overview says of the weekly copy: its last try was not saved (FEAT-0045 UC-5), or its
+/// setting did not read and no copy is written (TECH-bug-prevention (а2), review r1: the banner
+/// in Settings alone could go unseen for months). The second leads to the setting (`true`).
+pub fn auto_backup_notice(wallet: &evolite_api::Wallet) -> Option<(String, bool)> {
+    if wallet
+        .set_aside
+        .iter()
+        .any(|s| s.file == evolite_api::LocalFile::AutoBackup)
+    {
+        let line = tr!("The weekly copy is not being made: its setting could not be read");
+        return Some((crate::i18n::t(line).into_owned(), true));
+    }
+    let failed = wallet.auto_backup.as_ref().and_then(|auto| auto.failed)?;
+    Some((auto_failed_text(failed), false))
+}
+
 /// FEAT-0045 R-1: what the file holds, under «Backup file».
 pub const FILE_TEXT: &str = tr!(
     "The file keeps what the phrase does not bring back: notes, the address book, settings, app sign-ins and more. It has no phrase or keys, and only this wallet can open it."

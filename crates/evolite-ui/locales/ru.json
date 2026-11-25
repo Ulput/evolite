@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "Это пример из макета: полностью перемешанных монет нет",
+  "The weekly copy is not being made: its setting could not be read": "Еженедельная копия не делается: её настройку не удалось прочитать",
+  "Open the backup settings ›": "Открыть настройки резервной копии ›",
+  "The backup setting could not be read": "Настройку резервной копии не удалось прочитать",
+  "the weekly copy's setting": "настройку еженедельной копии",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Еженедельная копия выключена, пока вы снова не выберете для неё папку. Уже сохранённые копии остаются в своей папке.",
   "The wallet's keys could not be checked yet — try again in a minute": "Ключи кошелька ещё не удалось проверить — попробуйте через минуту",
   "Nothing was returned to put back into the pool": "Возвращать в пул нечего — Platform ничего не вернула",
   "The identity from the pool is still being checked — wait for its outcome": "Личность из пула ещё проверяется — дождитесь результата",

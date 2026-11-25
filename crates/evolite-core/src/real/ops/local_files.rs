@@ -17,6 +17,7 @@ impl Real {
             LocalFile::AddressBook => self.address_book.store(),
             LocalFile::ContactResend => self.resend_debt.store(),
             LocalFile::NftSeries => self.nft_series.store(),
+            LocalFile::AutoBackup => &*self.auto_file,
         }
     }
 
@@ -69,7 +70,7 @@ impl Real {
     }
 }
 
-const ALL: [LocalFile; 8] = [
+const ALL: [LocalFile; 9] = [
     LocalFile::Journal,
     LocalFile::TopUps,
     LocalFile::NameRequests,
@@ -78,6 +79,7 @@ const ALL: [LocalFile; 8] = [
     LocalFile::AddressBook,
     LocalFile::ContactResend,
     LocalFile::NftSeries,
+    LocalFile::AutoBackup,
 ];
 
 /// The file's kind for the journal.
@@ -91,5 +93,6 @@ fn name(file: LocalFile) -> &'static str {
         LocalFile::AddressBook => "address-book.json",
         LocalFile::ContactResend => "contact-resend.json",
         LocalFile::NftSeries => "nft-series.json",
+        LocalFile::AutoBackup => "auto-backup.json",
     }
 }

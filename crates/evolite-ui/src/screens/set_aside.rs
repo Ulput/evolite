@@ -23,6 +23,7 @@ fn title(file: LocalFile) -> &'static str {
             tr!("The list of contacts waiting for your request could not be read")
         }
         LocalFile::NftSeries => tr!("Your Workshop series could not be read"),
+        LocalFile::AutoBackup => tr!("The backup setting could not be read"),
     }
 }
 
@@ -37,6 +38,7 @@ fn part_name(file: LocalFile) -> &'static str {
         LocalFile::AddressBook => tr!("the address book"),
         LocalFile::ContactResend => tr!("the list of contacts waiting for your request"),
         LocalFile::NftSeries => tr!("the Workshop series"),
+        LocalFile::AutoBackup => tr!("the weekly copy's setting"),
     }
 }
 
@@ -67,6 +69,10 @@ fn comes_back(file: LocalFile) -> &'static str {
         ),
         LocalFile::NftSeries => tr!(
             "The series' plates and “Continue” go away: what each series already wrote stays on the network and in your collection, and a series cut short is started again for what is left. evolite reads each model's highest serial from the network again, but a highest serial that was deleted may be issued again."
+        ),
+        // TECH-bug-prevention (а2): until then no weekly copy is written.
+        LocalFile::AutoBackup => tr!(
+            "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder."
         ),
     }
 }

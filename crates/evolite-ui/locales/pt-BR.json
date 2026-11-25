@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "É o exemplo do protótipo: não há moedas totalmente misturadas",
+  "The weekly copy is not being made: its setting could not be read": "A cópia semanal não está sendo feita: a configuração dela não pôde ser lida",
+  "Open the backup settings ›": "Abrir as configurações do backup ›",
+  "The backup setting could not be read": "A configuração do backup não pôde ser lida",
+  "the weekly copy's setting": "a configuração da cópia semanal",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "A cópia semanal fica desligada até você escolher a pasta dela de novo. As cópias já salvas continuam na pasta delas.",
   "The wallet's keys could not be checked yet — try again in a minute": "Ainda não foi possível verificar as chaves da carteira — tente de novo em um minuto",
   "Nothing was returned to put back into the pool": "Nada foi devolvido para colocar de volta no pool",
   "The identity from the pool is still being checked — wait for its outcome": "A identidade do pool ainda está sendo verificada — aguarde o resultado",

@@ -218,7 +218,7 @@ pub const PRESETS: &[&str] = &[
     "activity-card-tax-transfer", "activity-card-tax-received", "activity-card-tax-explainer",
     "activity-card-tax-error",
     "history-set-aside", "top-ups-set-aside", "overview-set-aside", "names-set-aside",
-    "apps-set-aside", "contacts-set-aside", "address-book-set-aside",
+    "apps-set-aside", "contacts-set-aside", "address-book-set-aside", "backup-set-aside",
     "send-note", "send-note-limit", "send-confirm-note", "delete-notes",
     "send", "send-confirm", "send-confirm-wait", "send-done", "send-contact", "send-book", "names-offline", "send-syncing", "send-qr-menu",
     "send-qr-filled", "send-qr-error", "send-confirm-link",
@@ -439,7 +439,7 @@ fn dev_args<'a>(
         (None, Some("receive" | "receive-fiat")) => Screen::Receive,
         // BUG-204, BUG-212: a file of the wallet set aside, on the screen of its banner.
         (None, Some("history-set-aside" | "top-ups-set-aside")) => Screen::Activity,
-        (None, Some("overview-set-aside")) => Screen::Overview,
+        (None, Some("overview-set-aside" | "backup-set-aside")) => Screen::Overview,
         (None, Some("names-set-aside")) => Screen::Identity,
         (None, Some("apps-set-aside")) => Screen::Apps,
         (None, Some("contacts-set-aside")) => Screen::Contacts,

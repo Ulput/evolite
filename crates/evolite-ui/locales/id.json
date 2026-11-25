@@ -1,5 +1,10 @@
 {
   "This is the mockup's example: there are no fully mixed coins": "Ini contoh dari maket: tidak ada koin yang tercampur penuh",
+  "The weekly copy is not being made: its setting could not be read": "Salinan mingguan tidak dibuat: pengaturannya tidak dapat dibaca",
+  "Open the backup settings ›": "Buka pengaturan cadangan ›",
+  "The backup setting could not be read": "Pengaturan cadangan tidak dapat dibaca",
+  "the weekly copy's setting": "pengaturan salinan mingguan",
+  "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Salinan mingguan tetap mati sampai Anda memilih foldernya lagi. Salinan yang sudah disimpan tetap ada di foldernya.",
   "The wallet's keys could not be checked yet — try again in a minute": "Kunci dompet belum bisa diperiksa — coba lagi dalam semenit",
   "Nothing was returned to put back into the pool": "Tidak ada yang dikembalikan untuk dimasukkan lagi ke pool",
   "The identity from the pool is still being checked — wait for its outcome": "Identitas dari pool masih diperiksa — tunggu hasilnya",

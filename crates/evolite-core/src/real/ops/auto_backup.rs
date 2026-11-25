@@ -3,10 +3,16 @@
 //! the last. Nothing is written once the wallet locks: its key goes with the lock. The folder and
 //! the times live in the wallet's `auto-backup.json` — not in a backup: a new computer, a new
 //! folder. The journal has the outcome's kind only (R-14).
+//!
+//! TECH-bug-prevention (а2), TEAM.md §8d-4: the file is a [`json_file::Store`]. One that does
+//! not read is set aside (`LocalFile::AutoBackup`): the copies stop and the settings screen says
+//! «The backup setting could not be read», with «Try again» and «Start over» — never quietly
+//! «off», and nothing is written over the file set aside.
 
 use crate::real::*;
 use evolite_api::backup::{AutoBackup, AutoFailed};
 use evolite_local::backup::auto;
+use evolite_local::json_file::{self, State, StoreError};
 
 /// How often the copy is checked while the wallet is open.
 const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
@@ -25,9 +31,11 @@ pub(in crate::real) struct AutoFile {
     settings: Option<String>,
 }
 
+/// The settings file, `auto-backup.json`.
+pub(in crate::real) type AutoStore = json_file::Store<AutoFile>;
+
 #[derive(Default)]
 pub(in crate::real) struct AutoState {
-    file: Option<AutoFile>,
     /// When it was last checked; `None` after an unlock: checked at once.
     checked: Option<std::time::Instant>,
     running: bool,
@@ -68,32 +76,29 @@ pub(in crate::real) fn day_of(unix: Timestamp) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// What a refused change of the settings answers: set aside, the line the screen shows.
+fn refused(e: StoreError) -> CoreError {
+    match e {
+        StoreError::SetAside => {
+            CoreError::NotAvailable(tr!("The backup setting could not be read").into())
+        }
+        StoreError::Write(why) => CoreError::NotAvailable(why),
+    }
+}
+
 impl Real {
-    fn auto_path(&self) -> PathBuf {
-        self.paths.auto_backup.clone()
+    /// Whether the settings file read; `false` while it is set aside.
+    fn auto_readable(&self) -> bool {
+        self.auto_file.state() == State::Readable
     }
 
-    fn auto_load(&self, state: &mut AutoState) -> AutoFile {
-        let path = self.auto_path();
-        state
-            .file
-            .get_or_insert_with(|| {
-                evolite_local::json_file::read_cache(&path, |b| serde_json::from_slice(b).ok())
-                    // default-ok: an unreadable file is set aside: backups start over off
-                    .unwrap_or_default()
-            })
-            .clone()
-    }
-
-    fn auto_save(&self, state: &mut AutoState, file: AutoFile) {
-        let _ = evolite_local::json_file::save(&self.auto_path(), &file);
-        state.file = Some(file);
-    }
-
-    /// The snapshot's view of the automatic copies.
+    /// The snapshot's view of the automatic copies: `None` when off, and while the file is set
+    /// aside (its banner says so, `LocalFile::AutoBackup`).
     pub(in crate::real) fn auto_backup_view(&self) -> Option<AutoBackup> {
-        let mut state = self.auto.lock().unwrap_or_else(|e| e.into_inner());
-        let file = self.auto_load(&mut state);
+        if !self.auto_readable() {
+            return None;
+        }
+        let file = self.auto_file.read(AutoFile::clone);
         Some(AutoBackup {
             folder: file.folder?,
             last_at: file.last_at,
@@ -111,26 +116,32 @@ impl Real {
             return Err(CoreError::NotAvailable(tr!("The wallet is locked").into()));
         }
         let mut state = self.auto.lock().unwrap_or_else(|e| e.into_inner());
-        let mut file = self.auto_load(&mut state);
-        file.folder = folder.map(|f| f.to_string_lossy().into_owned());
-        file.failed = None;
-        file.last_at = None;
-        if settings.is_some() {
-            file.settings = settings;
-        }
-        self.auto_save(&mut state, file);
+        self.auto_file
+            .update(|file| {
+                file.folder = folder.map(|f| f.to_string_lossy().into_owned());
+                file.failed = None;
+                file.last_at = None;
+                if settings.is_some() {
+                    file.settings = settings;
+                }
+                ((), true)
+            })
+            .map_err(refused)?;
         state.checked = None;
         Ok(())
     }
 
     /// A manual save's settings are the automatic copies' from now on.
     pub(in crate::real) fn auto_backup_settings(&self, settings: &Option<String>) {
-        let mut state = self.auto.lock().unwrap_or_else(|e| e.into_inner());
-        let mut file = self.auto_load(&mut state);
-        if file.folder.is_some() && settings.is_some() && file.settings != *settings {
-            file.settings = settings.clone();
-            self.auto_save(&mut state, file);
-        }
+        // Set aside or not written: the copies keep the settings they had (the banner, or the
+        // next save, says the rest).
+        let _ = self.auto_file.update(|file| {
+            let changed = file.folder.is_some() && settings.is_some() && file.settings != *settings;
+            if changed {
+                file.settings = settings.clone();
+            }
+            ((), changed)
+        });
     }
 
     /// The lock: the next unlock checks at once.
@@ -154,8 +165,12 @@ impl Real {
             if state.running || state.checked.is_some_and(|c| c.elapsed() < CHECK_EVERY) {
                 return;
             }
+            // Set aside: no copy, and nothing written over the file, until the person says.
+            if !self.auto_readable() {
+                return;
+            }
             state.checked = Some(std::time::Instant::now());
-            self.auto_load(&mut state)
+            self.auto_file.read(AutoFile::clone)
         };
         let now = now();
         let Some(folder) = file.folder.clone() else {
@@ -174,7 +189,7 @@ impl Real {
             .map(|w| w.name)
             .unwrap_or_default(); // default-ok: a wallet name for the file name: none is empty
         self.auto.lock().unwrap_or_else(|e| e.into_inner()).running = true;
-        let (auto_state, path) = (self.auto.clone(), self.auto_path());
+        let (auto_state, store) = (self.auto.clone(), self.auto_file.clone());
         let (dirty, out, wake) = (self.dirty.clone(), self.out.clone(), self.wake.clone());
         tokio::task::spawn_blocking(move || {
             let day = day_of(now);
@@ -187,12 +202,9 @@ impl Real {
             );
             let mut state = auto_state.lock().unwrap_or_else(|e| e.into_inner());
             state.running = false;
-            // default-ok: loaded before the write starts: never none here
-            let mut file = state.file.clone().unwrap_or_default();
+            let mut failed = None;
             let result = match &written {
                 Ok(done) => {
-                    file.last_at = Some(now);
-                    file.failed = None;
                     // An old copy that could not be deleted stays: said to the journal by its
                     // code only, no plate (review r1, step 2 Must).
                     if done.rotate_failed {
@@ -205,12 +217,18 @@ impl Real {
                     Ok(())
                 }
                 Err(e) => {
-                    file.failed = Some(failed_code(e).into());
+                    failed = Some(failed_code(e).to_string());
                     Err(CoreError::NotAvailable(failed_code(e).into()))
                 }
             };
-            let _ = evolite_local::json_file::save(&path, &file);
-            state.file = Some(file);
+            // Set aside meanwhile: nothing written over it; the next unlock checks again.
+            let _ = store.update(|f| {
+                if written.is_ok() {
+                    f.last_at = Some(now);
+                }
+                f.failed = failed;
+                ((), true)
+            });
             drop(state);
             dirty.store(true, Ordering::Relaxed);
             let _ = out.send(Event::Done {

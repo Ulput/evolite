@@ -385,6 +385,7 @@ impl DevState {
                     ("apps-set-aside", ConnectedApps),
                     ("contacts-set-aside", ContactAddresses),
                     ("address-book-set-aside", AddressBook),
+                    ("backup-set-aside", AutoBackup),
                 ]
                 .into_iter()
                 .filter(|(name, _)| dev.preset(name))
