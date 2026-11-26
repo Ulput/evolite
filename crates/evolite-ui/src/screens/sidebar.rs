@@ -125,10 +125,14 @@ pub fn sidebar(
     } else {
         SYNC_WIDE
     };
-    // FEAT-0057 П8: the lock beside Settings while a wallet is open (R-8.1); in the rail in
-    // one row with it (the designer, 2026-11-26) — the footer as high as without it, so all
-    // ten items still fit in 800 × 600 (FEAT-0036 AC-T2).
+    // FEAT-0057 П8: the lock beside Settings while a wallet is open (R-8.1). BUG-331 (the
+    // designer, 2026-11-26): in the rail above Settings, 36 × 36 each, 8 apart — and only when
+    // the whole rail fits with it: the items, the sync card, the lock and Settings, no scroll
+    // and no fade (FEAT-0036 AC-T2). By the items' height as measured (the last frame's), not by
+    // a height of the window. Else the wallet menu's «Lock» and Ctrl+L.
     let lock = lockable(cx.snap);
+    let measured_id = nav_height_id();
+    let measured = ui.data(|d| d.get_temp::<f32>(measured_id));
     let footer = egui::Rect::from_min_max(
         egui::pos2(area.left(), area.bottom() - 60.0),
         egui::pos2(area.right(), area.bottom() - 20.0),
@@ -136,9 +140,16 @@ pub fn sidebar(
     // BUG-263 (the customer): the rail has no network mark on mainnet any more — it said
     // nothing the band at the top does not, and looked like an alarm. The sync card sits above
     // the footer again.
+    let room_with_lock = footer.top() - 12.0 - sync_h - 12.0 - KEY - KEY_GAP - ui.cursor().top();
+    let fits_with_lock = |h: f32| rail && lock && h <= room_with_lock + 0.5;
+    let rail_lock = measured.is_some_and(fits_with_lock);
+    #[cfg(test)]
+    ui.ctx()
+        .data_mut(|d| d.insert_temp(egui::Id::new("evolite-rail-lock"), rail_lock));
+    let lift = if rail_lock { KEY + KEY_GAP } else { 0.0 };
     let sync = egui::Rect::from_min_max(
-        egui::pos2(area.left(), footer.top() - 12.0 - sync_h),
-        egui::pos2(area.right(), footer.top() - 12.0),
+        egui::pos2(area.left(), footer.top() - 12.0 - sync_h - lift),
+        egui::pos2(area.right(), footer.top() - 12.0 - lift),
     );
     let room = (sync.top() - 12.0 - ui.cursor().top()).max(40.0);
     // What this network has (the network matrix, FEAT-0037).
@@ -193,28 +204,32 @@ pub fn sidebar(
     // More below the edge: a fade into the menu's colour at the bottom of the list, gone once
     // it is scrolled to its end (FEAT-0036 row 3).
     let view = shown.inner_rect;
+    ui.data_mut(|d| d.insert_temp(measured_id, shown.content_size.y));
+    // BUG-331 r1 (Should): the lock's row decided by the height just measured, not by the last
+    // frame's: on the first frame (none yet, after the unlock too) or when the items change
+    // (tokens, NFTs, the network), the frame is drawn again at once — no frame without the lock
+    // and then with it, the sync card jumping 44; no lock with the fade (as `button_row`).
+    if fits_with_lock(shown.content_size.y) != rail_lock {
+        ui.ctx()
+            .request_discard("the rail's lock row follows the items' height");
+    }
     let more = crate::components::more_below(&shown);
     let fade = more.then(|| crate::components::fade_up(ui, view, p.surface, FADE));
     #[cfg(test)]
     ui.data_mut(|d| d.insert_temp(more_id(), fade));
     #[cfg(not(test))]
     let _ = fade;
-    if rail && lock {
-        // The rail's 76 px: the lock and Settings, 32 px each, 4 apart, the lock first as read
-        // across the rail's middle — on the right in Arabic by the frame's mirror (`rtl`).
-        let row = egui::Rect::from_center_size(
+    if rail_lock {
+        // BUG-331: the lock above Settings, 36 × 36 each, 8 apart, in the rail's middle; for
+        // Tab the lock first, as read from the top.
+        let settings_at = egui::Rect::from_center_size(
             egui::pos2(area.center().x, footer.center().y),
-            vec2(68.0, RAIL_KEY),
+            vec2(KEY, KEY),
         );
-        let lock_at = egui::Rect::from_min_size(row.left_top(), vec2(RAIL_KEY, RAIL_KEY));
-        let settings_at = egui::Rect::from_min_size(
-            row.right_top() - vec2(RAIL_KEY, 0.0),
-            vec2(RAIL_KEY, RAIL_KEY),
-        );
-        // In reading order, for Tab: the lock, then Settings.
-        let mut row_ui = ui.new_child(egui::UiBuilder::new().max_rect(row));
-        lock_button(&mut row_ui, a, cx, Some(lock_at));
-        settings_button(&mut row_ui, a, cx, active, Some(settings_at));
+        let lock_at = settings_at.translate(vec2(0.0, -(KEY + KEY_GAP)));
+        let mut keys_ui = ui.new_child(egui::UiBuilder::new().max_rect(lock_at.union(settings_at)));
+        lock_button(&mut keys_ui, a, cx, Some(lock_at));
+        settings_button(&mut keys_ui, a, cx, active, Some(settings_at));
     } else {
         ui.scope_builder(
             egui::UiBuilder::new()
@@ -228,11 +243,15 @@ pub fn sidebar(
                     // r2 (Should 1): the lock left of Settings at the foot's right, and made
                     // first, so Tab reads them as the eye does — the lock, then Settings (as in
                     // the rail; mirrored in Arabic by the frame's `rtl`).
+                    // BUG-331: 36 × 36 each, 8 apart.
                     let settings_at = egui::Rect::from_min_size(
-                        egui::pos2(ui.max_rect().right() - 40.0, footer.center().y - 20.0),
-                        vec2(40.0, 40.0),
+                        egui::pos2(
+                            ui.max_rect().right() - 2.0 - KEY,
+                            footer.center().y - KEY / 2.0,
+                        ),
+                        vec2(KEY, KEY),
                     );
-                    let lock_at = settings_at.translate(vec2(-44.0, 0.0));
+                    let lock_at = settings_at.translate(vec2(-(KEY + KEY_GAP), 0.0));
                     lock_button(ui, a, cx, Some(lock_at));
                     settings_button(ui, a, cx, active, Some(settings_at));
                     return;
@@ -297,8 +316,14 @@ fn lock_button(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, at: Option<egui::Rect>
     }
 }
 
-/// The side of the lock and Settings in the rail's one row (FEAT-0057 П8, the designer).
-const RAIL_KEY: f32 = 32.0;
+/// Where the menu's items' height, as last measured, is kept (BUG-331).
+pub(crate) fn nav_height_id() -> egui::Id {
+    egui::Id::new("evolite-nav-content-height")
+}
+
+/// BUG-331 (the designer): the lock and Settings beside it, 36 × 36 each, 8 apart.
+const KEY: f32 = 36.0;
+const KEY_GAP: f32 = 8.0;
 
 /// A square key of the menu's foot: 40 px where `at` is `None`, else at `at` (the rail's row).
 fn key_at(ui: &mut Ui, at: Option<egui::Rect>, salt: &str) -> (egui::Rect, egui::Response) {

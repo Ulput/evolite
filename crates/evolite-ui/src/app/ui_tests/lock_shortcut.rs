@@ -46,7 +46,7 @@ fn ctrl_l_locks_from_a_field_and_forgets_the_amount() {
 fn the_lock_in_the_menu_locks() {
     for (size, lang) in [
         (egui::vec2(1280.0, 800.0), "en"),
-        (egui::vec2(1024.0, 768.0), "en"),
+        (egui::vec2(1024.0, 900.0), "en"),
         (egui::vec2(1280.0, 800.0), "ar"),
     ] {
         let (_turn, mut kit) = demo_app("overview", lang);
@@ -81,38 +81,72 @@ fn with_no_wallet_open_ctrl_l_does_nothing() {
     assert_eq!(kit.state().screen, before);
 }
 
-/// The designer, 2026-11-26 (П8 in the rail): the lock and Settings in one row at the rail's
-/// foot, 32 px each and 4 apart, the lock first as read (on the right in Arabic); the rail no
-/// higher for it (FEAT-0036 AC-T2 is `low_menu`'s).
+/// BUG-331 (the designer): in a rail with room for it (1024 × 900) the lock stands above
+/// Settings, 36 × 36 each, 8 apart, in the rail's middle; Tab reaches the lock, then Settings.
 #[test]
-fn in_the_rail_the_lock_and_settings_share_one_row() {
+fn in_a_tall_rail_the_lock_stands_above_settings() {
     for lang in ["en", "ar"] {
         let (_turn, mut kit) = demo_app("overview", lang);
-        kit.set_size(egui::vec2(1024.0, 768.0));
-        kit.run_steps(3);
-        let rect = |name: &str| {
-            kit.get_by_role_and_label(Role::Button, &crate::i18n::spoken(name))
-                .rect()
-        };
-        let (lock, settings) = (rect("Lock"), rect("Settings"));
-        assert_eq!(lock.size(), egui::vec2(32.0, 32.0), "{lang}: the lock");
-        assert_eq!(settings.size(), egui::vec2(32.0, 32.0), "{lang}: Settings");
-        assert_eq!(lock.center().y, settings.center().y, "{lang}: one row");
-        let (left, right) = if lang == "ar" {
-            (settings, lock)
-        } else {
-            (lock, settings)
-        };
+        kit.set_size(egui::vec2(1024.0, 900.0));
+        kit.run_steps(4);
+        let lock_name = crate::i18n::spoken(tr!("Lock"));
+        let settings_name = crate::i18n::spoken(tr!("Settings"));
+        let rect = |kit: &Kit, name: &str| kit.get_by_role_and_label(Role::Button, name).rect();
+        let (lock, settings) = (rect(&kit, &lock_name), rect(&kit, &settings_name));
+        assert_eq!(lock.size(), egui::vec2(36.0, 36.0), "{lang}: the lock");
+        assert_eq!(settings.size(), egui::vec2(36.0, 36.0), "{lang}: Settings");
         assert_eq!(
-            right.left() - left.right(),
-            4.0,
-            "{lang}: 4 apart, the lock first"
+            lock.center().x,
+            settings.center().x,
+            "{lang}: one above the other"
         );
-        assert!(
-            settings.bottom() <= 768.0 - 20.0 + 0.5,
-            "{lang}: the foot where it was"
+        assert_eq!(
+            settings.top() - lock.bottom(),
+            8.0,
+            "{lang}: 8 apart, the lock above"
+        );
+        tab_to(&mut kit, &lock_name);
+        tab(&mut kit, false);
+        assert_eq!(
+            focused(&kit).as_deref(),
+            Some(settings_name.as_str()),
+            "{lang}: Tab from the lock to Settings"
         );
     }
+}
+
+/// BUG-331: in 800 × 600 the rail has no room for the lock — none there, the ten items with no
+/// fade (FEAT-0036 AC-T2) — and the wallet menu's «Lock · Ctrl+L» locks; Ctrl+L too.
+#[test]
+fn in_a_low_rail_the_lock_is_in_the_wallet_menu() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.set_size(egui::vec2(800.0, 600.0));
+    kit.run_steps(4);
+    assert!(
+        kit.query_all_by_role_and_label(Role::Button, "Lock")
+            .next()
+            .is_none(),
+        "no lock in the rail"
+    );
+    assert_eq!(
+        crate::screens::sidebar::menu_more_below(&kit.ctx),
+        Some(false),
+        "the ten items with no fade"
+    );
+    kit.state_mut().wallet_menu = true;
+    kit.run_steps(3);
+    kit.get_by_role_and_label(Role::Button, "Lock").click();
+    wait_for(&mut kit, "the unlock screen", locked);
+}
+
+/// BUG-331: in 800 × 600, with no lock in the rail, Ctrl+L locks.
+#[test]
+fn in_a_low_rail_ctrl_l_locks() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.set_size(egui::vec2(800.0, 600.0));
+    kit.run_steps(3);
+    press_lock(&mut kit);
+    wait_for(&mut kit, "the unlock screen", locked);
 }
 
 /// r2 (Should 1): in the wide menu Tab reaches the lock, then Settings — as they are read, as in
@@ -134,4 +168,24 @@ fn in_the_wide_menu_tab_reaches_the_lock_before_settings() {
             "{lang}: after the lock"
         );
     }
+}
+
+/// BUG-331 r1 (Should): the rail's lock is there on the frame drawn first — no measure kept yet,
+/// as at the start or after the unlock — not one frame later with the sync card jumping 44.
+/// Mutant: without the frame drawn again, the first frame has no lock (red).
+#[test]
+fn the_rails_lock_is_there_on_the_first_frame() {
+    let (_turn, mut kit) = demo_app("overview", "en");
+    kit.set_size(egui::vec2(1024.0, 900.0));
+    kit.run_steps(3);
+    let lock = crate::i18n::spoken(tr!("Lock"));
+    let at = kit.get_by_role_and_label(Role::Button, &lock).rect();
+    kit.ctx
+        .data_mut(|d| d.remove_temp::<f32>(crate::screens::sidebar::nav_height_id()));
+    kit.step();
+    let first = kit
+        .query_all_by_role_and_label(Role::Button, &lock)
+        .next()
+        .map(|b| b.rect());
+    assert_eq!(first, Some(at), "the lock in its place on the first frame");
 }

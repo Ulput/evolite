@@ -214,6 +214,7 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
     let mut choose: Option<String> = None;
     let mut add = false;
     let mut manage = false;
+    let mut lock = false;
     let area = egui::Area::new(egui::Id::new("wallet-menu"))
         .order(egui::Order::Foreground)
         .fixed_pos(pos2(anchor.left(), anchor.bottom() + 10.0))
@@ -301,6 +302,40 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
                     }
                     let (line, _) = ui.allocate_exact_size(vec2(302.0, 1.0), Sense::hover());
                     ui.painter().rect_filled(line, 0, p.line);
+                    // BUG-331 (the designer): «Lock · Ctrl+L» at any window height — the lock
+                    // one click from the rail where the rail has no room for its own.
+                    if super::sidebar::lockable(snap) {
+                        let (row, resp) = ui.allocate_exact_size(vec2(302.0, 36.0), Sense::click());
+                        crate::components::named(&resp, egui::WidgetType::Button, true, tr!("Lock"));
+                        if resp.hovered() || resp.has_focus() {
+                            ui.painter()
+                                .rect_filled(row, CornerRadius::same(10), p.raised);
+                        }
+                        a.icons.icon("lock", p.text, &p, 18.0).paint_at(
+                            ui,
+                            Rect::from_min_size(
+                                pos2(row.left() + 14.0, row.center().y - 9.0),
+                                vec2(18.0, 18.0),
+                            ),
+                        );
+                        crate::components::paint_text(
+                            ui,
+                            pos2(row.left() + 42.0, row.center().y),
+                            Align2::LEFT_CENTER,
+                            tr!("Lock"),
+                            sans(14.0, Weight::Medium),
+                            p.text,
+                        );
+                        crate::components::paint_text(
+                            ui,
+                            pos2(row.right() - 14.0, row.center().y),
+                            Align2::RIGHT_CENTER,
+                            super::sidebar::lock_shortcut(),
+                            sans(12.0, Weight::Regular),
+                            p.muted,
+                        );
+                        lock = resp.on_hover_cursor(CursorIcon::PointingHand).clicked();
+                    }
                     for (icon, label, slot) in [
                         ("plus", tr!("Add wallet"), &mut add),
                         ("wallets", tr!("Manage wallets"), &mut manage),
@@ -368,6 +403,11 @@ fn wallet_menu(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, anchor: Rect, menu: &m
     }
     if manage {
         cx.wallets(WalletRequest::Manage);
+        *menu = false;
+    }
+    // BUG-331: the same command as the lock in the menu's foot and Ctrl+L; no confirmation.
+    if lock {
+        cx.send(evolite_api::Command::Lock);
         *menu = false;
     }
 }
