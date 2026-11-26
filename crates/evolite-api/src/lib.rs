@@ -471,9 +471,10 @@ pub struct Detail {
     /// of this computer's own (another device, a restore). The row shows «—» and «fee: no
     /// record», and the line is in no total: unknown is not zero.
     pub cost_unknown: bool,
-    /// FEAT-0056 (А-3): every recipient of a payment out to two or more, from the transaction
-    /// itself (another copy, a restore see them alike), in its outputs' order; empty for a
-    /// payment to one. A contact's is named once its key is known ([`SentTo::name`]).
+    /// FEAT-0056 (А-3): every recipient of a payment out, from the transaction itself (another
+    /// copy, a restore see them alike), in its outputs' order — BUG-322: a payment to one too,
+    /// what that one got exactly whether or not the fee is known. «A payment to several» is two
+    /// or more here. A contact's is named once its key is known ([`SentTo::name`]).
     pub sent_to: Vec<SentTo>,
 }
 

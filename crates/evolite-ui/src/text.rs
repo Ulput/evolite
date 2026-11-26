@@ -667,10 +667,13 @@ pub fn chain(c: Chain) -> &'static str {
     }
 }
 
-/// FEAT-0056: the recipients of a payment out to several (empty for a payment to one).
+/// FEAT-0056: the recipients of a payment out to several, two or more. For a payment to one
+/// it gives none: `Detail.sent_to` holds that one recipient too (BUG-322), but a payment to one
+/// is not shown as a list.
 pub fn sent_to(a: &Activity) -> &[evolite_api::SentTo] {
     match (&a.kind, a.detail.as_deref()) {
-        (ActivityKind::Sent { .. }, Some(d)) => &d.sent_to,
+        // BUG-322: the core names a payment to one's recipient too; it stays a payment to one.
+        (ActivityKind::Sent { .. }, Some(d)) if d.sent_to.len() > 1 => &d.sent_to,
         _ => &[],
     }
 }

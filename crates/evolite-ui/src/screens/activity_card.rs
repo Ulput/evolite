@@ -657,7 +657,8 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
             };
             // FEAT-0056: each recipient of a payment to several, its address whole with the
             // card's «Copy» (FEAT-0051, as a payment to one), what it got and a contact's name.
-            if !detail.sent_to.is_empty() {
+            // BUG-322: a payment to one names its recipient too; that one is the card's own.
+            if detail.sent_to.len() > 1 {
                 let to = detail
                     .sent_to
                     .iter()

@@ -226,44 +226,13 @@ pub fn paid_addresses(a: &Activity) -> Vec<&str> {
     }
 }
 
-/// Payments to each of `me`'s contacts as the history shows them (after
-/// [`name_contact_payments`]): a wallet restored from its phrase has none on record in
-/// platform-wallet, the chain has them. `keys`: each contact key's address → (our identity, the
-/// contact). BUG-196: by the pair — the history and the keys are the whole wallet's, and its
-/// identities may share a contact; one's payments are not another's.
-pub fn count_contact_payments(
-    history: &[Activity],
-    keys: &std::collections::HashMap<String, (String, String)>,
-    me: Option<&str>,
-    contacts: &mut [Contact],
-) {
-    let Some(me) = me else {
-        return;
-    };
-    for c in contacts
-        .iter_mut()
-        .filter(|c| c.state == ContactState::Established)
-    {
-        let to_them = history.iter().filter(|a| {
-            matches!(a.kind, ActivityKind::Sent { .. })
-                && paid_addresses(a).into_iter().any(|ad| {
-                    keys.get(ad)
-                        .is_some_and(|(ours, friend)| ours == me && *friend == c.identity_id)
-                })
-        });
-        let (count, last) =
-            to_them.fold((0u32, None), |(n, last), a| (n + 1, last.max(Some(a.at))));
-        c.payments = c.payments.max(count);
-        c.last_payment = c.last_payment.max(last);
-    }
-}
-
 /// FEAT-0057 П5 (R-5.2): what was paid each way with each of `me`'s established contacts, from
 /// FEAT-0056's seam: a Sent line's outputs to others, each its address and amount.
-/// - A payment to several (FEAT-0056, `Detail.sent_to`): each recipient, its own output's
-///   amount, exact — the fee is not in any output, so a fee not known changes none of them.
-/// - A payment to one: the line's address, its amount less the network's fee, or with the fee in
-///   it when the fee is not known (`exact: false`).
+/// - Every recipient the transaction names (FEAT-0056, `Detail.sent_to`; BUG-322: a payment to
+///   one too): its own output's amount, exact — the fee is not in any output, so a fee not
+///   known changes none of them.
+/// - A line without them (a demo's, an older one): the line's address, its amount less the
+///   network's fee, or with the fee in it when the fee is not known (`exact: false`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SentOutput {
     pub address: String,
@@ -298,9 +267,14 @@ pub fn sent_outputs(a: &Activity) -> Vec<SentOutput> {
     }]
 }
 
-/// History's lines — the same pair rule as [`count_contact_payments`] (BUG-196). Out: a line to
-/// an address of the contact's key (`keys`), its amount less the network's fee. In: a line to our
-/// account for that contact (`receipts`, [`own_contact_receipts`]), its amount.
+/// Payments with each of `me`'s established contacts as the history shows them (after
+/// [`name_contact_payments`]): a wallet restored from its phrase has none on record in
+/// platform-wallet, the chain has them. BUG-196: by the pair — the history and the keys are the
+/// whole wallet's, and its identities may share a contact; one's payments are not another's.
+/// Out: a line to an address of the contact's key (`keys`), what its output there carried. In: a
+/// line to our account for that contact (`receipts`, [`own_contact_receipts`]), its amount.
+/// BUG-322: one pass — the payments' count and the last of them are these same lines, both ways
+/// (it was the payments out alone, counted apart).
 pub fn total_contact_payments(
     history: &[Activity],
     keys: &std::collections::HashMap<String, (String, String)>,
@@ -324,6 +298,7 @@ pub fn total_contact_payments(
         };
         let (mut sent, mut sent_count, mut received, mut received_count) = (0, 0u32, 0, 0u32);
         let mut sent_exact = true;
+        let mut last: Option<Timestamp> = None;
         for a in history {
             match a.kind {
                 ActivityKind::Sent { .. } => {
@@ -335,6 +310,7 @@ pub fn total_contact_payments(
                         .collect();
                     if !to_them.is_empty() {
                         sent_count += 1;
+                        last = last.max(Some(a.at));
                     }
                     for o in to_them {
                         sent += o.amount;
@@ -344,10 +320,13 @@ pub fn total_contact_payments(
                 ActivityKind::Received { .. } if a.amount > 0 && pair(receipts, a) => {
                     received += a.amount;
                     received_count += 1;
+                    last = last.max(Some(a.at));
                 }
                 _ => {}
             }
         }
+        c.payments = sent_count + received_count;
+        c.last_payment = last;
         c.record.sent = sent;
         c.record.sent_count = sent_count;
         c.record.sent_exact = sent_exact;
@@ -699,9 +678,8 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
             })
         })
         .collect();
-    if sent.len() > 1 {
-        detail.sent_to = sent;
-    }
+    // BUG-322: a payment to one too — what it got, exact even when the fee is not known.
+    detail.sent_to = sent;
     Activity {
         key: format!("core:{txid}"),
         // default-ok: display id only: a txid is always hex
@@ -3438,6 +3416,88 @@ mod tests {
         );
     }
 
+    /// BUG-322 (QA: @ozzieq31 «Payments · 3» over 3 sent and 1 received; «Sent ≈ 0.00300678»):
+    /// the count is the payments both ways and the last of them, from the same pass as the sums;
+    /// what was sent is what the contact's output got — exact with the fee not known, never the
+    /// fee in it. Mutants: the count of the payments out alone; the line's amount for the sum.
+    #[test]
+    fn a_contacts_payments_are_counted_both_ways_and_sent_exactly() {
+        let line = |at, kind, amount: Duffs, address: &str, sent_to: Vec<SentTo>| Activity {
+            id: at as u64,
+            kind,
+            chain: Chain::Core,
+            at,
+            amount,
+            proof: Proof::ChainLock,
+            txid: None,
+            // As on QA's copy: the fee not known (not every input in the record).
+            fee: None,
+            block: None,
+            address: Some(address.into()),
+            layers: 1,
+            flow: Flow::Out,
+            key: String::new(),
+            detail: Some(Box::new(Detail {
+                sent_to,
+                ..Detail::default()
+            })),
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        let sent = |at| {
+            line(
+                at,
+                ActivityKind::Sent { to: "@oz".into() },
+                -100_226,
+                "yoz1",
+                vec![SentTo {
+                    address: "yoz1".into(),
+                    name: None,
+                    amount: 100_000,
+                }],
+            )
+        };
+        let received = line(
+            150,
+            ActivityKind::Received {
+                from: Some("@oz".into()),
+            },
+            100_000,
+            "ymine1",
+            Vec::new(),
+        );
+        let history = vec![sent(100), received, sent(200), sent(300)];
+        let keys: std::collections::HashMap<String, (String, String)> =
+            [("yoz1".to_owned(), ("Me111".to_owned(), "Oz".to_owned()))].into();
+        let receipts: std::collections::HashMap<String, (String, String)> =
+            [("ymine1".to_owned(), ("Me111".to_owned(), "Oz".to_owned()))].into();
+        let mut contacts = vec![Contact {
+            identity_id: "Oz".into(),
+            name: Some("oz".into()),
+            profile: Default::default(),
+            state: ContactState::Established,
+            payments: 0,
+            last_payment: None,
+            channel_broken: false,
+            record: Default::default(),
+        }];
+        total_contact_payments(&history, &keys, &receipts, Some("Me111"), &mut contacts);
+        let c = &contacts[0];
+        assert_eq!((c.payments, c.last_payment), (4, Some(300)), "3 out + 1 in");
+        assert_eq!(
+            (c.record.sent, c.record.sent_count, c.record.sent_exact),
+            (300_000, 3, true),
+            "what the contact got, no «≈»"
+        );
+        assert_eq!((c.record.received, c.record.received_count), (100_000, 1));
+        assert_eq!(
+            c.payments,
+            c.record.sent_count + c.record.received_count,
+            "one count"
+        );
+    }
+
     /// FEAT-0056 with FEAT-0057 П5: a payment to three with two contacts among them gives each
     /// contact what its own output got — not the line's whole amount — and counts it once for
     /// each; a fee not known leaves them exact (no output carries the fee). Mutant:
@@ -3693,7 +3753,13 @@ mod tests {
         name_contact_payments(&mut history, &keys, std::slice::from_ref(&contact));
         assert!(matches!(&history[0].kind, ActivityKind::Sent { to } if to == "@bob"));
         let mut contacts = vec![contact];
-        count_contact_payments(&history, &keys, Some("Me111"), &mut contacts);
+        total_contact_payments(
+            &history,
+            &keys,
+            &Default::default(),
+            Some("Me111"),
+            &mut contacts,
+        );
         assert_eq!(contacts[0].payments, 1);
     }
 
@@ -3761,7 +3827,7 @@ mod tests {
             ]
         );
         let mut contacts = contacts;
-        count_contact_payments(&h, &keys, Some("Me111"), &mut contacts);
+        total_contact_payments(&h, &keys, &Default::default(), Some("Me111"), &mut contacts);
         assert_eq!((contacts[0].payments, contacts[1].payments), (1, 1));
     }
 
@@ -3812,10 +3878,10 @@ mod tests {
         // On record in platform-wallet (by the pair: A 3, B 0), and after a restore (0, 0).
         for (on_record_a, on_record_b) in [(3, 0), (0, 0)] {
             let mut a = vec![carol(on_record_a)];
-            count_contact_payments(&history, &keys, Some("A111"), &mut a);
+            total_contact_payments(&history, &keys, &Default::default(), Some("A111"), &mut a);
             assert_eq!((a[0].payments, a[0].last_payment), (3, Some(300)), "A");
             let mut b = vec![carol(on_record_b)];
-            count_contact_payments(&history, &keys, Some("B111"), &mut b);
+            total_contact_payments(&history, &keys, &Default::default(), Some("B111"), &mut b);
             assert_eq!((b[0].payments, b[0].last_payment), (0, None), "B");
         }
     }
@@ -4905,9 +4971,10 @@ mod detail_tests {
             names,
             vec![None, Some("@carol".into()), Some("@dave".into())]
         );
-        count_contact_payments(
+        total_contact_payments(
             std::slice::from_ref(&line),
             &keys,
+            &Default::default(),
             Some("Me"),
             &mut contacts,
         );
@@ -4924,7 +4991,14 @@ mod detail_tests {
             vec![out(0, 11, 1_000)],
             -1_226,
         );
-        assert!(activity(&one, 0, false).detail.unwrap().sent_to.is_empty());
+        // BUG-322: a payment to one names its recipient too — what it got, exact, though the
+        // fee is not known here (the record's inputs are not all ours).
+        let to_one = activity(&one, 0, false).detail.unwrap().sent_to;
+        assert_eq!(to_one.len(), 1);
+        assert_eq!(
+            (to_one[0].address.clone(), to_one[0].amount),
+            (address(11).to_string(), 1_000)
+        );
     }
 
     /// FEAT-0046 R-5 (AC-T-T3): a standard payment going out or between own addresses may be

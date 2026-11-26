@@ -1513,8 +1513,8 @@ impl Real {
             }
         }
         convert::name_contact_payments(history, &keys, contacts);
-        convert::count_contact_payments(history, &keys, me, contacts);
-        // FEAT-0057 П5: the sums each way, from the same lines.
+        // FEAT-0057 П5, BUG-322: the payments both ways — their count, last and sums — in one
+        // pass over the same lines.
         let receipts = convert::own_contact_receipts(&wallet.state().await.core_wallet);
         convert::total_contact_payments(history, &keys, &receipts, me, contacts);
     }
