@@ -2965,5 +2965,21 @@
   "Number no. {} is issued.": "Nomor no. {} sedang diterbitkan.",
   "supply {} · number no. {}": "jumlah cetak {} · nomor no. {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Salinan bebas bernomor terendah akan dikirim — no. {}. Yang dijual tidak disentuh.",
-  "Numbers no. {} are issued.": "Nomor no. {} sedang diterbitkan."
+  "Numbers no. {} are issued.": "Nomor no. {} sedang diterbitkan.",
+  "Coins prepared": "Koin disiapkan",
+  "Fees": "Biaya",
+  "Mixing": "Pencampuran",
+  "Mixing coins": "Pencampuran koin",
+  "Mixing does not change the balance, only the fees leave.": "Pencampuran tidak mengubah saldo, hanya biaya yang keluar.",
+  "Mixing rounds": "Putaran pencampuran",
+  "Mixing, {}, {}, fees {}, {}": "Pencampuran, {}, {}, biaya {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Pencampuran, {}, {}, tanpa biaya, {}",
+  "Preparing coins": "Menyiapkan koin",
+  "Round": "Putaran",
+  "no fees": "tanpa biaya",
+  "{} operation · {}|{} operations · {}": {
+    "other": "{} operasi · {}"
+  },
+  "no fee": "tanpa biaya",
+  "{}–{}": "{}–{}"
 }

@@ -104,6 +104,7 @@ pub fn overview(
     }
     quick_actions(ui, a, cx, wallet);
     latest_operations(ui, a, cx, wallet, synced);
+    super::activity_mixing::day_window(ui, a, cx);
     super::activity::card_window(ui, a, cx);
     #[cfg(demo_core)]
     if cx.snap.demo {
@@ -514,7 +515,7 @@ fn latest_operations(
 ) {
     let p = a.p;
     let b = &wallet.balances;
-    ui.vertical(|ui| {
+    let block = ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 4.0;
         // BUG-204: the journal set aside — a line that leads to History's banner.
         crate::screens::set_aside::overview_line(ui, a, cx);
@@ -549,7 +550,20 @@ fn latest_operations(
                 p.muted,
             ));
         }
-        for act in wallet.activity.iter().take(5) {
+        // FEAT-0052 UC-4: a day of CoinJoin's operations is one line here too.
+        let all: Vec<usize> = (0..wallet.activity.len()).collect();
+        for line in super::activity_mixing::lines(&wallet.activity, &all, &chrono::Local)
+            .into_iter()
+            .take(5)
+        {
+            let act = match line {
+                super::activity_mixing::Line::One(i) => &wallet.activity[i],
+                super::activity_mixing::Line::Day(members) => {
+                    let members: Vec<_> = members.iter().map(|i| &wallet.activity[*i]).collect();
+                    super::activity_mixing::day_row(ui, a, cx.now, &members, true);
+                    continue;
+                }
+            };
             let detail = text::with_date(&text::row_place(act), &text::when(act.at, cx.now));
             // The same card as in History.
             let row = tx_row_clickable(
@@ -574,6 +588,7 @@ fn latest_operations(
                     note: act.note.as_deref(),
                     fiat: None,
                     dim_amount: false,
+                    name: None,
                 },
             );
             if row.clicked() {
@@ -581,6 +596,20 @@ fn latest_operations(
             }
         }
     });
+    // FEAT-0052 A9: the frame of the Overview with the day of mixing among its latest.
+    if ui.data(|d| d.get_temp::<bool>(latest_id()).unwrap_or(false)) {
+        ui.scroll_to_rect(block.response.rect, Some(Align::Max));
+    }
+}
+
+fn latest_id() -> egui::Id {
+    egui::Id::new("overview-to-latest")
+}
+
+/// `--screen overview-mixing`: the page kept scrolled to its latest operations.
+#[cfg(feature = "dev-tools")]
+pub fn show_latest(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(latest_id(), true));
 }
 
 /// The credits' tile (BUG-115), by the pool's rule: checked in this run, the amount; kept from

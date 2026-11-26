@@ -42,6 +42,7 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             identities: &wallet.identities,
             tax,
             advanced: cx.advanced(),
+            from_day: super::activity_mixing::day_open(ui.ctx()),
         };
         let answer = card(ui, a, act, &around);
         if let Some(command) = answer.note {
@@ -54,8 +55,13 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
         if let Some(command) = answer.resend {
             cx.send(command);
         }
+        // FEAT-0052 UC-3: «Back» to the day of mixing it was opened from; its cross closes both.
+        if answer.back {
+            close_card(ui.ctx());
+        }
         if answer.closed {
             close_card(ui.ctx());
+            super::activity_mixing::close_day(ui.ctx());
         }
         // "Open in Contacts": accepting is there, with the password (BUG-42, BUG-58).
         // "Continue on the Identity screen": the cut-short top-up or creation is finished
@@ -123,6 +129,13 @@ pub fn close_card(ctx: &egui::Context) {
 #[cfg(all(test, demo_core, feature = "dev-tools"))]
 pub fn card_open(ctx: &egui::Context) -> bool {
     ctx.data(|d| d.get_temp::<u64>(card_id()).is_some())
+}
+
+/// Whether an operation's card is shown in `wallet`'s history: a day of mixing's card stays
+/// under it (FEAT-0052 UC-3).
+pub fn card_shown(ctx: &egui::Context, wallet: &evolite_api::Wallet) -> bool {
+    ctx.data(|d| d.get_temp::<u64>(card_id()))
+        .is_some_and(|id| wallet.activity.iter().any(|a| a.id == id))
 }
 
 /// The note being edited in the open card (FEAT-0003, AC-D4): its operation's key, the text as
@@ -1560,6 +1573,8 @@ struct CardAnswer {
     resend: Option<Command>,
     /// The related operation whose card to open instead (FEAT-0005).
     open: Option<u64>,
+    /// «Back» to the day of mixing it was opened from (FEAT-0052 UC-3).
+    back: bool,
     /// The identity to work as (FEAT-0005 FR-7).
     act_as: Option<String>,
     /// A claim's contest card to open: the identity that claimed and the label (FEAT-0021,
@@ -1578,6 +1593,8 @@ struct Around<'a> {
     tax: Option<crate::csv_export::TaxCategory>,
     /// «Features for advanced users» on: «Broadcast again» (FEAT-0046).
     advanced: bool,
+    /// Opened from a day of mixing's card: «Back» to it in place of «Close» (FEAT-0052 UC-3).
+    from_day: bool,
 }
 
 /// The identity «Open in Identity» goes to: one of this wallet's, and not on a card that already
@@ -1641,6 +1658,7 @@ fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAns
         identity: identity_to_open(act, around.identities).filter(|_| contest.is_none()),
         open_identity: text::credits_quiet(act),
         contest,
+        back: around.from_day,
     };
     // Another operation in the card, or a new opening: its middle starts at the top.
     if ui.data(|d| d.get_temp::<u64>(body_of_id())) != Some(act.id) {
@@ -2076,6 +2094,8 @@ struct Footer<'a> {
     /// «Open the vote ›» on a name's claim or result (FEAT-0021 N6, entry 3): the identity and
     /// the label.
     contest: Option<(&'a str, &'a str)>,
+    /// FEAT-0052 UC-3: «Back» to the day of mixing in place of «Close».
+    back: bool,
 }
 
 /// The buttons under the card. Whether it closes.
@@ -2087,11 +2107,14 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
         identity,
         open_identity,
         contest,
+        back,
     } = *footer;
     let mut close = false;
     // The action on the right, «Close» on its left: as in every dialog (designer review №8).
     button_row(ui, |ui| {
-        if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
+        if back {
+            answer.back |= button(ui, a, tr!("Back"), ButtonKind::Ghost, None).clicked();
+        } else if button(ui, a, tr!("Close"), ButtonKind::Ghost, None).clicked() {
             close = true;
         }
         if answer_there

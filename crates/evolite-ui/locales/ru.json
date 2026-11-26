@@ -3060,5 +3060,23 @@
   "Number no. {} is issued.": "Выпускается номер № {}.",
   "supply {} · number no. {}": "тираж {} · номер № {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Уйдут свободные экземпляры с наименьшими номерами — № {}. Продающиеся не трогаются.",
-  "Numbers no. {} are issued.": "Выпускаются номера № {}."
+  "Numbers no. {} are issued.": "Выпускаются номера № {}.",
+  "Coins prepared": "Подготовлено монет",
+  "Fees": "Комиссии",
+  "Mixing": "Перемешивание",
+  "Mixing coins": "Перемешивание монет",
+  "Mixing does not change the balance, only the fees leave.": "Перемешивание не меняет баланс — уходят только комиссии.",
+  "Mixing rounds": "Раундов",
+  "Mixing, {}, {}, fees {}, {}": "Перемешивание, {}, {}, комиссии {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Перемешивание, {}, {}, без комиссий, {}",
+  "Preparing coins": "Подготовка монет",
+  "Round": "Раунд",
+  "no fees": "без комиссий",
+  "{} operation · {}|{} operations · {}": {
+    "one": "{} операция · {}",
+    "few": "{} операции · {}",
+    "many": "{} операций · {}"
+  },
+  "no fee": "без комиссии",
+  "{}–{}": "{}–{}"
 }

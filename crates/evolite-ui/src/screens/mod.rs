@@ -26,10 +26,14 @@ pub mod workshop;
 pub mod activity;
 pub mod activity_card;
 pub mod activity_filters;
+pub mod activity_mixing;
 pub mod activity_resend;
 pub mod activity_tax;
 mod elsewhere;
 mod overview;
+// FEAT-0052: `--screen overview-mixing` scrolled to the latest operations.
+#[cfg(feature = "dev-tools")]
+pub use overview::show_latest;
 #[cfg(feature = "dev-tools")]
 mod probe;
 pub mod set_aside;

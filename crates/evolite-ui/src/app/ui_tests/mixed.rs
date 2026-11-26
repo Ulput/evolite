@@ -229,11 +229,17 @@ fn coins_not_fully_mixed_go_only_alone() {
     assert!(button(&kit, "Apply").accesskit_node().is_disabled());
 }
 
-/// AC-A7 (H1): the mixing lines under «Mixed», their own words, and a payment from mixed coins
-/// named by its source.
+/// AC-A7 (H1): the mixing lines under «Mixed» — a day of them one line (FEAT-0052), each with
+/// its own words when a search finds them — and a payment from mixed coins named by its source.
 #[test]
 fn history_says_mixing_apart() {
     let (_turn, mut kit) = demo_app("activity-mixed", "en");
+    wait_for(&mut kit, "the days of mixing", |kit| {
+        has_words(kit, "Mixing, ") && painted_has(kit, "Mixing coins")
+    });
+    assert!(has_words(&kit, "Mixed ·"), "the payment's source");
+    // FEAT-0052 R-6: found, each is its own line again.
+    kit.state_mut().history.query = "mixing".into();
     wait_for(&mut kit, "the mixing lines", |kit| {
         has_words(kit, "Mixing (CoinJoin)")
     });
@@ -246,7 +252,6 @@ fn history_says_mixing_apart() {
         &kit,
         "Between your own: coins split into denominations"
     ));
-    assert!(has_words(&kit, "Mixed ·"), "the payment's source");
     assert!(
         !has_words(&kit, "Platform ·"),
         "only «Mixed» lines under its pill"

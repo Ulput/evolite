@@ -2965,5 +2965,21 @@
   "Number no. {} is issued.": "正在发行编号 第 {} 号。",
   "supply {} · number no. {}": "总量 {} · 编号 第 {} 号",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "编号最小的空闲副本将被送出——第 {} 号。出售中的不受影响。",
-  "Numbers no. {} are issued.": "正在发行编号 第 {} 号。"
+  "Numbers no. {} are issued.": "正在发行编号 第 {} 号。",
+  "Coins prepared": "已准备的币",
+  "Fees": "手续费",
+  "Mixing": "混合",
+  "Mixing coins": "混合币",
+  "Mixing does not change the balance, only the fees leave.": "混合不会改变余额，只有手续费会支出。",
+  "Mixing rounds": "混合轮次",
+  "Mixing, {}, {}, fees {}, {}": "混合，{}，{}，手续费 {}，{}",
+  "Mixing, {}, {}, no fees, {}": "混合，{}，{}，无手续费，{}",
+  "Preparing coins": "准备币",
+  "Round": "轮次",
+  "no fees": "无手续费",
+  "{} operation · {}|{} operations · {}": {
+    "other": "{} 次操作 · {}"
+  },
+  "no fee": "无手续费",
+  "{}–{}": "{}–{}"
 }

@@ -3009,5 +3009,22 @@
   "Number no. {} is issued.": "No. {} numarası çıkarılıyor.",
   "supply {} · number no. {}": "tiraj {} · numara no. {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "En düşük numaralı boş kopyalar gider — no. {}. Satılıkta olanlara dokunulmaz.",
-  "Numbers no. {} are issued.": "No. {} numaraları çıkarılıyor."
+  "Numbers no. {} are issued.": "No. {} numaraları çıkarılıyor.",
+  "Coins prepared": "Hazırlanan coinler",
+  "Fees": "Ücretler",
+  "Mixing": "Karıştırma",
+  "Mixing coins": "Coin karıştırma",
+  "Mixing does not change the balance, only the fees leave.": "Karıştırma bakiyeyi değiştirmez, yalnızca ücretler çıkar.",
+  "Mixing rounds": "Karıştırma turları",
+  "Mixing, {}, {}, fees {}, {}": "Karıştırma, {}, {}, ücretler {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Karıştırma, {}, {}, ücret yok, {}",
+  "Preparing coins": "Coinlerin hazırlanması",
+  "Round": "Tur",
+  "no fees": "ücret yok",
+  "{} operation · {}|{} operations · {}": {
+    "one": "{} işlem · {}",
+    "other": "{} işlem · {}"
+  },
+  "no fee": "ücret yok",
+  "{}–{}": "{}–{}"
 }

@@ -234,6 +234,8 @@ pub const PRESETS: &[&str] = &[
     "send-coins", "send-coins-chosen", "send-coins-name", "send-coins-confirm", "coins-manual",
     "coins-auto", "coins-not-enough", "coins-spent", "send-lookalike", "send-confirm-tall",
     "overview-mixed", "send-mixed", "coins-mixed", "coins-mixed-refused", "activity-mixed",
+    "activity-mixing", "activity-mixing-advanced", "activity-mixing-day", "activity-mixing-card",
+    "overview-mixing",
     "send-unsignable", "send-unsignable-short",
     "fund-address", "fund-address-review", "fund-address-steps", "fund-address-unfinished", "fund-address-recovered",
     "fund-address-resume", "fund-address-done",
@@ -339,6 +341,7 @@ fn dev_args<'a>(
                 | "sync-platform-short"
                 | "overview-mixed"
                 | "overview-mixed-unchecked"
+                | "overview-mixing"
                 | "fund-address"
                 | "fund-address-review"
                 | "fund-address-steps"
@@ -354,6 +357,10 @@ fn dev_args<'a>(
                 "activity"
                 | "activity-card"
                 | "activity-mixed"
+                | "activity-mixing"
+                | "activity-mixing-advanced"
+                | "activity-mixing-day"
+                | "activity-mixing-card"
                 | "activity-filters"
                 | "activity-filters-empty"
                 | "activity-long-note"

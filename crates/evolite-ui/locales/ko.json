@@ -2965,5 +2965,21 @@
   "Number no. {} is issued.": "번호 No. {}이(가) 발행됩니다.",
   "supply {} · number no. {}": "발행량 {} · 번호 {}번",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "번호가 가장 낮은 빈 사본부터 나갑니다 — No. {}. 판매 중인 것은 건드리지 않습니다.",
-  "Numbers no. {} are issued.": "번호 No. {}이(가) 발행됩니다."
+  "Numbers no. {} are issued.": "번호 No. {}이(가) 발행됩니다.",
+  "Coins prepared": "준비된 코인",
+  "Fees": "수수료",
+  "Mixing": "믹싱",
+  "Mixing coins": "코인 믹싱",
+  "Mixing does not change the balance, only the fees leave.": "믹싱은 잔액을 바꾸지 않으며, 수수료만 나갑니다.",
+  "Mixing rounds": "믹싱 라운드",
+  "Mixing, {}, {}, fees {}, {}": "믹싱, {}, {}, 수수료 {}, {}",
+  "Mixing, {}, {}, no fees, {}": "믹싱, {}, {}, 수수료 없음, {}",
+  "Preparing coins": "코인 준비",
+  "Round": "라운드",
+  "no fees": "수수료 없음",
+  "{} operation · {}|{} operations · {}": {
+    "other": "작업 {}회 · {}"
+  },
+  "no fee": "수수료 없음",
+  "{}–{}": "{}–{}"
 }

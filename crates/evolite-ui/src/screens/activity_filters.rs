@@ -58,8 +58,10 @@ pub mod kind {
     pub const CONTACTS: u8 = 16;
     pub const POOL: u8 = 32;
     pub const APPS: u8 = 64;
+    /// FEAT-0052 R-5: CoinJoin's own operations — the days of mixing.
+    pub const MIXING: u8 = 128;
     /// In the panel's order, with their words.
-    pub const ALL: [(u8, &str); 7] = [
+    pub const ALL: [(u8, &str); 8] = [
         (PAYMENTS, tr!("Payments")),
         (SELF_TRANSFER, tr!("Transfer to yourself")),
         (IDENTITY, "Identity"),
@@ -67,6 +69,7 @@ pub mod kind {
         (CONTACTS, tr!("Contacts and profile")),
         (POOL, tr!("Pool")),
         (APPS, tr!("Apps")),
+        (MIXING, tr!("Mixing")),
     ];
 }
 
@@ -79,13 +82,11 @@ pub fn kind_of(a: &Activity) -> u8 {
         | PlatformReceived
         | AddressSent { .. }
         | AddressWithdrawal { .. } => kind::PAYMENTS,
-        // FEAT-0030: a mixing round and the preparation are moves between the wallet's own coins.
         // FEAT-0015 stage 2: from Core to the wallet's own Platform address, a move between its own.
-        SelfTransfer { .. }
-        | IdentityTransfer { .. }
-        | Mixing { .. }
-        | IntoMixing
-        | AddressFunded => kind::SELF_TRANSFER,
+        SelfTransfer { .. } | IdentityTransfer { .. } | AddressFunded => kind::SELF_TRANSFER,
+        // FEAT-0052 R-5: a mixing round and the preparation are «Mixing» (FEAT-0030 had them
+        // with the transfers to yourself): only that filter shows the days of mixing.
+        Mixing { .. } | IntoMixing => kind::MIXING,
         // FEAT-0038 R-15: an NFT sold, its price in the identity's credits.
         TopUp { .. }
         | Withdrawal { .. }

@@ -3185,5 +3185,26 @@
   "Number no. {} is issued.": "يُصدَر الرقم رقم {}.",
   "supply {} · number no. {}": "الكمية {} · الرقم {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "تذهب النسخ الحرة ذات الأرقام الأدنى — رقم {}. أما المعروضة للبيع فلا تُمَس.",
-  "Numbers no. {} are issued.": "تُصدَر الأرقام رقم {}."
+  "Numbers no. {} are issued.": "تُصدَر الأرقام رقم {}.",
+  "Coins prepared": "العملات المجهّزة",
+  "Fees": "الرسوم",
+  "Mixing": "الخلط",
+  "Mixing coins": "خلط العملات",
+  "Mixing does not change the balance, only the fees leave.": "الخلط لا يغيّر الرصيد، تخرج الرسوم فقط.",
+  "Mixing rounds": "جولات الخلط",
+  "Mixing, {}, {}, fees {}, {}": "الخلط، {}، {}، الرسوم {}، {}",
+  "Mixing, {}, {}, no fees, {}": "الخلط، {}، {}، بلا رسوم، {}",
+  "Preparing coins": "تجهيز العملات",
+  "Round": "جولة",
+  "no fees": "بلا رسوم",
+  "{} operation · {}|{} operations · {}": {
+    "zero": "{} عملية · {}",
+    "one": "{} عملية · {}",
+    "two": "{} عمليتان · {}",
+    "few": "{} عمليات · {}",
+    "many": "{} عمليةً · {}",
+    "other": "{} عملية · {}"
+  },
+  "no fee": "بلا رسوم",
+  "{}–{}": "{}–{}"
 }

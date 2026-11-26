@@ -84,6 +84,9 @@ pub struct TxRow<'a> {
     /// The amount is not checked in this run (or not known yet): dimmed, as a balance kept from
     /// an earlier run is (BUG-115, BUG-201).
     pub dim_amount: bool,
+    /// The row's whole name for a screen reader instead of the one put together from its parts
+    /// (FEAT-0052 R-9: a day of mixing is said as one sentence). In the interface language.
+    pub name: Option<&'a str>,
 }
 
 /// row/transaction: 54 px; icon box 36, title and line under it, status chip, amount in mono.
@@ -136,7 +139,7 @@ fn tx_row_sensed(ui: &mut Ui, a: &mut Assets, row: &TxRow, sense: Sense) -> egui
     }
     // Already in the interface language: not put through it a second time (a wallet's own
     // name, «Main», would be).
-    let name = parts.join(" · ");
+    let name = row.name.map_or_else(|| parts.join(" · "), str::to_owned);
     resp.widget_info(|| egui::WidgetInfo::labeled(kind, true, &name));
     if resp.hovered() {
         ui.painter()

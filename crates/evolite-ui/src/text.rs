@@ -144,6 +144,25 @@ pub fn when(at: Timestamp, now: DateTime<Local>) -> String {
     }
 }
 
+/// FEAT-0052 R-11 on the Overview: `times` after the day of `at` as [`when`] names it —
+/// «today, 10:00–12:05», «yesterday, 10:00», «27 Oct, 10:00» — in the interface language,
+/// one piece to put into a line.
+pub fn with_day(at: Timestamp, times: &str, now: DateTime<Local>) -> String {
+    let lang = crate::i18n::current();
+    match days_between(local(at), now) {
+        ..=0 => crate::i18n::t_in(lang, &format!(tr!("today, {}"), times)).into_owned(),
+        n => {
+            let day = if n == 1 {
+                tr!("yesterday").to_owned()
+            } else {
+                date_short(at, now)
+            };
+            let day = crate::i18n::t_in(lang, &day);
+            format!("{day}{}{times}", crate::i18n::list_comma(lang))
+        }
+    }
+}
+
 /// In a list grouped by day: "just now" or the time; "time unknown" without one.
 pub fn time_of_day(at: Timestamp, now: DateTime<Local>) -> String {
     if !known(at) {

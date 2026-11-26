@@ -3049,5 +3049,23 @@
   "Number no. {} is issued.": "O número n.º {} está sendo emitido.",
   "supply {} · number no. {}": "tiragem {} · número n.º {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Saem as cópias livres de menor numeração — n.º {}. As à venda não são tocadas.",
-  "Numbers no. {} are issued.": "Os números n.º {} estão sendo emitidos."
+  "Numbers no. {} are issued.": "Os números n.º {} estão sendo emitidos.",
+  "Coins prepared": "Moedas preparadas",
+  "Fees": "Taxas",
+  "Mixing": "Mistura",
+  "Mixing coins": "Mistura de moedas",
+  "Mixing does not change the balance, only the fees leave.": "A mistura não altera o saldo; só as taxas saem.",
+  "Mixing rounds": "Rodadas de mistura",
+  "Mixing, {}, {}, fees {}, {}": "Mistura, {}, {}, taxas {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Mistura, {}, {}, sem taxas, {}",
+  "Preparing coins": "Preparação de moedas",
+  "Round": "Rodada",
+  "no fees": "sem taxas",
+  "{} operation · {}|{} operations · {}": {
+    "one": "{} operação · {}",
+    "many": "{} operações · {}",
+    "other": "{} operações · {}"
+  },
+  "no fee": "sem taxa",
+  "{}–{}": "{}–{}"
 }

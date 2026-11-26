@@ -3097,5 +3097,24 @@
   "Number no. {} is issued.": "Випускається номер № {}.",
   "supply {} · number no. {}": "наклад {} · номер № {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Підуть вільні екземпляри з найменшими номерами — № {}. Ті, що продаються, не чіпаються.",
-  "Numbers no. {} are issued.": "Випускаються номери № {}."
+  "Numbers no. {} are issued.": "Випускаються номери № {}.",
+  "Coins prepared": "Підготовлено монет",
+  "Fees": "Комісії",
+  "Mixing": "Перемішування",
+  "Mixing coins": "Перемішування монет",
+  "Mixing does not change the balance, only the fees leave.": "Перемішування не змінює баланс — ідуть лише комісії.",
+  "Mixing rounds": "Раундів",
+  "Mixing, {}, {}, fees {}, {}": "Перемішування, {}, {}, комісії {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Перемішування, {}, {}, без комісій, {}",
+  "Preparing coins": "Підготовка монет",
+  "Round": "Раунд",
+  "no fees": "без комісій",
+  "{} operation · {}|{} operations · {}": {
+    "one": "{} операція · {}",
+    "few": "{} операції · {}",
+    "many": "{} операцій · {}",
+    "other": "{} операції · {}"
+  },
+  "no fee": "без комісії",
+  "{}–{}": "{}–{}"
 }

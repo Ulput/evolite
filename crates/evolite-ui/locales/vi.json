@@ -2965,5 +2965,21 @@
   "Number no. {} is issued.": "Đang phát hành số {}.",
   "supply {} · number no. {}": "số lượng phát hành {} · số {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Các bản còn trống có số thấp nhất sẽ được tặng — số {}. Bản đang bán không bị động đến.",
-  "Numbers no. {} are issued.": "Đang phát hành các số {}."
+  "Numbers no. {} are issued.": "Đang phát hành các số {}.",
+  "Coins prepared": "Đồng đã chuẩn bị",
+  "Fees": "Phí",
+  "Mixing": "Trộn",
+  "Mixing coins": "Trộn đồng",
+  "Mixing does not change the balance, only the fees leave.": "Trộn không làm thay đổi số dư, chỉ có phí bị trừ.",
+  "Mixing rounds": "Vòng trộn",
+  "Mixing, {}, {}, fees {}, {}": "Trộn, {}, {}, phí {}, {}",
+  "Mixing, {}, {}, no fees, {}": "Trộn, {}, {}, không phí, {}",
+  "Preparing coins": "Chuẩn bị đồng",
+  "Round": "Vòng",
+  "no fees": "không phí",
+  "{} operation · {}|{} operations · {}": {
+    "other": "{} thao tác · {}"
+  },
+  "no fee": "không phí",
+  "{}–{}": "{}–{}"
 }

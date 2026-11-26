@@ -130,6 +130,9 @@ pub(super) struct DevState {
     /// BUG-262 (`no-identity-*`): the wallet with no identity, in each snapshot; the Workshop's
     /// on the advanced level.
     no_identity_preset: Option<&'static str>,
+    /// FEAT-0052 (`activity-mixing*`, `overview-mixing`): yesterday's day of mixing
+    /// ([`screens::activity_mixing::example_day`]) in each snapshot.
+    mixing_preset: Option<&'static str>,
     /// `--screen contact-accept` / `contact-resend` (BUG-249 r3): «Accept the request» over the
     /// demo's incoming request, «Send the requests again» over its first contact, once the
     /// snapshot has them.
@@ -342,6 +345,7 @@ impl DevState {
             contact_preset: ["contact-accept", "contact-resend"]
                 .into_iter()
                 .find(|name| dev.preset(name)),
+            mixing_preset: MIXING_FRAMES.into_iter().find(|name| dev.preset(name)),
             no_identity_preset: [
                 "no-identity-contacts",
                 "no-identity-tokens",
@@ -547,6 +551,25 @@ impl App {
     }
 
     pub(super) fn dev_snapshot(&mut self, ctx: &egui::Context) {
+        if let Some(which) = self.dev.mixing_preset
+            && let Some(s) = self.snapshot.as_mut()
+        {
+            let now = self.dev.frozen_now.unwrap_or_else(chrono::Local::now);
+            if let Some(w) = s.wallet.as_mut() {
+                screens::activity_mixing::with_example_day(&mut w.activity, now);
+                // A9's frame at any hour: the demo's lines move with the clock and its later
+                // ones of yesterday took the day out of the latest five — its two newest only.
+                if which == "overview-mixing" {
+                    let ids = screens::activity_mixing::EXAMPLE_IDS;
+                    let mut kept = 0;
+                    w.activity.retain(|a| {
+                        let example = a.id > ids && a.id <= ids + 8;
+                        kept += usize::from(!example);
+                        example || kept <= 2
+                    });
+                }
+            }
+        }
         if let Some(which) = self.dev.no_identity_preset
             && let Some(s) = self.snapshot.as_mut()
         {
@@ -1001,6 +1024,18 @@ impl App {
         }
         if preset("activity-mixed") {
             self.history.filters.layer = 2;
+        }
+        // FEAT-0052: yesterday's day of mixing open (A2), and its collateral's card opened from
+        // it, «Back» in it (UC-3).
+        if preset("activity-mixing-day") || preset("activity-mixing-card") {
+            let today = chrono::Local::now().date_naive();
+            screens::activity_mixing::open_day(ctx, today.pred_opt());
+        }
+        if preset("overview-mixing") {
+            screens::show_latest(ctx);
+        }
+        if preset("activity-mixing-card") {
+            screens::open_card(ctx, screens::activity_mixing::EXAMPLE_IDS + 5);
         }
         if preset("activity-filters-empty") {
             let f = &mut self.history.filters;
@@ -1788,6 +1823,10 @@ impl App {
         if workshop.into_iter().any(preset) {
             self.settings.set("workshop", true);
         }
+        // FEAT-0052 A7: the day of mixing in the advanced mode (the app tells the core).
+        if preset("activity-mixing-advanced") {
+            self.settings.set("advanced", true);
+        }
         if preset("workshop-new") || preset("workshop-review") || preset("workshop-steps") {
             self.workshop.page = screens::workshop::Page::New;
             self.workshop.new.preset(
@@ -2145,6 +2184,15 @@ pub(crate) fn contested_names(identity: &str, now: i64) -> Vec<evolite_api::Dpns
     names[0].primary = true;
     names
 }
+
+/// FEAT-0052: the presets with yesterday's day of mixing in the history.
+const MIXING_FRAMES: [&str; 5] = [
+    "activity-mixing",
+    "activity-mixing-advanced",
+    "activity-mixing-day",
+    "activity-mixing-card",
+    "overview-mixing",
+];
 
 /// FEAT-0048: the frames of the Core form (FEAT-0014, the designer's 4–10): on the advanced
 /// level, «Create from Core (not private)» chosen, as the person gets there now (UC-5).

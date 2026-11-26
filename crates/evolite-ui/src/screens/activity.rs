@@ -1,6 +1,7 @@
 //! 05 · History: every operation, filtered and searched, grouped by day.
 
 use super::activity_filters::{self, Filters, History, Period, Status};
+use super::activity_mixing;
 use super::txt;
 use crate::components::{
     Assets, ButtonKind, TxRow, button, button_enabled, button_row, checkbox, notice, page_header,
@@ -39,8 +40,10 @@ pub fn forget(ctx: &egui::Context) {
         d.remove::<Result<(std::path::PathBuf, usize), String>>(saved_id());
         d.remove::<bool>(left_out_id());
     });
-    // And a note half edited in a card of that wallet's operation (FEAT-0003).
+    // And a note half edited in a card of that wallet's operation (FEAT-0003), and its day of
+    // mixing open (FEAT-0052).
     forget_note(ctx);
+    activity_mixing::close_day(ctx);
 }
 
 /// The last export's answer still shown, if any.
@@ -159,8 +162,25 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
             }
             // A day's heading only above its lines: a day the filters empty has none (AC-D3).
             let mut day = String::new();
-            for act in shown.iter().map(|i| &wallet.activity[*i]) {
-                operation_row(ui, a, cx, act, &mut day);
+            // FEAT-0052: CoinJoin's operations of a day one line (R-1, R-2); a search shows
+            // each that it finds on its own (R-6).
+            let lines = if h.query.trim().is_empty() {
+                activity_mixing::lines(&wallet.activity, &shown, &Local)
+            } else {
+                shown.iter().map(|&i| activity_mixing::Line::One(i)).collect()
+            };
+            for line in &lines {
+                match line {
+                    activity_mixing::Line::One(i) => {
+                        operation_row(ui, a, cx, &wallet.activity[*i], &mut day);
+                    }
+                    activity_mixing::Line::Day(members) => {
+                        let members: Vec<&Activity> =
+                            members.iter().map(|i| &wallet.activity[*i]).collect();
+                        day_heading(ui, &a.p, members[0].at, cx.now, &mut day);
+                        activity_mixing::day_row(ui, a, cx.now, &members, false);
+                    }
+                }
             }
             // FEAT-0019 T-1: older pages of the tokens' history, and what History cannot know.
             if on_tokens {
@@ -183,6 +203,7 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         });
     });
     crate::diagnostics::screen_offset(out.state.offset.y);
+    activity_mixing::day_window(ui, a, cx);
     card_window(ui, a, cx);
 }
 
@@ -673,20 +694,31 @@ fn empty_list(ui: &mut Ui, a: &mut Assets, h: &mut History, cx: &Ctx, filtered: 
     }
 }
 
-/// One operation, under its day's heading when the day changes.
-fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mut String) {
-    let p = a.p;
-    let wallet = cx.wallet();
-    let this_day = text::day(act.at, cx.now);
+/// The heading of the day of `at`, when it is not the day of the line above (`day`).
+fn day_heading(
+    ui: &mut Ui,
+    p: &crate::theme::Palette,
+    at: evolite_api::Timestamp,
+    now: DateTime<Local>,
+    day: &mut String,
+) {
+    let this_day = text::day(at, now);
     if this_day != *day {
         *day = this_day;
         ui.add_space(10.0);
         ui.horizontal(|ui| {
             ui.add_space(16.0);
-            section_label(ui, &p, day);
+            section_label(ui, p, day);
         });
         ui.add_space(4.0);
     }
+}
+
+/// One operation, under its day's heading when the day changes.
+fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mut String) {
+    let p = a.p;
+    let wallet = cx.wallet();
+    day_heading(ui, &p, act.at, cx.now, day);
     let mut detail = text::row_detail(act, cx.now);
     // How a withdrawal or a request to us stands, and which identity of ours it
     // came to (BUG-58).
@@ -718,6 +750,7 @@ fn operation_row(ui: &mut Ui, a: &mut Assets, cx: &Ctx, act: &Activity, day: &mu
             note: act.note.as_deref(),
             fiat: crate::fiat_lines::row(act).as_deref(),
             dim_amount: false,
+            name: None,
         },
     );
     if row.clicked() {

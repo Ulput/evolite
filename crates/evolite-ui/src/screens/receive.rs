@@ -499,6 +499,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                     note: None,
                                     fiat: None,
                                     dim_amount: left.is_none() || !checked,
+                                    name: None,
                                 },
                             );
                             if row

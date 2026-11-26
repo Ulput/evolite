@@ -2965,5 +2965,21 @@
   "Number no. {} is issued.": "番号 No. {} を発行中です。",
   "supply {} · number no. {}": "発行数 {} · 番号 No. {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "番号の小さい空きコピーから贈られます（No. {}）。販売中のものには触れません。",
-  "Numbers no. {} are issued.": "番号 No. {} を発行中です。"
+  "Numbers no. {} are issued.": "番号 No. {} を発行中です。",
+  "Coins prepared": "準備したコイン",
+  "Fees": "手数料",
+  "Mixing": "ミキシング",
+  "Mixing coins": "コインのミキシング",
+  "Mixing does not change the balance, only the fees leave.": "ミキシングで残高は変わりません。出ていくのは手数料だけです。",
+  "Mixing rounds": "ミキシングのラウンド",
+  "Mixing, {}, {}, fees {}, {}": "ミキシング、{}、{}、手数料 {}、{}",
+  "Mixing, {}, {}, no fees, {}": "ミキシング、{}、{}、手数料なし、{}",
+  "Preparing coins": "コインの準備",
+  "Round": "ラウンド",
+  "no fees": "手数料なし",
+  "{} operation · {}|{} operations · {}": {
+    "other": "{} 回の操作 · {}"
+  },
+  "no fee": "手数料なし",
+  "{}–{}": "{}～{}"
 }

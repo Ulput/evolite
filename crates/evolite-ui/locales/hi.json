@@ -3009,5 +3009,22 @@
   "Number no. {} is issued.": "क्रमांक सं. {} जारी किया जा रहा है।",
   "supply {} · number no. {}": "कुल संख्या {} · नंबर क्र. {}",
   "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "सबसे कम क्रमांक वाली खाली प्रतियाँ जाएँगी — सं. {}। बिक्री वाली प्रतियों को छुआ नहीं जाता।",
-  "Numbers no. {} are issued.": "क्रमांक सं. {} जारी किए जा रहे हैं।"
+  "Numbers no. {} are issued.": "क्रमांक सं. {} जारी किए जा रहे हैं।",
+  "Coins prepared": "तैयार कॉइन",
+  "Fees": "शुल्क",
+  "Mixing": "मिश्रण",
+  "Mixing coins": "कॉइन मिश्रण",
+  "Mixing does not change the balance, only the fees leave.": "मिश्रण से बैलेंस नहीं बदलता, केवल शुल्क जाता है।",
+  "Mixing rounds": "मिश्रण के दौर",
+  "Mixing, {}, {}, fees {}, {}": "मिश्रण, {}, {}, शुल्क {}, {}",
+  "Mixing, {}, {}, no fees, {}": "मिश्रण, {}, {}, कोई शुल्क नहीं, {}",
+  "Preparing coins": "कॉइन की तैयारी",
+  "Round": "दौर",
+  "no fees": "कोई शुल्क नहीं",
+  "{} operation · {}|{} operations · {}": {
+    "one": "{} ऑपरेशन · {}",
+    "other": "{} ऑपरेशन · {}"
+  },
+  "no fee": "कोई शुल्क नहीं",
+  "{}–{}": "{}–{}"
 }
