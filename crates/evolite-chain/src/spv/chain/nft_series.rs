@@ -29,10 +29,8 @@ fn instance(doc: &Document) -> Option<Instance> {
         id: doc.id(),
         serial,
         owner: doc.owner_id(),
-        price: doc
-            .properties()
-            .get("$price")
-            .and_then(|v| v.as_integer::<u64>()),
+        // BUG-327 r1 Should 1: the one reading of `$price` (0 is not for sale, R-14).
+        price: crate::platform::workshop_read::price_of(doc).map(|c| c.0),
     })
 }
 
@@ -373,5 +371,35 @@ impl Chain {
             .await
             .map(|_| ())
             .map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod price_tests {
+    use super::*;
+    use dpp::document::DocumentV0;
+
+    fn doc(price: u64) -> Document {
+        Document::V0(DocumentV0 {
+            properties: [
+                ("serial".to_owned(), Value::U32(3)),
+                ("$price".to_owned(), Value::U64(price)),
+            ]
+            .into(),
+            ..Default::default()
+        })
+    }
+
+    /// BUG-327 r1 Should 1: a series reads a copy's `$price` as the Workshop's pages do — in
+    /// credits, and 0 is not for sale (R-14) — so «Take off» does not count one at 0 as listed.
+    #[test]
+    fn a_series_reads_the_price_as_the_pages_do() {
+        let listed = instance(&doc(100_000_000)).expect("a copy");
+        assert_eq!(listed.price, Some(100_000_000), "credits, as written");
+        assert_eq!(
+            instance(&doc(0)).expect("a copy").price,
+            None,
+            "0 is not for sale"
+        );
     }
 }

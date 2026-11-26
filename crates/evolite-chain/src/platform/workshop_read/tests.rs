@@ -59,13 +59,9 @@ fn run<T>(f: impl Future<Output = T>) -> T {
 fn for_sale_reads_on_until_full_or_five_pages() {
     // One in 50 for sale: 2 per page of 100, 10 found in 5 pages of 1 000.
     let (docs, asked) = network(1000, 50);
-    let page = run(pages_with(
-        None,
-        20,
-        MAX_PAGES,
-        |d| price_of(d).is_some(),
-        |a| page_of(&docs, &asked, a),
-    ))
+    let page = run(pages_with(None, 20, MAX_PAGES, is_for_sale, |a| {
+        page_of(&docs, &asked, a)
+    }))
     .unwrap();
     assert_eq!(*asked.borrow(), 5, "at most five pages per action");
     assert_eq!(page.read, 500);
@@ -75,24 +71,16 @@ fn for_sale_reads_on_until_full_or_five_pages() {
         Some(id(500)),
         "«Показать ещё» goes on after the last read"
     );
-    let more = run(pages_with(
-        page.next,
-        20,
-        MAX_PAGES,
-        |d| price_of(d).is_some(),
-        |a| page_of(&docs, &asked, a),
-    ))
+    let more = run(pages_with(page.next, 20, MAX_PAGES, is_for_sale, |a| {
+        page_of(&docs, &asked, a)
+    }))
     .unwrap();
     assert_eq!(serial_of(&more.docs[0]), Some(550));
     // The last page was full: its end is known only from the next, empty one.
     assert_eq!(more.next, Some(id(1000)));
-    let end = run(pages_with(
-        more.next,
-        20,
-        MAX_PAGES,
-        |d| price_of(d).is_some(),
-        |a| page_of(&docs, &asked, a),
-    ))
+    let end = run(pages_with(more.next, 20, MAX_PAGES, is_for_sale, |a| {
+        page_of(&docs, &asked, a)
+    }))
     .unwrap();
     assert!(
         end.docs.is_empty() && end.next.is_none(),
@@ -102,13 +90,9 @@ fn for_sale_reads_on_until_full_or_five_pages() {
 
     // Enough found on the first page: one request.
     let (docs, asked) = network(1000, 2);
-    let page = run(pages_with(
-        None,
-        20,
-        MAX_PAGES,
-        |d| price_of(d).is_some(),
-        |a| page_of(&docs, &asked, a),
-    ))
+    let page = run(pages_with(None, 20, MAX_PAGES, is_for_sale, |a| {
+        page_of(&docs, &asked, a)
+    }))
     .unwrap();
     assert_eq!((*asked.borrow(), page.docs.len()), (1, 50));
 }
@@ -167,7 +151,7 @@ fn a_descending_order_is_read_through_once() {
 #[test]
 fn price_zero_is_not_for_sale() {
     assert_eq!(price_of(&instance(1, 0)), None);
-    assert_eq!(price_of(&instance(1, 7)), Some(7));
+    assert_eq!(price_of(&instance(1, 7)), Some(Credits(7)));
 }
 
 fn sale(n: u8, contract: &str, at_ms: u64) -> SaleDoc {
@@ -602,5 +586,43 @@ fn only_what_the_issuer_wrote_is_the_issuers() {
         shown(&open, &copy(None), &model(issuer)),
         (String::new(), false),
         "who made the copy is not known: not the issuer's"
+    );
+}
+
+/// BUG-327: `$price` as the network keeps it is in credits — 0.001 DASH is 100 000 000 — and the
+/// model page's copies and «Prices» have it in duffs (100 000), as the Collection does; read as
+/// duffs it was 1 000 times the price (1.0000 DASH), and «Change the price» found no copy at it.
+#[test]
+fn a_price_on_the_network_is_read_in_duffs_everywhere() {
+    use super::{instance_of, price_duffs, prices_of};
+    let credits = 100_000_000; // 0.001 DASH, as `$price` holds it
+    let duffs: evolite_api::Duffs = 100_000;
+    let docs = [
+        instance(1, credits),
+        instance(2, credits),
+        instance(3, 0),
+        instance(4, 3 * credits),
+    ];
+    assert_eq!(price_duffs(&docs[0]), Some(duffs));
+    assert_eq!(
+        instance_of(&docs[0]).and_then(|i| i.price),
+        Some(duffs),
+        "a copy"
+    );
+    assert_eq!(
+        instance_of(&docs[2]).map(|i| i.price),
+        Some(None),
+        "not for sale"
+    );
+    assert_eq!(
+        prices_of(&docs),
+        vec![(duffs, 2), (3 * duffs, 1)],
+        "«Prices»"
+    );
+    // The window's way back (`credits_of` = duffs × 1 000) is the price written: «Change the
+    // price» and «Take off» find the copies at it.
+    assert_eq!(
+        u64::try_from(price_duffs(&docs[0]).expect("a price")).expect("positive") * 1_000,
+        credits
     );
 }

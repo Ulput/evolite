@@ -143,13 +143,56 @@ pub fn duffs_of_credits(credits: u64) -> evolite_api::Duffs {
         .unwrap_or(evolite_api::Duffs::MAX)
 }
 
+/// BUG-327 r1 Should 1: a price as `$price` holds it — credits, 1 000 to a duff. Its own type,
+/// so that it cannot be taken for duffs again; [`Credits::duffs`] for what screens show.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Credits(pub u64);
+
+impl Credits {
+    /// In duffs, as every screen shows a price.
+    pub fn duffs(self) -> evolite_api::Duffs {
+        duffs_of_credits(self.0)
+    }
+}
+
 /// An instance's price for sale: `$price` above 0 (0 is not for sale, the architect's
-/// decision on R-14).
-pub fn price_of(doc: &Document) -> Option<u64> {
+/// decision on R-14), in credits.
+pub fn price_of(doc: &Document) -> Option<Credits> {
     doc.properties()
         .get("$price")
         .and_then(|v| v.to_integer::<u64>().ok())
         .filter(|p| *p > 0)
+        .map(Credits)
+}
+
+/// Whether the instance is for sale (R-14: a `$price` above 0).
+pub fn is_for_sale(doc: &Document) -> bool {
+    price_of(doc).is_some()
+}
+
+/// BUG-327: an instance's price for sale as screens take it — `$price` is in credits, 1 000 to a
+/// duff; taken as duffs, the model page said 1.0000 DASH for 0.001 and «Change the price» found
+/// no copy at the price it showed.
+pub fn price_duffs(doc: &Document) -> Option<evolite_api::Duffs> {
+    price_of(doc).map(Credits::duffs)
+}
+
+/// W7: one of one's copies as the model page reads it — its id, number and price (in duffs).
+pub fn instance_of(doc: &Document) -> Option<evolite_api::workshop::Instance> {
+    Some(evolite_api::workshop::Instance {
+        id: doc.id().to_string(Encoding::Base58),
+        serial: serial_of(doc)?,
+        price: price_duffs(doc),
+    })
+}
+
+/// R-14 «Prices» of `docs`: each price (in duffs) and how many are at it, cheapest first.
+pub fn prices_of(docs: &[Document]) -> Vec<(evolite_api::Duffs, u32)> {
+    let mut prices = std::collections::BTreeMap::<evolite_api::Duffs, u32>::new();
+    for p in docs.iter().filter_map(price_duffs) {
+        *prices.entry(p).or_default() += 1;
+    }
+    prices.into_iter().collect()
 }
 
 /// An instance's number.

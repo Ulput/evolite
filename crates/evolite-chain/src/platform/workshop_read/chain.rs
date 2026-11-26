@@ -21,9 +21,9 @@ use sha2::{Digest, Sha256};
 
 use super::profile::{self, Limit, Profile};
 use super::{
-    DOCUMENT_HISTORY, GiftDoc, GivenRead, MAX_PAGES, PAGE, SalesCursor, count_mine,
-    duffs_of_credits, gift_of, instances_by_id, mine_query, new_sales, pages, price_of, sale_of,
-    sales_query, serial_of, transfers_query,
+    DOCUMENT_HISTORY, GiftDoc, GivenRead, MAX_PAGES, PAGE, SalesCursor, count_mine, gift_of,
+    instances_by_id, is_for_sale, mine_query, new_sales, pages, sale_of, sales_query, serial_of,
+    transfers_query,
 };
 use crate::chain::Chain;
 
@@ -285,11 +285,9 @@ impl Chain {
         } else {
             Count::Proved(count_mine(&sdk, c, &profile, id_of(model)?, id_of(owner)?).await?)
         };
-        let mut prices = std::collections::BTreeMap::<i64, u32>::new();
-        for p in page.docs.iter().filter_map(price_of) {
-            *prices.entry(p as i64).or_default() += 1;
-        }
-        let for_sale: u64 = prices.values().map(|n| *n as u64).sum();
+        // BUG-327: in duffs, as the Collection's prices.
+        let prices = super::prices_of(&page.docs);
+        let for_sale: u64 = prices.iter().map(|(_, n)| *n as u64).sum();
         // W4: issued is the highest number the network holds (R-6); a failed read is «—».
         let issued = self
             .nft_max_serial(id_of(contract)?, id_of(model)?)
@@ -306,7 +304,7 @@ impl Chain {
                 documents,
                 complete,
             }),
-            prices: prices.into_iter().collect(),
+            prices,
             sold: sold.map(|(n, _)| n),
             sold_for: sold.map(|(_, sum)| sum),
             issued,
@@ -330,20 +328,11 @@ impl Chain {
         let query = mine_query(c, &profile, id_of(model)?, id_of(owner)?)?;
         let after = after.map(id_of).transpose()?;
         let page = pages(&sdk, query, after, PAGE as usize, MAX_PAGES, |d| {
-            !for_sale || price_of(d).is_some()
+            !for_sale || is_for_sale(d)
         })
         .await?;
-        let mut instances: Vec<Instance> = page
-            .docs
-            .iter()
-            .filter_map(|d| {
-                Some(Instance {
-                    id: b58(d.id()),
-                    serial: serial_of(d)?,
-                    price: price_of(d).map(|p| p as i64),
-                })
-            })
-            .collect();
+        let mut instances: Vec<Instance> =
+            page.docs.iter().filter_map(super::instance_of).collect();
         instances.sort_by_key(|i| i.serial);
         Ok(Instances {
             contract: contract.into(),
@@ -802,7 +791,7 @@ impl Chain {
                     edition: (serial_of(doc), model.supply),
                     owner: owner_name.into(),
                     owner_id: owner.into(),
-                    price: price_of(doc).map(duffs_of_credits),
+                    price: super::price_duffs(doc),
                     chosen: by_issuer && chosen.contains(collection),
                 });
             }
