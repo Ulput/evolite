@@ -1185,8 +1185,32 @@ fn gift_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collection
     };
     let fee = wallet.fees.nft_transfer;
     let title = format!(tr!("Give “{}”"), crate::i18n::own(&nft.name));
+    // TECH-paid-once-gaps (BUG-274's rule): given — its answer and «Done», no second «Give» of
+    // the same NFT.
+    let given = matches!(state.result, Some(Ok(())));
     let closed = dialog_with_summary(ui, a, "gift-dialog", "nft", &title, 464.0, |ui, a, part| {
         let mut close = false;
+        if given {
+            return match part {
+                Part::Summary => false,
+                Part::Footer => {
+                    crate::components::button_row(ui, |ui| {
+                        close = button(ui, a, tr!("Done"), ButtonKind::Primary, None).clicked();
+                    });
+                    close
+                }
+                Part::Middle => {
+                    crate::components::notice(
+                        ui,
+                        a,
+                        "confirmed",
+                        p.accent,
+                        tr!("NFT transferred."),
+                    );
+                    false
+                }
+            };
+        }
         let name = state
             .recipient
             .trim()

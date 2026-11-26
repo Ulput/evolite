@@ -1505,11 +1505,37 @@ impl App {
             screens::shielded::PoolState {
                 // `--screen shield-core` and `--screen unshield-identity`: the Core source and
                 // the identity destination; `--open shield` is the empty dialog over the real core.
-                shielding: preset("shield-core") || preset("shield"),
+                // `--screen shield-mixed` (FEAT-0048 UC-8): from fully mixed coins, 0.05 typed.
+                shielding: preset("shield-core") || preset("shield") || preset("shield-mixed"),
+                from_mixed: preset("shield-mixed"),
+                // The demo has no fully mixed coins to lock: the plan the real core gives, put in
+                // as `top-up-mixed` does — 0.05 exactly from denominations, no excess.
+                mixed: {
+                    let mut plan = crate::screens::mixed_lock::MixedLock::default();
+                    if preset("shield-mixed") {
+                        plan.set(
+                            evolite_api::MixedTo::Pool,
+                            5_000_000,
+                            Ok(evolite_api::MixedLockQuote {
+                                amount: 5_000_000,
+                                nominal: 5_000_000,
+                                exact: true,
+                                excess: 0,
+                                confirm: false,
+                                coins: 1,
+                                fee: 2_260,
+                                exactly: None,
+                            }),
+                        );
+                    }
+                    plan
+                },
                 from: if preset("shield-core") { 2 } else { 0 },
                 // An example amount only in `--screen shield-core`: the dialog opens empty.
                 amount: if preset("shield-core") && !real_shot {
                     crate::format::input_text(50_000_000)
+                } else if preset("shield-mixed") && !real_shot {
+                    crate::format::input_text(5_000_000)
                 } else {
                     String::new()
                 },

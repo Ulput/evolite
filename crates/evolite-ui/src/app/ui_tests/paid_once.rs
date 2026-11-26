@@ -27,6 +27,111 @@ fn type_password(kit: &mut Kit, password: &str) {
     kit.run_steps(2);
 }
 
+/// TECH-paid-once-gaps: the presets whose act is off by design — each said why. Their dialogs
+/// pay in other presets; any other paying dialog whose act stays off fails the test (a dialog
+/// the test does not reach is a gap, not a pass).
+const DESIGNED_OFF: &[(&str, &str)] = &[
+    ("send-confirm-wait", "the chosen coins are still being read"),
+    (
+        "send-mixed-refused-confirm",
+        "the excess is over the bound: refused",
+    ),
+    ("top-up-bad-amount", "an amount that is not one"),
+    ("top-up-many-coins", "coins that cannot make the lock"),
+    ("top-up-not-final", "coins not final yet"),
+    ("unshield-bad-amount", "an amount that is not one"),
+    ("shield", "a shield already running"),
+    (
+        "add-name-fund-rose",
+        "the contest fund rose since it was shown: refused, the new one said",
+    ),
+];
+
+/// The centre of an AccessKit box, in the window's points.
+fn centre(r: egui::accesskit::Rect) -> egui::Pos2 {
+    egui::pos2(((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32)
+}
+
+/// What a person types into a field of a paying dialog, by its name: a recipient's Dash name,
+/// a token's name in words, an amount anywhere else; `None` for a field that is not the
+/// payment's (a lookup on the page behind, «Check an identity»).
+fn filler(label: &str) -> Option<&'static str> {
+    match label {
+        "Check an identity" => None,
+        "One" | "Many" => Some("Coffee"),
+        l if l.contains("ecipient") || l == "@name" => Some("@alice"),
+        _ => Some("0.01"),
+    }
+}
+
+/// What a person fills before the act turns on: each tick in the dialog ticked (an excess agreed
+/// to, a large spend, «I understand»), each empty field of the payment typed ([`filler`]). The
+/// choices (a key's purpose, a rule) are tried one by one by the test itself.
+pub(super) fn fill_the_dialog(kit: &mut Kit, rect: egui::Rect) {
+    let inside = |r: egui::accesskit::Rect| rect.contains(centre(r));
+    let fields: Vec<(egui::Pos2, &'static str)> = kit
+        .query_all_by_role(Role::TextInput)
+        .filter(|b| b.accesskit_node().bounding_box().is_some_and(inside))
+        .filter(|b| b.accesskit_node().value().is_none_or(|v| v.is_empty()))
+        .filter_map(|b| {
+            let n = b.accesskit_node();
+            Some((
+                centre(n.bounding_box()?),
+                filler(&n.label().unwrap_or_default())?,
+            ))
+        })
+        .collect();
+    for (at, text) in fields {
+        click_at(kit, at);
+        kit.event(egui::Event::Text(text.into()));
+        kit.run_steps(3);
+    }
+    // Ticked last: a tick agrees to what was typed, and a change takes it off.
+    let ticks: Vec<egui::Pos2> = kit
+        .query_all_by_role(Role::CheckBox)
+        .filter(|b| b.accesskit_node().bounding_box().is_some_and(inside))
+        .filter(|b| b.accesskit_node().toggled() != Some(egui::accesskit::Toggled::True))
+        .filter_map(|b| b.accesskit_node().bounding_box())
+        .map(centre)
+        .collect();
+    for at in ticks {
+        click_at(kit, at);
+    }
+}
+
+/// The second pass, for a dialog still off: each field of the payment given a value that pays,
+/// over what the preset put there (an amount over what there is, the token's own names).
+fn overwrite_the_dialog(kit: &mut Kit, rect: egui::Rect) {
+    let inside = |r: egui::accesskit::Rect| rect.contains(centre(r));
+    let fields: Vec<(egui::Pos2, &'static str)> = kit
+        .query_all_by_role(Role::TextInput)
+        .filter(|b| b.accesskit_node().bounding_box().is_some_and(inside))
+        .filter_map(|b| {
+            let n = b.accesskit_node();
+            Some((
+                centre(n.bounding_box()?),
+                filler(&n.label().unwrap_or_default())?,
+            ))
+        })
+        .collect();
+    for (at, text) in fields {
+        click_at(kit, at);
+        kit.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        kit.run_steps(1);
+        kit.event(egui::Event::Text(text.into()));
+        kit.run_steps(3);
+    }
+}
+
+/// The choices of the dialog (radio buttons), by where they are.
+fn choices(kit: &Kit, rect: egui::Rect) -> Vec<egui::Pos2> {
+    kit.query_all_by_role(Role::RadioButton)
+        .filter_map(|b| b.accesskit_node().bounding_box())
+        .map(centre)
+        .filter(|at| rect.contains(*at))
+        .collect()
+}
+
 /// How long one press may take to be answered before the next step is looked for.
 const STEP: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -47,7 +152,7 @@ fn label_at(kit: &Kit, rect: egui::Rect) -> String {
 }
 
 /// A real click (pointer events) at `at`.
-fn click_at(kit: &mut Kit, at: egui::Pos2) {
+pub(super) fn click_at(kit: &mut Kit, at: egui::Pos2) {
     kit.hover_at(at);
     kit.run_steps(1);
     for pressed in [true, false] {
@@ -90,6 +195,51 @@ fn a_paying_dialog_never_offers_to_pay_again_after_it_went_through() {
             if let Some(now) = drawn_now(&mut kit) {
                 seen = now;
             }
+        }
+        // TECH-paid-once-gaps: what a person fills before the act turns on.
+        if seen.spends && seen.spend_ready.is_none() {
+            fill_the_dialog(&mut kit, seen.rect);
+            settle(&mut kit);
+            if let Some(now) = drawn_now(&mut kit) {
+                seen = now;
+            }
+        }
+        // A choice still to make (a key's purpose, a rule other than the one set): each in turn,
+        // until the act turns on.
+        // The second pass: values that pay over the preset's, and a token's rule other than the
+        // one set («It is set this way already» has no operation).
+        if seen.spends && seen.spend_ready.is_none() {
+            overwrite_the_dialog(&mut kit, seen.rect);
+            if let Some(form) = kit.state_mut().tokens.issuer.as_mut() {
+                form.choice = if form.choice == 0 { 1 } else { 0 };
+            }
+            fill_the_dialog(&mut kit, seen.rect);
+            settle(&mut kit);
+            if let Some(now) = drawn_now(&mut kit) {
+                seen = now;
+            }
+        }
+        if seen.spends && seen.spend_ready.is_none() {
+            for at in choices(&kit, seen.rect) {
+                click_at(&mut kit, at);
+                settle(&mut kit);
+                // A choice may ask for its own field or tick.
+                fill_the_dialog(&mut kit, seen.rect);
+                settle(&mut kit);
+                if let Some(now) = drawn_now(&mut kit) {
+                    seen = now;
+                }
+                if seen.spend_ready.is_some() {
+                    break;
+                }
+            }
+        }
+        let off_by_design = DESIGNED_OFF.iter().any(|(p, _)| p == preset);
+        if seen.spends && seen.spend_ready.is_none() && !off_by_design {
+            wrong.push(format!(
+                "{preset} ({}): a paying dialog the test does not reach — its act stays off",
+                seen.name
+            ));
         }
         let (Some(button), true) = (seen.spend_ready, seen.spends) else {
             let buttons: Vec<String> = kit
@@ -151,7 +301,14 @@ fn a_paying_dialog_never_offers_to_pay_again_after_it_went_through() {
             // A dialog whose only act is to close: nothing to pay here.
             None if pay == "Close" => log.push(format!("{preset} ({name}): only «Close»")),
             None => wrong.push(format!("{preset} ({name}): «{pay}» sent nothing")),
-            Some((what, false)) => log.push(format!("{preset} ({name}): refused {what}")),
+            // A paying preset that does not reach a success is a gap, not a pass (the
+            // coordinator's rule after FEAT-0048): only a frame refused by design.
+            Some((what, false)) if off_by_design => {
+                log.push(format!("{preset} ({name}): refused {what}, by design"))
+            }
+            Some((what, false)) => wrong.push(format!(
+                "{preset} ({name}): «{pay}» did not reach a success: refused {what}"
+            )),
             Some((_, true)) => {
                 paid += 1;
                 log.push(format!("{preset} ({name}): «{pay}» paid"));
@@ -209,6 +366,8 @@ fn a_paying_dialog_never_offers_to_pay_again_after_it_went_through() {
             }
         }
     }
+    // What each preset did, for `--nocapture`.
+    eprintln!("{}", log.join("\n"));
     assert!(paid > 10, "only {paid} presets paid:\n{}", log.join("\n"));
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

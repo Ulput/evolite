@@ -259,7 +259,7 @@ pub const PRESETS: &[&str] = &[
     "create-identity-pool-checking", "create-identity-pool-refused", "create-identity-core",
     "create-identity-pool-review", "create-identity-pool", "create-identity-pool-refund",
     "create-identity-pool-not-delivered",
-    "shielded", "shield", "shield-core", "unshield", "unshield-bad-amount", "unshield-identity", "pool-address",
+    "shielded", "shield", "shield-core", "shield-mixed", "unshield", "unshield-bad-amount", "unshield-identity", "pool-address",
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
@@ -547,6 +547,7 @@ fn dev_args<'a>(
                 "shielded"
                 | "shield"
                 | "shield-core"
+                | "shield-mixed"
                 | "unshield"
                 | "unshield-bad-amount"
                 | "unshield-identity"
