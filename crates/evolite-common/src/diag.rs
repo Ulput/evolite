@@ -155,6 +155,14 @@ pub enum Record {
         op: &'static str,
         error: String,
     },
+    /// BUG-323: a proved read of an App Connect request failed: its stage (`group`, `contract`,
+    /// `enc_keys`), the error's kind (type names only) and the protocol version the SDK saw —
+    /// never the id or the error's text.
+    ConnectRead {
+        stage: &'static str,
+        error: String,
+        protocol: Option<u32>,
+    },
     /// A panic: where, and its message and stack, scrubbed.
     Panic {
         location: String,
@@ -533,6 +541,11 @@ impl Record {
             Record::Platform { op, error } => {
                 json!({"k": "platform", "op": op, "error": error})
             }
+            Record::ConnectRead {
+                stage,
+                error,
+                protocol,
+            } => json!({"k": "connect_read", "stage": stage, "error": error, "protocol": protocol}),
             Record::WindowReset => json!({"k": "window_reset"}),
             Record::ContactChannelBroken => json!({"k": "contact_channel_broken"}),
             Record::UpdateCheck { result, date } => {
@@ -1142,6 +1155,23 @@ fn fresh_test_lock() -> std::sync::MutexGuard<'static, ()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-323: a failed read of an App Connect request is journaled as its stage, the error's
+    /// kind and the protocol version — never the group's or contract's id, never the text.
+    #[test]
+    fn a_connect_read_is_its_stage_kind_and_protocol_only() {
+        let line = Record::ConnectRead {
+            stage: "contract",
+            error: error_kind_of_debug("Sdk(Protocol(DecodingError(\"8mjmcXmf bad\")))"),
+            protocol: Some(11),
+        }
+        .line(UNIX_EPOCH);
+        assert!(
+            line.contains(r#""k":"connect_read","stage":"contract","error":"Sdk/Protocol/DecodingError","protocol":11"#),
+            "{line}"
+        );
+        assert!(!line.contains("8mjm") && !line.contains("bad"), "{line}");
+    }
 
     /// FEAT-0019 T-1.8: a page of a token's history is journaled as counts only — no token,
     /// identity, document id or amount can be in its line.

@@ -2622,6 +2622,37 @@ async fn three_recipients_are_one_transaction_with_change() {
             .join("wallets")
             .join("testnet")
             .join("platform-wallet.db"),
+/// BUG-323 (the architect's probe): Yappr staging's App Connect request reads one contract
+/// group and two contracts, proved; each read alone, its error's whole text printed, and the
+/// protocol version the SDK sees. Testnet, read-only, no phrase, no spend.
+/// `cargo test -p evolite-chain live_bug_323_connect_reads -- --ignored --nocapture`
+#[test]
+#[ignore = "live: reads testnet"]
+fn live_bug_323_connect_reads() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(bug_323_reads())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn bug_323_reads() {
+    use dash_sdk::platform::Fetch;
+    use dash_sdk::platform::contract_groups::ContractGroupInfo;
+    use dpp::data_contract::accessors::v0::DataContractV0Getters;
+    use dpp::platform_value::string_encoding::Encoding;
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
         held_since: dir.join("held-since.json"),
     };
@@ -2707,4 +2738,46 @@ async fn three_recipients_are_one_transaction_with_change() {
     drop(wallet);
     chain.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
+        .start(&paths, Arc::new(|_: &SyncStatus| {}))
+        .await
+        .expect("chain starts");
+    let started = Instant::now();
+    while !chain.platform_ready() {
+        assert!(
+            started.elapsed() < Duration::from_secs(30 * 60),
+            "not ready: {:?}",
+            chain.status()
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    let sdk = chain.sdk().await.expect("the SDK");
+    let id = |s: &str| Identifier::from_string(s, Encoding::Base58).expect("an id");
+    println!(
+        "BUG-323 protocol_version_number: {}",
+        sdk.protocol_version_number()
+    );
+    let group = "DrNB3VwKSv2zz1E7beNKFVMzyavhD2Nn1L6Lhz3K9ivR";
+    match ContractGroupInfo::fetch(&sdk, id(group)).await {
+        Ok(Some(info)) => println!("BUG-323 group {group}: owner {}", info.owner().owner_id()),
+        Ok(None) => println!("BUG-323 group {group}: none (proved)"),
+        Err(e) => println!("BUG-323 group {group}: ERROR {e}\n  {e:?}"),
+    }
+    for contract in [
+        "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU",
+        "Bwr4WHCPz5rFVAD87RqTs3izo4zpzwsEdKPWUT1NS1C7",
+    ] {
+        match dpp::data_contract::DataContract::fetch(&sdk, id(contract)).await {
+            Ok(Some(c)) => println!(
+                "BUG-323 contract {contract}: owner {} version {}",
+                c.owner_id(),
+                c.version()
+            ),
+            Ok(None) => println!("BUG-323 contract {contract}: none (proved)"),
+            Err(e) => println!("BUG-323 contract {contract}: ERROR {e}\n  {e:?}"),
+        }
+    }
+    println!(
+        "BUG-323 protocol_version_number after: {}",
+        sdk.protocol_version_number()
+    );
 }

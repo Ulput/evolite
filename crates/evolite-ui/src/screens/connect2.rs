@@ -18,8 +18,8 @@ use crate::theme::{Weight, mono};
 use chrono::{DateTime, Local};
 use egui::{Frame, Margin, Stroke, Ui};
 use evolite_api::{
-    AppBinding, AppLinkRefusal, AppRequest, AppRequestKind, Duffs, EncryptionOffer, Renewal,
-    SessionGrant, SessionLimits, SessionOffer, Timestamp,
+    AppBinding, AppLinkRefusal, AppRequest, AppRequestKind, ConnectRead, Duffs, EncryptionOffer,
+    Renewal, SessionGrant, SessionLimits, SessionOffer, Timestamp,
 };
 
 const DAY: Timestamp = 24 * 60 * 60;
@@ -980,6 +980,45 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
                 "Switch evolite to testnet in Settings › Network and nodes, then open the link again. Nothing was spent."
             )),
         ),
+        // BUG-323: Platform answered and the answer was not read — which read, not «the network
+        // refused»; a contract perhaps newer than this evolite (the architect).
+        AppLinkRefusal::ReadFailed {
+            stage,
+            id,
+            undecoded,
+            ..
+        } => {
+            // FEAT-0051 R-5: the id whole; the paragraph wraps it.
+            let short = crate::i18n::own(id);
+            let body = match stage {
+                ConnectRead::Group => format!(
+                    tr!("Could not read the app's contract group {} from Platform."),
+                    short
+                ),
+                // r1 (Should 1): «newer» only when the answer came and was not taken.
+                ConnectRead::Contract if *undecoded => format!(
+                    tr!(
+                        "Could not read the app's contract {}: it may be newer than this version of evolite."
+                    ),
+                    short
+                ),
+                ConnectRead::Contract => format!(
+                    tr!("Could not read the app's contract {} from Platform."),
+                    short
+                ),
+                ConnectRead::EncKeys => format!(
+                    tr!("Could not read the identity's keys for contract {} from Platform."),
+                    short
+                ),
+            };
+            (
+                t(tr!("Could not read the app's request")),
+                body,
+                t(tr!(
+                    "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered."
+                )),
+            )
+        }
         other => {
             let reason = match other {
                 AppLinkRefusal::SystemContract => {
@@ -1009,10 +1048,23 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
 }
 
 /// The refusal dialog (E1–E3): «attention» tone, never red. Returns true when closed; with
-/// `again` the person asks to paste another link.
-pub fn refusal(ui: &mut Ui, a: &mut Assets, why: &AppLinkRefusal, again: &mut bool) -> bool {
+/// `again` the person asks to paste another link; with `retry` (BUG-323) to open this one again.
+pub fn refusal(
+    ui: &mut Ui,
+    a: &mut Assets,
+    why: &AppLinkRefusal,
+    again: &mut bool,
+    retry: &mut Option<String>,
+) -> bool {
     let (title, body, hint) = refusal_words(why, tr!("app"));
-    dialog_with_footer(
+    // BUG-323: a failed read's own text, under «Details», for the person and for QA.
+    let read_failed = match why {
+        AppLinkRefusal::ReadFailed { details, link, .. } => Some((details.clone(), link.clone())),
+        _ => None,
+    };
+    let details_id = ui.id().with("app-link-refused-details");
+    let mut shown = ui.data(|d| d.get_temp::<bool>(details_id)).unwrap_or(false);
+    let closed = dialog_with_footer(
         ui,
         a,
         "app-link-refused",
@@ -1031,6 +1083,20 @@ pub fn refusal(ui: &mut Ui, a: &mut Assets, why: &AppLinkRefusal, again: &mut bo
                         *again = true;
                         close = true;
                     }
+                    if let Some((_, link)) = &read_failed {
+                        let toggle = if shown {
+                            tr!("Hide details")
+                        } else {
+                            tr!("Details")
+                        };
+                        if button(ui, a, toggle, ButtonKind::Ghost, None).clicked() {
+                            shown = !shown;
+                        }
+                        if button(ui, a, tr!("Try again"), ButtonKind::Secondary, None).clicked() {
+                            *retry = Some(link.clone());
+                            close = true;
+                        }
+                    }
                     if button(ui, a, tr!("Got it"), ButtonKind::Primary, None).clicked() {
                         close = true;
                     }
@@ -1040,9 +1106,19 @@ pub fn refusal(ui: &mut Ui, a: &mut Assets, why: &AppLinkRefusal, again: &mut bo
             ui.spacing_mut().item_spacing.y = 14.0;
             wrapped(ui, &body, 14.0, p.text);
             notice(ui, a, "info", p.muted, &hint);
+            if let (true, Some((details, _))) = (shown, &read_failed) {
+                ui.add(crate::components::para(
+                    details,
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            }
             false
         },
-    )
+    );
+    ui.data_mut(|d| d.insert_temp(details_id, shown && !closed));
+    closed
 }
 
 /// «Renew» (R1): the limit cannot be raised in place; a new sign-in with the same connection

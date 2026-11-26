@@ -3206,5 +3206,12 @@
     "other": "{} عملية · {}"
   },
   "no fee": "بلا رسوم",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "تعذّرت قراءة عقد التطبيق {} من Platform.",
+  "Could not read the app's request": "تعذّرت قراءة طلب التطبيق",
+  "Could not read the app's contract group {} from Platform.": "تعذّرت قراءة مجموعة عقود التطبيق {} من Platform.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "تعذّرت قراءة عقد التطبيق {}: ربما يكون أحدث من هذا الإصدار من evolite.",
+  "Could not read the identity's keys for contract {} from Platform.": "تعذّرت قراءة مفاتيح الهوية للعقد {} من Platform.",
+  "Hide details": "إخفاء التفاصيل",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform."
 }

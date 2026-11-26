@@ -3026,5 +3026,12 @@
     "other": "{} ऑपरेशन · {}"
   },
   "no fee": "कोई शुल्क नहीं",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "ऐप का कॉन्ट्रैक्ट {} Platform से पढ़ा नहीं जा सका।",
+  "Could not read the app's request": "ऐप का अनुरोध पढ़ा नहीं जा सका",
+  "Could not read the app's contract group {} from Platform.": "ऐप का कॉन्ट्रैक्ट समूह {} Platform से पढ़ा नहीं जा सका।",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "ऐप का कॉन्ट्रैक्ट {} पढ़ा नहीं जा सका: शायद यह evolite के इस संस्करण से नया है।",
+  "Could not read the identity's keys for contract {} from Platform.": "कॉन्ट्रैक्ट {} के लिए पहचान की कुंजियाँ Platform से पढ़ी नहीं जा सकीं।",
+  "Hide details": "विवरण छिपाएँ",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "कुछ भी ख़र्च नहीं हुआ। फिर कोशिश करें; अगर फिर से हो, तो «विवरण» दिखाता है कि Platform ने क्या जवाब दिया।"
 }

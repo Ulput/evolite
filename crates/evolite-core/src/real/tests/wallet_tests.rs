@@ -929,6 +929,7 @@ async fn a_v2_request_kept_open_too_long_is_refused_at_approve() {
         7,
         crate::real::AppJob::Connect2(Box::new(Connect2Job {
             link,
+            text: String::new(),
             name: "@yappr".into(),
             identity: [3; 32],
         })),

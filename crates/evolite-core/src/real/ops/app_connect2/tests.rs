@@ -493,3 +493,75 @@ fn a_request_is_priced_with_the_fees_of_every_form() {
         "not the measured fees"
     );
 }
+
+/// BUG-323: each failed read of `open_connect2` is its own refusal — the stage, the id in base58,
+/// the error's text for «Details», the link to open again — not «the network refused».
+/// Mutant: `connect_facts(..).map_err(CoreError::Failed)` back.
+#[test]
+fn a_failed_read_says_which_and_keeps_the_link() {
+    use app_chain_v2::{FactsError, ReadError};
+    let link = "dashpay://connect?v=2&n=t&r=AQ";
+    let error = || ReadError {
+        text: "protocol error: decoding".into(),
+        debug: "Protocol(DecodingError)".into(),
+    };
+    let id = [7u8; 32];
+    for (failed, stage) in [
+        (FactsError::Group(id, error()), ConnectRead::Group),
+        (FactsError::Contract(id, error()), ConnectRead::Contract),
+    ] {
+        assert_eq!(
+            facts_failed(failed, link, Some(11)),
+            CoreError::AppLink(AppLinkRefusal::ReadFailed {
+                stage,
+                id: base58(&id),
+                undecoded: true,
+                details: "protocol error: decoding".into(),
+                link: link.into(),
+            })
+        );
+    }
+    assert_eq!(
+        read_failed(ConnectRead::EncKeys, &id, &error(), link, None),
+        CoreError::AppLink(AppLinkRefusal::ReadFailed {
+            stage: ConnectRead::EncKeys,
+            id: base58(&id),
+            undecoded: true,
+            details: "protocol error: decoding".into(),
+            link: link.into(),
+        })
+    );
+    assert_eq!(
+        facts_failed(FactsError::Sdk("no SDK".into()), link, None),
+        CoreError::Failed("no SDK".into())
+    );
+    // r1 (Should 1): a timeout or an unreachable node is not an answer evolite could not take.
+    for (debug, taken) in [
+        ("Protocol(DecodingError(..))", true),
+        ("Proof(InvalidProof(..))", true),
+        ("Protocol(UnknownVersionMismatch { .. })", true),
+        ("DapiClientError(Transport(..))", false),
+        ("TimeoutReached(30s, ..)", false),
+    ] {
+        assert_eq!(undecoded(debug), taken, "{debug}");
+    }
+    // r1 (Should 2): after the password too the keys' read says its stage. Mutant:
+    // `CoreError::Failed(e.text)` back in `approve_connect2`.
+    let file = include_str!("../app_connect2.rs");
+    let approve = &file[file.find("fn approve_connect2").expect("approve_connect2")..];
+    assert!(
+        approve.contains("read_failed(ConnectRead::EncKeys"),
+        "the keys' read after the password by its stage"
+    );
+    let file = include_str!("../app_connect2.rs");
+    let open = &file[file.find("fn open_connect2").expect("open_connect2")..];
+    let open = &open[..open.find("\n    }\n").unwrap_or(open.len())];
+    assert!(
+        open.contains("facts_failed("),
+        "connect_facts' failure by its stage"
+    );
+    assert!(
+        open.contains("ConnectRead::EncKeys"),
+        "enc_steps' failure by its stage"
+    );
+}

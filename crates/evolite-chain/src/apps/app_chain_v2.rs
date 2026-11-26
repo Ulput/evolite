@@ -65,15 +65,40 @@ pub struct NewKey {
     pub secret: Zeroizing<[u8; SLOT]>,
 }
 
+/// BUG-323: which proved read of [`Chain::connect_facts`] failed, with the error: its text, then
+/// its `{:?}` form (the kind for the journal is taken from that, never the text).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FactsError {
+    /// No SDK to ask with.
+    Sdk(String),
+    Group([u8; 32], ReadError),
+    Contract([u8; 32], ReadError),
+}
+
+/// A read's error: what it says, and its `{:?}` form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadError {
+    pub text: String,
+    pub debug: String,
+}
+
+fn read_error(e: &dash_sdk::Error) -> ReadError {
+    ReadError {
+        text: e.to_string(),
+        debug: format!("{e:?}"),
+    }
+}
+
 impl Chain {
     /// The network's protocol version, as the SDK last saw it.
     pub async fn protocol_version(&self) -> Result<u32, String> {
         Ok(self.sdk().await?.protocol_version_number())
     }
 
-    /// What Platform says (proved) about every contract and group `request` names.
-    pub async fn connect_facts(&self, request: &Request) -> Result<Facts, String> {
-        let sdk = self.sdk().await?;
+    /// What Platform says (proved) about every contract and group `request` names. A failed read
+    /// says which it was (BUG-323).
+    pub async fn connect_facts(&self, request: &Request) -> Result<Facts, FactsError> {
+        let sdk = self.sdk().await.map_err(FactsError::Sdk)?;
         let mut facts = Facts::default();
         let mut contracts = vec![request.app_id];
         for binding in &request.auth {
@@ -85,7 +110,7 @@ impl Chain {
                     use dash_sdk::platform::contract_groups::ContractGroupInfo;
                     let info = ContractGroupInfo::fetch(&sdk, Identifier::from(*group))
                         .await
-                        .map_err(|e| e.to_string())?;
+                        .map_err(|e| FactsError::Group(*group, read_error(&e)))?;
                     if let Some(info) = info {
                         facts
                             .group_owner
@@ -100,7 +125,7 @@ impl Chain {
         for id in contracts {
             let Some(contract) = DataContract::fetch(&sdk, Identifier::from(id))
                 .await
-                .map_err(|e| e.to_string())?
+                .map_err(|e| FactsError::Contract(id, read_error(&e)))?
             else {
                 continue;
             };
@@ -126,10 +151,13 @@ impl Chain {
         identity: Identifier,
         contract: [u8; 32],
         purpose: EncPurpose,
-    ) -> Result<Option<IdentityPublicKey>, String> {
+    ) -> Result<Option<IdentityPublicKey>, ReadError> {
         use dash_sdk::platform::identities_contract_keys_query::IdentitiesContractKeysQuery;
         use dpp::identity::identities_contract_keys::IdentitiesContractKeys;
-        let sdk = self.sdk().await?;
+        let sdk = self.sdk().await.map_err(|text| ReadError {
+            debug: text.clone(),
+            text,
+        })?;
         let wanted = self::purpose(purpose);
         let query = IdentitiesContractKeysQuery::new(
             vec![identity],
@@ -137,10 +165,10 @@ impl Chain {
             None,
             vec![wanted],
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| read_error(&e))?;
         let found = IdentitiesContractKeys::fetch(&sdk, query)
             .await
-            .map_err(|e| e.to_string())?
+            .map_err(|e| read_error(&e))?
             .unwrap_or_default(); // default-ok: proved none: the identity has no such key
         Ok(found
             .get(&identity)

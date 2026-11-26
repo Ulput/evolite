@@ -2981,5 +2981,12 @@
     "other": "{} 次操作 · {}"
   },
   "no fee": "无手续费",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "无法从 Platform 读取应用的合约 {}。",
+  "Could not read the app's request": "无法读取应用的请求",
+  "Could not read the app's contract group {} from Platform.": "无法从 Platform 读取应用的合约组 {}。",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "无法读取应用的合约 {}：它可能比此版本的 evolite 更新。",
+  "Could not read the identity's keys for contract {} from Platform.": "无法从 Platform 读取身份用于合约 {} 的密钥。",
+  "Hide details": "隐藏详情",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "未花费任何东西。请重试；如果再次发生，「详情」会显示 Platform 的回答。"
 }

@@ -2981,5 +2981,12 @@
     "other": "작업 {}회 · {}"
   },
   "no fee": "수수료 없음",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "앱의 컨트랙트 {}을(를) Platform에서 읽을 수 없습니다.",
+  "Could not read the app's request": "앱의 요청을 읽을 수 없습니다",
+  "Could not read the app's contract group {} from Platform.": "앱의 컨트랙트 그룹 {}을(를) Platform에서 읽을 수 없습니다.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "앱의 컨트랙트 {}을(를) 읽을 수 없습니다. 이 버전의 evolite보다 새로운 것일 수 있습니다.",
+  "Could not read the identity's keys for contract {} from Platform.": "컨트랙트 {}에 대한 아이덴티티의 키를 Platform에서 읽을 수 없습니다.",
+  "Hide details": "자세히 숨기기",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "아무것도 쓰지 않았습니다. 다시 시도하세요. 다시 일어나면 «자세히»에서 Platform의 응답을 볼 수 있습니다."
 }

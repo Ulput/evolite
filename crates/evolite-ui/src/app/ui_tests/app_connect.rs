@@ -519,3 +519,37 @@ fn a_low_window_keeps_one_line_of_consent_with_the_password() {
         );
     }
 }
+
+/// BUG-323: a failed read is its own dialog — which read, «Details» with what Platform answered,
+/// and «Try again», which opens the same link again (here the demo's request opens).
+#[test]
+fn a_failed_read_says_which_and_opens_the_link_again() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    kit.state_mut().requests.refused = Some(evolite_api::AppLinkRefusal::ReadFailed {
+        stage: evolite_api::ConnectRead::Contract,
+        undecoded: true,
+        id: "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU".into(),
+        details: "protocol error: unknown version of the contract".into(),
+        link: "dashpay://connect?v=2&n=t&r=AQ".into(),
+    });
+    kit.run_steps(3);
+    assert!(has_words(
+        &kit,
+        "it may be newer than this version of evolite"
+    ));
+    assert!(
+        !has_words(&kit, "unknown version of the contract"),
+        "under «Details»"
+    );
+    button(&kit, "Details").click();
+    kit.run_steps(3);
+    assert!(
+        has_words(&kit, "unknown version of the contract"),
+        "the error's text"
+    );
+    button(&kit, "Try again").click();
+    wait_for(&mut kit, "the request opened again", |kit| {
+        kit.state().requests.open.is_some()
+    });
+    assert!(kit.state().requests.refused.is_none());
+}

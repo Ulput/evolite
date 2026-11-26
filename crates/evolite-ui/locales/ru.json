@@ -3078,5 +3078,12 @@
     "many": "{} операций · {}"
   },
   "no fee": "без комиссии",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "Не удалось прочитать контракт приложения {} с Platform.",
+  "Could not read the app's request": "Не удалось прочитать запрос приложения",
+  "Could not read the app's contract group {} from Platform.": "Не удалось прочитать группу контрактов приложения {} с Platform.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "Не удалось разобрать контракт приложения {}: возможно, он новее этой версии evolite.",
+  "Could not read the identity's keys for contract {} from Platform.": "Не удалось прочитать ключи личности для контракта {} с Platform.",
+  "Hide details": "Скрыть подробности",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Ничего не потрачено. Попробуйте снова; если повторится, в «Подробнее» — что ответила Platform."
 }

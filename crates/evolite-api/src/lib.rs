@@ -1321,6 +1321,39 @@ pub enum AppLinkRefusal {
     NoSignInKey,
     /// Not well formed.
     Malformed,
+    /// BUG-323: a proved read the request needs failed — Platform answered, and the answer was
+    /// not read (not «no such contract»: that is [`Self::NoContract`]). `id`: the group's or the
+    /// contract's, base58; `details`: the error's text for «Details»; `link`: the link, to open
+    /// it again with «Try again».
+    ReadFailed {
+        stage: ConnectRead,
+        id: String,
+        /// Platform answered and the answer could not be taken (a protocol, decoding, version
+        /// or proof error), not a timeout or an unreachable node.
+        undecoded: bool,
+        details: String,
+        link: String,
+    },
+}
+
+/// BUG-323: which read of an App Connect request failed, as the request names them: the app's
+/// contract group, one of its contracts, the identity's keys for a contract.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ConnectRead {
+    Group,
+    Contract,
+    EncKeys,
+}
+
+impl ConnectRead {
+    /// Its name in the journal (no id): `group`, `contract`, `enc_keys`.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Group => "group",
+            Self::Contract => "contract",
+            Self::EncKeys => "enc_keys",
+        }
+    }
 }
 
 /// Where a session key stands.

@@ -3116,5 +3116,12 @@
     "other": "{} операції · {}"
   },
   "no fee": "без комісії",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "Не вдалося прочитати контракт застосунку {} з Platform.",
+  "Could not read the app's request": "Не вдалося прочитати запит застосунку",
+  "Could not read the app's contract group {} from Platform.": "Не вдалося прочитати групу контрактів застосунку {} з Platform.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "Не вдалося розібрати контракт застосунку {}: можливо, він новіший за цю версію evolite.",
+  "Could not read the identity's keys for contract {} from Platform.": "Не вдалося прочитати ключі ідентичності для контракту {} з Platform.",
+  "Hide details": "Сховати подробиці",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Нічого не витрачено. Спробуйте знову; якщо повториться, у «Докладно» — що відповіла Platform."
 }

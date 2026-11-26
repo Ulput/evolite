@@ -31,6 +31,8 @@ use crate::real::{AppJob, Real, dashpay, dashpay_failure, journal, loaded, now};
 /// A v2 request shown and not answered yet.
 pub(in crate::real) struct Connect2Job {
     pub link: v2::Link,
+    /// The link as it was opened, for «Try again» (BUG-323).
+    pub text: String,
     pub name: String,
     /// The identity the request was shown for (BUG-29).
     pub identity: [u8; 32],
@@ -124,6 +126,52 @@ pub(in crate::real) fn refusal(refused: Refusal, text: &str, system: bool) -> Co
         Refusal::Refused(Status::Invalid, _) => AppLinkRefusal::Malformed,
     };
     CoreError::AppLink(why)
+}
+
+/// BUG-323: a proved read the request needs failed: which one (no id in the journal, with the
+/// protocol version the SDK saw), and the refusal that says it, with the link to open again.
+fn read_failed(
+    stage: ConnectRead,
+    id: &[u8; 32],
+    error: &app_chain_v2::ReadError,
+    link: &str,
+    protocol: Option<u32>,
+) -> CoreError {
+    crate::diag::record(crate::diag::Record::ConnectRead {
+        stage: stage.code(),
+        error: crate::diag::error_kind_of_debug(&error.debug),
+        protocol,
+    });
+    CoreError::AppLink(AppLinkRefusal::ReadFailed {
+        stage,
+        id: base58(id),
+        undecoded: undecoded(&error.debug),
+        details: error.text.clone(),
+        link: link.to_owned(),
+    })
+}
+
+/// BUG-323 r1 (Should 1): Platform answered and evolite could not take the answer — a protocol,
+/// decoding, version or proof error, by the error's type names; not a timeout or an unreachable
+/// node. Only then «perhaps newer than this evolite».
+fn undecoded(debug: &str) -> bool {
+    crate::diag::error_kind_of_debug(debug)
+        .split('/')
+        .any(|name| {
+            ["Protocol", "Decod", "Version", "Proof"]
+                .iter()
+                .any(|w| name.contains(w))
+        })
+}
+
+/// [`read_failed`] for what [`Chain::connect_facts`](evolite_chain::chain::Chain) says.
+fn facts_failed(error: app_chain_v2::FactsError, link: &str, protocol: Option<u32>) -> CoreError {
+    use app_chain_v2::FactsError;
+    match error {
+        FactsError::Sdk(why) => CoreError::Failed(why),
+        FactsError::Group(id, e) => read_failed(ConnectRead::Group, &id, &e, link, protocol),
+        FactsError::Contract(id, e) => read_failed(ConnectRead::Contract, &id, &e, link, protocol),
+    }
 }
 
 fn not_on_this_network() -> CoreError {
@@ -326,13 +374,13 @@ async fn enc_steps(
     me: &[u8; 32],
     identity_keys: &[IdentityPublicKey],
     request: &v2::Request,
-) -> Result<Vec<EncStep>, CoreError> {
+) -> Result<Vec<EncStep>, ([u8; 32], app_chain_v2::ReadError)> {
     let mut steps = Vec::new();
     for binding in &request.enc {
         let current = chain
             .current_contract_key(Identifier::from(*me), binding.contract, binding.purpose)
             .await
-            .map_err(CoreError::Failed)?;
+            .map_err(|e| (binding.contract, e))?;
         let ours = |rotation| {
             enc_secret(keys, me, binding, rotation)
                 .ok()
@@ -351,7 +399,12 @@ async fn enc_steps(
 impl Real {
     /// Shows an App Connect v2 request: checked against Platform (the app's contract, owners,
     /// groups, the encryption keys' contracts, the protocol), with the wallet's limits.
-    pub(in crate::real) fn open_connect2(&self, link: v2::Link) -> Result<(), CoreError> {
+    pub(in crate::real) fn open_connect2(
+        &self,
+        link: v2::Link,
+        text: &str,
+    ) -> Result<(), CoreError> {
+        let text = text.to_owned();
         let (id, keys) = self.dashpay_ready()?;
         let (chain, requests, apps, journal) = (
             self.chain.clone(),
@@ -383,13 +436,15 @@ impl Real {
                             .into(),
                     ));
                 }
-                if chain.protocol_version().await.map_err(CoreError::Failed)? < MIN_PROTOCOL {
+                let protocol = chain.protocol_version().await.map_err(CoreError::Failed)?;
+                if protocol < MIN_PROTOCOL {
                     return Err(not_on_this_network());
                 }
+                // BUG-323: a read that failed says which, not «the network refused».
                 let facts = chain
                     .connect_facts(request)
                     .await
-                    .map_err(CoreError::Failed)?;
+                    .map_err(|e| facts_failed(e, &text, Some(protocol)))?;
                 grant::check(request, &facts)
                     .map_err(|r| refusal(r, "", grant::is_system(&request.app_id)))?;
                 let at_ms = now_ms();
@@ -399,7 +454,11 @@ impl Real {
                     .map(|b| grant::offered(b, at_ms))
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|r| refusal(r, "", false))?;
-                let steps = enc_steps(&chain, &keys, &me, &who.keys, request).await?;
+                let steps = enc_steps(&chain, &keys, &me, &who.keys, request)
+                    .await
+                    .map_err(|(contract, e)| {
+                        read_failed(ConnectRead::EncKeys, &contract, &e, &text, Some(protocol))
+                    })?;
                 let owner = facts.contract_owner[&request.app_id];
                 let owner_name = chain.name_of(Identifier::from(owner)).await.ok().flatten();
                 let identity = match chain.name_of(who.id).await.ok().flatten() {
@@ -468,6 +527,7 @@ impl Real {
                     request_id,
                     AppJob::Connect2(Box::new(Connect2Job {
                         link: link.clone(),
+                        text: text.clone(),
                         name: name.clone(),
                         identity: me,
                     })),
@@ -497,6 +557,7 @@ impl Real {
             tr!("The request is out of date: open the app's link again").into(),
         ))?;
         let request = job.link.request.clone();
+        let text = job.text.clone();
         let at_ms = now_ms();
         // r3 review, Should 2: the app stops waiting after 10 minutes; a request kept open longer
         // is not answered.
@@ -599,7 +660,13 @@ impl Real {
                     stored.push(stored_key(id, &b.bounds, b.level, &held));
                     auth_slots.push(secret);
                 }
-                let steps = enc_steps(&chain, &keys, &me, &who.keys, &request).await?;
+                // After the password too: which read failed, not «the network refused»
+                // (BUG-323 r1, Should 2).
+                let steps = enc_steps(&chain, &keys, &me, &who.keys, &request)
+                    .await
+                    .map_err(|(contract, e)| {
+                        read_failed(ConnectRead::EncKeys, &contract, &e, &text, None)
+                    })?;
                 let mut enc_slots = Vec::new();
                 for (b, step) in request.enc.iter().zip(steps) {
                     match step {

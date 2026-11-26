@@ -2981,5 +2981,12 @@
     "other": "{} operasi · {}"
   },
   "no fee": "tanpa biaya",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "Kontrak {} milik aplikasi tidak dapat dibaca dari Platform.",
+  "Could not read the app's request": "Permintaan aplikasi tidak dapat dibaca",
+  "Could not read the app's contract group {} from Platform.": "Grup kontrak {} milik aplikasi tidak dapat dibaca dari Platform.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "Kontrak {} milik aplikasi tidak dapat dibaca: mungkin lebih baru daripada versi evolite ini.",
+  "Could not read the identity's keys for contract {} from Platform.": "Kunci identitas untuk kontrak {} tidak dapat dibaca dari Platform.",
+  "Hide details": "Sembunyikan detail",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Tidak ada yang dibelanjakan. Coba lagi; jika terjadi lagi, «Detail» menunjukkan jawaban Platform."
 }

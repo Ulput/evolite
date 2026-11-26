@@ -270,9 +270,14 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
     }
     if let Some(why) = state.refused.clone() {
         let mut again = false;
-        if super::connect2::refusal(ui, a, &why, &mut again) {
+        let mut retry = None;
+        if super::connect2::refusal(ui, a, &why, &mut again, &mut retry) {
             state.refused = None;
             state.pasting = again;
+        }
+        // BUG-323: «Try again» opens the same link again.
+        if let Some(text) = retry {
+            cx.send(Command::OpenAppLink { text });
         }
     }
     let Some(request) = state.open.clone() else {

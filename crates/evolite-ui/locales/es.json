@@ -3067,5 +3067,12 @@
     "other": "{} operaciones · {}"
   },
   "no fee": "sin comisión",
-  "{}–{}": "{}–{}"
+  "{}–{}": "{}–{}",
+  "Could not read the app's contract {} from Platform.": "No se pudo leer de Platform el contrato {} de la app.",
+  "Could not read the app's request": "No se pudo leer la solicitud de la app",
+  "Could not read the app's contract group {} from Platform.": "No se pudo leer de Platform el grupo de contratos {} de la app.",
+  "Could not read the app's contract {}: it may be newer than this version of evolite.": "No se pudo leer el contrato {} de la app: quizá es más nuevo que esta versión de evolite.",
+  "Could not read the identity's keys for contract {} from Platform.": "No se pudieron leer de Platform las claves de la identidad para el contrato {}.",
+  "Hide details": "Ocultar detalles",
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "No se gastó nada. Inténtelo de nuevo; si vuelve a pasar, «Detalles» muestra lo que respondió Platform."
 }

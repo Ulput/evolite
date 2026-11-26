@@ -168,6 +168,12 @@ pub fn error_kind(error: &CoreError) -> &'static str {
         CoreError::TooManyTries { .. } => "too_many_tries",
         CoreError::LargeSpendNotConfirmed => "large_spend_not_confirmed",
         CoreError::PicturesOff(_) => "pictures_off",
+        // BUG-323: which read failed, no id.
+        CoreError::AppLink(evolite_api::AppLinkRefusal::ReadFailed { stage, .. }) => match stage {
+            evolite_api::ConnectRead::Group => "app_link_read_group",
+            evolite_api::ConnectRead::Contract => "app_link_read_contract",
+            evolite_api::ConnectRead::EncKeys => "app_link_read_enc_keys",
+        },
         CoreError::AppLink(_) => "app_link",
         // The excess itself stays out (FEAT-0030 AC-T11).
         CoreError::MixedExcess { .. } => "mixed_excess",
@@ -347,6 +353,31 @@ mod tests {
     use super::*;
     use evolite_api::DoneWhat;
     use evolite_api::{NoteText, Password, Source};
+
+    /// BUG-323: the answer's outcome says which read failed — group, contract, enc_keys —
+    /// with no id.
+    #[test]
+    fn a_failed_connect_read_is_named_by_its_stage() {
+        use evolite_api::{AppLinkRefusal, ConnectRead};
+        for (stage, code) in [
+            (ConnectRead::Group, "app_link_read_group"),
+            (ConnectRead::Contract, "app_link_read_contract"),
+            (ConnectRead::EncKeys, "app_link_read_enc_keys"),
+        ] {
+            let error = CoreError::AppLink(AppLinkRefusal::ReadFailed {
+                stage,
+                undecoded: true,
+                id: "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU".into(),
+                details: "decoding".into(),
+                link: "dashpay://connect?v=2".into(),
+            });
+            assert_eq!(error_kind(&error), code);
+        }
+        assert_eq!(
+            error_kind(&CoreError::AppLink(evolite_api::AppLinkRefusal::Stale)),
+            "app_link"
+        );
+    }
 
     #[test]
     fn a_command_is_its_name_and_nothing_of_what_it_carries() {

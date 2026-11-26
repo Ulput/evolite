@@ -55,7 +55,7 @@ impl Real {
     pub(in crate::real) fn open_app_link(&self, text: &str) -> Result<(), CoreError> {
         let ms = (now().max(0) as u64).saturating_mul(1_000);
         match app_connect_v2::parse(text, app_connect_v2::Net::current(), ms) {
-            Ok(link) => self.open_connect2(link),
+            Ok(link) => self.open_connect2(link, text),
             // App Connect v1 is not supported (the customer, 2026-11-11): told as another version.
             Err(app_connect_v2::Refusal::NotOurs) if is_v1_link(text) => {
                 Err(CoreError::AppLink(AppLinkRefusal::Version {

@@ -360,3 +360,57 @@ fn your_amount_reads_one_mark_and_refuses_two() {
     }
     crate::i18n::set(crate::i18n::Lang::En);
 }
+
+/// BUG-323: a failed read says which — the group, the contract (perhaps newer than this
+/// evolite), the identity's keys for a contract — by its whole id (FEAT-0051), never «refused».
+#[test]
+fn a_failed_read_says_which_by_its_id() {
+    let id = "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU";
+    for (stage, says) in [
+        (ConnectRead::Group, "contract group"),
+        (ConnectRead::Contract, "newer than this version"),
+        (ConnectRead::EncKeys, "identity's keys"),
+    ] {
+        let why = AppLinkRefusal::ReadFailed {
+            stage,
+            undecoded: true,
+            id: id.into(),
+            details: "decoding".into(),
+            link: "dashpay://connect?v=2".into(),
+        };
+        let (title, body, hint) = refusal_words(&why, "Yappr");
+        assert_eq!(title, "Could not read the app's request");
+        assert!(body.contains(says), "{stage:?}: {body}");
+        assert!(body.contains(id), "the whole id: {body}");
+        assert!(!body.contains("refused") && hint.contains("Nothing was spent"));
+    }
+}
+
+/// BUG-323 r1 (Should 1): «newer than this evolite» only when Platform answered and the answer
+/// was not taken; a timeout or an unreachable node is «could not read … from Platform».
+#[test]
+fn a_contract_is_called_newer_only_when_its_answer_was_not_taken() {
+    let words = |undecoded| {
+        refusal_words(
+            &AppLinkRefusal::ReadFailed {
+                stage: ConnectRead::Contract,
+                id: "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU".into(),
+                undecoded,
+                details: String::new(),
+                link: String::new(),
+            },
+            "Yappr",
+        )
+        .1
+    };
+    assert!(
+        words(true).contains("newer than this version"),
+        "{}",
+        words(true)
+    );
+    let timeout = words(false);
+    assert!(
+        timeout.contains("from Platform") && !timeout.contains("newer"),
+        "{timeout}"
+    );
+}
