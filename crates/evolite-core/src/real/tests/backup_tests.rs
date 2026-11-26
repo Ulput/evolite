@@ -320,7 +320,14 @@ async fn a_weekly_copy_is_written_at_once_and_not_again_soon() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert_eq!(copies(&folder), 1, "written at once");
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    // The file is there before the core notes when it wrote it (batch 73: a fixed 100 ms was
+    // too little under a loaded check).
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while !core.auto_backup_view().is_some_and(|a| a.last_at.is_some())
+        && std::time::Instant::now() < deadline
+    {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     assert!(core.auto_backup_view().is_some_and(|a| a.last_at.is_some()));
     core.auto_backup_tick();
     tokio::time::sleep(Duration::from_millis(200)).await;
