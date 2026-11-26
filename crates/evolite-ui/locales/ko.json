@@ -1,4 +1,8 @@
 {
+  "noticed {}": "{}에 확인됨",
+  "Keys changed in another app: added {} · disabled {}": "다른 앱에서 키 변경: 추가 {} · 비활성화 {}",
+  "Keys changed in another app: added {}": "다른 앱에서 키 변경: 추가 {}",
+  "Keys changed in another app: disabled {}": "다른 앱에서 키 변경: 비활성화 {}",
   "Few credits will be left": "남는 크레딧이 적습니다",
   "Lock": "잠그기",
   "All completed · updated {}": "모두 완료 · {} 업데이트",

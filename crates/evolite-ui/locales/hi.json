@@ -1,4 +1,8 @@
 {
+  "noticed {}": "{} को देखा गया",
+  "Keys changed in another app: added {} · disabled {}": "किसी दूसरे ऐप में कुंजियाँ बदलीं: जोड़ी गई {} · बंद की गई {}",
+  "Keys changed in another app: added {}": "किसी दूसरे ऐप में कुंजियाँ बदलीं: जोड़ी गई {}",
+  "Keys changed in another app: disabled {}": "किसी दूसरे ऐप में कुंजियाँ बदलीं: बंद की गई {}",
   "Few credits will be left": "बहुत कम क्रेडिट बचेंगे",
   "Lock": "लॉक करें",
   "All completed · updated {}": "सब पूर्ण · अद्यतन {}",

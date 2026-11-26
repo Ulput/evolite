@@ -769,7 +769,36 @@ pub fn activity_title(a: &Activity) -> String {
             format!(tr!("Signed out of {app} · keys disabled"), app = app)
         }
         // FEAT-0020: «Identity keys changed: added 7 · disabled 0».
-        ActivityKind::KeysChanged { added, disabled } => {
+        // BUG-291: made from another app, read from Platform: said so.
+        ActivityKind::KeysChanged {
+            added,
+            disabled,
+            elsewhere: true,
+        } => {
+            let list = |ids: &[u32]| {
+                ids.iter()
+                    .map(u32::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
+            match (added.is_empty(), disabled.is_empty()) {
+                (false, false) => format!(
+                    tr!("Keys changed in another app: added {} · disabled {}"),
+                    list(added),
+                    list(disabled)
+                ),
+                (false, true) => {
+                    format!(tr!("Keys changed in another app: added {}"), list(added))
+                }
+                _ => format!(
+                    tr!("Keys changed in another app: disabled {}"),
+                    list(disabled)
+                ),
+            }
+        }
+        ActivityKind::KeysChanged {
+            added, disabled, ..
+        } => {
             let list = |ids: &[u32]| {
                 ids.iter()
                     .map(u32::to_string)

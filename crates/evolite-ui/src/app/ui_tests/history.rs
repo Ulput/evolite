@@ -1203,3 +1203,66 @@ fn a_top_ups_line_says_the_credits_it_added() {
         "not known: not said"
     );
 }
+
+/// BUG-291: a change of keys made in another app, read from Platform, is a line of History —
+/// «Keys changed in another app: added 8» — with no sum («—», never 0), in en and ru.
+#[test]
+fn a_change_of_keys_made_elsewhere_is_a_line_without_a_sum() {
+    for (lang, words, noticed) in [
+        ("en", "Keys changed in another app: added 8", "noticed "),
+        (
+            "ru",
+            "Ключи изменены в другом приложении: добавлен 8",
+            "замечено ",
+        ),
+    ] {
+        let (_turn, mut kit) = demo_app("activity", lang);
+        let op = Activity {
+            id: 291,
+            kind: ActivityKind::KeysChanged {
+                added: vec![8],
+                disabled: vec![],
+                elsewhere: true,
+            },
+            chain: Chain::Platform,
+            at: chrono::Utc::now().timestamp() - 60,
+            amount: 0,
+            proof: Proof::Proved,
+            txid: None,
+            fee: None,
+            block: None,
+            address: None,
+            layers: evolite_api::layer::IDENTITY,
+            flow: evolite_api::Flow::Out,
+            key: "keys:ID:4".into(),
+            detail: Some(Box::new(evolite_api::Detail {
+                cost_unknown: true,
+                ..Default::default()
+            })),
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        with_op(&mut kit, &op);
+        let row = kit
+            .query_all_by_role(Role::Button)
+            .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
+            .find(|l| l.contains(words))
+            .unwrap_or_else(|| panic!("{lang}: no line «{words}»"));
+        assert!(row.contains('—'), "{lang}: no sum: {row}");
+        assert!(
+            !row.contains("0.0000") && !row.contains("0,0000"),
+            "{lang}: not 0: {row}"
+        );
+        // r1 (Should 1): its time in the card is the pass's — «noticed …».
+        kit.query_all_by_role(Role::Button)
+            .find(|n| {
+                n.accesskit_node()
+                    .label()
+                    .is_some_and(|l| l.contains(words))
+            })
+            .expect("the line")
+            .click();
+        wait_for(&mut kit, "the card, noticed", |kit| has_words(kit, noticed));
+    }
+}

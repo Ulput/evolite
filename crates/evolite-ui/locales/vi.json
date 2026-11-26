@@ -1,4 +1,8 @@
 {
+  "noticed {}": "phát hiện lúc {}",
+  "Keys changed in another app: added {} · disabled {}": "Khóa đã đổi trong ứng dụng khác: thêm {} · vô hiệu hóa {}",
+  "Keys changed in another app: added {}": "Khóa đã đổi trong ứng dụng khác: thêm {}",
+  "Keys changed in another app: disabled {}": "Khóa đã đổi trong ứng dụng khác: vô hiệu hóa {}",
   "Few credits will be left": "Sẽ còn lại ít tín dụng",
   "Lock": "Khóa",
   "All completed · updated {}": "Tất cả đã hoàn tất · cập nhật {}",

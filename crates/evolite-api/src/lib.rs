@@ -168,10 +168,12 @@ pub enum ActivityKind {
         app: String,
     },
     /// FEAT-0020: the identity's keys changed — the numbers added and disabled. The line's
-    /// amount is what the update cost in credits (BUG-145).
+    /// amount is what the update cost in credits (BUG-145). BUG-291: `elsewhere` — read from
+    /// Platform, not written from this copy («in another app»): no sum, its time when noticed.
     KeysChanged {
         added: Vec<u32>,
         disabled: Vec<u32>,
+        elsewhere: bool,
     },
     /// A token sent (BUG-145): which and how much, in words, and to whom. The line's amount is the
     /// fee in credits; the token is not DASH.

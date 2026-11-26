@@ -11,10 +11,11 @@ use std::path::Path;
 use std::sync::Arc;
 
 use dash_sdk::drive::query::{OrderClause, WhereClause, WhereOperator};
-use dash_sdk::platform::{DocumentQuery, FetchMany};
+use dash_sdk::platform::{DocumentQuery, Fetch, FetchMany};
 use dpp::data_contract::DataContract;
 use dpp::document::{Document, DocumentV0Getters};
 use dpp::identity::accessors::IdentityGettersV0;
+use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
 use dpp::platform_value::Value;
 use dpp::platform_value::string_encoding::Encoding;
 use dpp::prelude::Identifier;
@@ -24,7 +25,7 @@ use key_wallet_manager::WalletId;
 use platform_wallet::PlatformWallet;
 
 use crate::chain::Chain;
-use crate::journal::{Entry, Reply, Source, What, WithdrawalStatus};
+use crate::journal::{Entry, Kind, Reply, Source, What, WithdrawalStatus};
 
 /// Documents per page; Platform answers at most 100.
 const PAGE: u32 = 100;
@@ -72,6 +73,63 @@ pub struct IdentityMarks {
     /// `$updatedAt` no longer moves) could never find its payout (FEAT-0005b).
     #[serde(default)]
     pub withdrawal_indexes: bool,
+    /// BUG-291: the identity's revision when its keys were last read, and each key's number with
+    /// whether it is disabled — what a change made elsewhere is told against. None before the
+    /// first read (marks written before it was kept, another copy, «Sync again»): then it is
+    /// written without a line, what was before it not being known.
+    #[serde(default)]
+    pub keys_revision: u64,
+    #[serde(default)]
+    pub keys: Option<BTreeMap<u32, bool>>,
+}
+
+/// BUG-291: what changed in an identity's keys since `base` (revision, number → disabled), as
+/// read now: the numbers added and the numbers disabled. None — no line — with no base yet (the
+/// first read writes it silently), at the same revision, or when nothing of the keys moved.
+pub fn keys_diff(
+    base: Option<(u64, &BTreeMap<u32, bool>)>,
+    revision: u64,
+    read: &BTreeMap<u32, bool>,
+) -> Option<(Vec<u32>, Vec<u32>)> {
+    let (was, before) = base?;
+    if was == revision {
+        return None;
+    }
+    let added: Vec<u32> = read
+        .keys()
+        .filter(|id| !before.contains_key(id))
+        .copied()
+        .collect();
+    let disabled: Vec<u32> = read
+        .iter()
+        .filter(|(id, off)| **off && before.get(id).is_some_and(|was_off| !was_off))
+        .map(|(id, _)| *id)
+        .collect();
+    (!added.is_empty() || !disabled.is_empty()).then_some((added, disabled))
+}
+
+/// BUG-291: the line of a change of `identity`'s keys made elsewhere, noticed `at`: keyed by the
+/// revision (a repeat is not a second line), no sum — what it cost is not known.
+pub fn keys_changed(
+    identity: &str,
+    revision: u64,
+    at: Timestamp,
+    (added, disabled): (Vec<u32>, Vec<u32>),
+) -> Entry {
+    let mut entry = crate::journal::entry_of(
+        Kind::KeysChanged {
+            added,
+            disabled,
+            bound: 0,
+        },
+        at,
+        0,
+        Some(identity.to_owned()),
+    );
+    entry.key = Some(format!("keys:{identity}:{revision}"));
+    entry.source = Source::Network;
+    entry.cost_known = false;
+    entry
 }
 
 impl Marks {
@@ -269,6 +327,25 @@ async fn read_identity(
         }
         new.profile_revision = revision;
     }
+    // BUG-291: the identity itself, proved — its revision and keys against the base kept.
+    *requests += 1;
+    let identity = dpp::identity::Identity::fetch(sdk, me)
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    if let Some(identity) = identity {
+        let revision = identity.revision();
+        let read: BTreeMap<u32, bool> = identity
+            .public_keys()
+            .iter()
+            .map(|(id, key)| (*id, key.disabled_at().is_some()))
+            .collect();
+        let base = mark.keys.as_ref().map(|keys| (mark.keys_revision, keys));
+        if let Some(diff) = keys_diff(base, revision, &read) {
+            entries.push(keys_changed(&b58, revision, now_seconds(), diff));
+        }
+        new.keys_revision = revision;
+        new.keys = Some(read);
+    }
     // Withdrawals: by `$updatedAt` from the mark on, page by page.
     let mut from = if mark.withdrawal_indexes {
         mark.withdrawals_updated_at
@@ -341,6 +418,13 @@ async fn fetch(sdk: &dash_sdk::Sdk, query: DocumentQuery) -> Result<Vec<Document
         .into_values()
         .flatten()
         .collect())
+}
+
+/// Now, in seconds: when a change of keys was noticed (Platform keeps no time of it).
+fn now_seconds() -> Timestamp {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as Timestamp)
 }
 
 fn seconds(ms: u64) -> Timestamp {
@@ -689,6 +773,69 @@ fn contact_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn keys(pairs: &[(u32, bool)]) -> BTreeMap<u32, bool> {
+        pairs.iter().copied().collect()
+    }
+
+    /// BUG-291 (the architect's class): a change of keys made elsewhere, told against the base —
+    /// none on the first read (it is written silently: what was before is not known), none at
+    /// the same revision, a key added and another disabled both in one line. Mutant: «the
+    /// first read gives a line» is red.
+    #[test]
+    fn a_change_of_keys_is_told_against_the_base_kept() {
+        let before = keys(&[(0, false), (1, false), (5, false)]);
+        let now = keys(&[(0, false), (1, false), (5, true), (8, false)]);
+        assert_eq!(keys_diff(None, 4, &now), None, "no base: silent");
+        assert_eq!(
+            keys_diff(Some((4, &before)), 4, &now),
+            None,
+            "same revision"
+        );
+        assert_eq!(
+            keys_diff(Some((3, &before)), 4, &now),
+            Some((vec![8], vec![5])),
+            "№8 added, №5 disabled"
+        );
+        assert_eq!(
+            keys_diff(Some((3, &before)), 4, &before),
+            None,
+            "a new revision, the keys as they were: no line"
+        );
+        let line = keys_changed("ID", 4, 1_800, (vec![8], vec![5]));
+        assert_eq!(line.key.as_deref(), Some("keys:ID:4"));
+        assert_eq!(line.source, Source::Network);
+        assert!(!line.cost_known && line.spent == 0, "no sum");
+    }
+
+    /// BUG-291: the base survives a restart in `platform-sync.json`: read back, the same keys at
+    /// the same revision tell nothing again; marks written before the base was kept have none.
+    #[test]
+    fn the_keys_base_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!("evolite-bug291-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a folder");
+        let path = dir.join("platform-sync.json");
+        let mut marks = Marks::load(&path);
+        let read = keys(&[(0, false), (8, false)]);
+        marks.identities.insert(
+            "ID".into(),
+            IdentityMarks {
+                keys_revision: 4,
+                keys: Some(read.clone()),
+                ..Default::default()
+            },
+        );
+        marks.save(&path).expect("saved");
+        let again = Marks::load(&path);
+        let mark = &again.identities["ID"];
+        let base = mark.keys.as_ref().map(|k| (mark.keys_revision, k));
+        assert_eq!(keys_diff(base, 4, &read), None, "no repeat after a restart");
+        let old: Marks =
+            serde_json::from_str(r#"{"version":1,"identities":{"ID":{"profileRevision":2}}}"#)
+                .expect("marks of before");
+        assert_eq!(old.identities["ID"].keys, None, "no base: written silently");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     use evolite_api::{Activity, ActivityKind, Chain, Flow, Proof};
 
     /// SYNC-5: an identity whose found names are all in the journal is not asked for them again;
@@ -716,6 +863,7 @@ mod tests {
             withdrawals_updated_at: 5,
             profile_revision: 2,
             withdrawal_indexes: true,
+            ..Default::default()
         };
         let mut pass = Pass {
             marks: Marks {
@@ -877,6 +1025,7 @@ mod tests {
                 withdrawals_updated_at: 42,
                 profile_revision: 3,
                 withdrawal_indexes: true,
+                ..Default::default()
             },
         );
         marks.save(&path).unwrap();

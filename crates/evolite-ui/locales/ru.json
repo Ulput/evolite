@@ -1,4 +1,8 @@
 {
+  "noticed {}": "замечено {}",
+  "Keys changed in another app: added {} · disabled {}": "Ключи изменены в другом приложении: добавлен {} · отключён {}",
+  "Keys changed in another app: added {}": "Ключи изменены в другом приложении: добавлен {}",
+  "Keys changed in another app: disabled {}": "Ключи изменены в другом приложении: отключён {}",
   "Few credits will be left": "Кредитов останется мало",
   "Lock": "Заблокировать",
   "All completed · updated {}": "Всё выполнено · обновлено {}",

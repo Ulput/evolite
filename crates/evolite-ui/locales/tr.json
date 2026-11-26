@@ -1,4 +1,8 @@
 {
+  "noticed {}": "{} fark edildi",
+  "Keys changed in another app: added {} · disabled {}": "Anahtarlar başka bir uygulamada değişti: eklenen {} · devre dışı {}",
+  "Keys changed in another app: added {}": "Anahtarlar başka bir uygulamada değişti: eklenen {}",
+  "Keys changed in another app: disabled {}": "Anahtarlar başka bir uygulamada değişti: devre dışı {}",
   "Few credits will be left": "Az kredi kalacak",
   "Lock": "Kilitle",
   "All completed · updated {}": "Hepsi tamamlandı · {} güncellendi",

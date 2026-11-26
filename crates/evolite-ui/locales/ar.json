@@ -1,4 +1,8 @@
 {
+  "noticed {}": "لوحظ في {}",
+  "Keys changed in another app: added {} · disabled {}": "تغيّرت المفاتيح في تطبيق آخر: أضيف {} · عُطّل {}",
+  "Keys changed in another app: added {}": "تغيّرت المفاتيح في تطبيق آخر: أضيف {}",
+  "Keys changed in another app: disabled {}": "تغيّرت المفاتيح في تطبيق آخر: عُطّل {}",
   "Few credits will be left": "سيتبقى القليل من الأرصدة",
   "Lock": "اقفل",
   "All completed · updated {}": "اكتمل كل شيء · حُدّث {}",

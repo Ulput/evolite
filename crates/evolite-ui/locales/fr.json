@@ -1,4 +1,8 @@
 {
+  "noticed {}": "remarqué {}",
+  "Keys changed in another app: added {} · disabled {}": "Clés modifiées dans une autre app : ajoutée {} · désactivée {}",
+  "Keys changed in another app: added {}": "Clés modifiées dans une autre app : ajoutée {}",
+  "Keys changed in another app: disabled {}": "Clés modifiées dans une autre app : désactivée {}",
   "Few credits will be left": "Il restera peu de crédits",
   "Lock": "Verrouiller",
   "All completed · updated {}": "Tout est terminé · mis à jour {}",

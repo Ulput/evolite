@@ -1,4 +1,8 @@
 {
+  "noticed {}": "terdeteksi {}",
+  "Keys changed in another app: added {} · disabled {}": "Kunci diubah di aplikasi lain: ditambahkan {} · dinonaktifkan {}",
+  "Keys changed in another app: added {}": "Kunci diubah di aplikasi lain: ditambahkan {}",
+  "Keys changed in another app: disabled {}": "Kunci diubah di aplikasi lain: dinonaktifkan {}",
   "Few credits will be left": "Kredit yang tersisa akan sedikit",
   "Lock": "Kunci",
   "All completed · updated {}": "Semua selesai · diperbarui {}",

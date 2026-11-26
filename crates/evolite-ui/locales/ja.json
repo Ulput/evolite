@@ -1,4 +1,8 @@
 {
+  "noticed {}": "{} に検出",
+  "Keys changed in another app: added {} · disabled {}": "別のアプリで鍵が変更されました：追加 {} · 無効 {}",
+  "Keys changed in another app: added {}": "別のアプリで鍵が変更されました：追加 {}",
+  "Keys changed in another app: disabled {}": "別のアプリで鍵が変更されました：無効 {}",
   "Few credits will be left": "残りのクレジットがわずかになります",
   "Lock": "ロック",
   "All completed · updated {}": "すべて完了 · {} に更新",

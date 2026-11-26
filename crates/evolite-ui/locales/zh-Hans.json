@@ -1,4 +1,8 @@
 {
+  "noticed {}": "发现于 {}",
+  "Keys changed in another app: added {} · disabled {}": "密钥已在其他应用中更改：添加 {} · 停用 {}",
+  "Keys changed in another app: added {}": "密钥已在其他应用中更改：添加 {}",
+  "Keys changed in another app: disabled {}": "密钥已在其他应用中更改：停用 {}",
   "Few credits will be left": "剩余点数将不多",
   "Lock": "锁定",
   "All completed · updated {}": "全部已完成 · 更新于 {}",

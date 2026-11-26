@@ -615,6 +615,38 @@ pub fn merge(local: &mut Vec<Entry>, network: Vec<Entry>) -> bool {
             continue;
         };
         let by_key = local.iter().position(|e| e.key.as_deref() == Some(&key));
+        // BUG-291: a change of keys read from the network is this computer's own line of it when
+        // there is one (FEAT-0020, BUG-145): that line takes the key and keeps its time and cost,
+        // and there is no second. Else it was made elsewhere: a line of its own — never paired
+        // by time with another change of this computer's.
+        if by_key.is_none() && is_keys_read(&found) {
+            // r1 (Should 2): between two passes this computer may have changed the keys more
+            // than once — the read is their sum. Its own lines inside it take the key (the first
+            // the read's own, the others numbered); what is left of it was made elsewhere.
+            let (own, rest) = own_keys_lines(local, &found);
+            for (n, i) in own.iter().enumerate() {
+                local[*i].key = Some(if n == 0 {
+                    key.clone()
+                } else {
+                    format!("{key}#{n}")
+                });
+            }
+            if let Some((added, disabled)) = rest {
+                let mut outside = found;
+                outside.kind = Some(Kind::KeysChanged {
+                    added,
+                    disabled,
+                    bound: 0,
+                });
+                if !own.is_empty() {
+                    outside.key = Some(format!("{key}:elsewhere"));
+                }
+                local.push(outside);
+                give_lines(local);
+            }
+            changed = true;
+            continue;
+        }
         let at = by_key.or_else(|| {
             local.iter().position(|e| {
                 e.key.is_none()
@@ -662,6 +694,65 @@ pub fn merge(local: &mut Vec<Entry>, network: Vec<Entry>) -> bool {
         }
     }
     changed
+}
+
+/// BUG-291: a change of keys read from Platform (not written here).
+fn is_keys_read(entry: &Entry) -> bool {
+    entry.source == Source::Network && matches!(entry.kind, Some(Kind::KeysChanged { .. }))
+}
+
+/// BUG-291 r1: this computer's own lines inside the change `read` — the same identity, their
+/// keys added and disabled all in it, not paired with a read yet — and what is left of `read`
+/// beyond them (made elsewhere), `None` when they are all of it.
+/// The keys added and disabled of a change, as numbers.
+type KeyNumbers = (Vec<u32>, Vec<u32>);
+
+fn own_keys_lines(local: &[Entry], read: &Entry) -> (Vec<usize>, Option<KeyNumbers>) {
+    let Some(Kind::KeysChanged {
+        added, disabled, ..
+    }) = &read.kind
+    else {
+        return (Vec::new(), None);
+    };
+    let inside = |ids: &[u32], all: &[u32]| ids.iter().all(|id| all.contains(id));
+    let own: Vec<usize> = local
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| {
+            e.key.is_none()
+                && e.source != Source::Network
+                && e.identity == read.identity
+                && matches!(&e.kind, Some(Kind::KeysChanged { added: a, disabled: d, .. })
+                    if inside(a, added) && inside(d, disabled))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let mut own_added = Vec::new();
+    let mut own_disabled = Vec::new();
+    for &i in &own {
+        if let Some(Kind::KeysChanged {
+            added: a,
+            disabled: d,
+            ..
+        }) = &local[i].kind
+        {
+            own_added.extend_from_slice(a);
+            own_disabled.extend_from_slice(d);
+        }
+    }
+    let rest_added: Vec<u32> = added
+        .iter()
+        .filter(|id| !own_added.contains(id))
+        .copied()
+        .collect();
+    let rest_disabled: Vec<u32> = disabled
+        .iter()
+        .filter(|id| !own_disabled.contains(id))
+        .copied()
+        .collect();
+    let rest = (!rest_added.is_empty() || !rest_disabled.is_empty())
+        .then_some((rest_added, rest_disabled));
+    (own, rest)
 }
 
 /// Fixes the id of each entry that has none yet: from the document's key, else from the entry
@@ -1004,6 +1095,8 @@ pub fn activity(entry: &Entry) -> Activity {
         ) => ActivityKind::KeysChanged {
             added: added.clone(),
             disabled: disabled.clone(),
+            // BUG-291: read from Platform with no line of this copy's to pair with.
+            elsewhere: entry.source == Source::Network,
         },
         (
             Some(Kind::TokenSent {
@@ -1747,6 +1840,114 @@ mod tests {
     fn a_shield_without_an_identity_is_whole() {
         let line = activity(&here(5, What::Shield { from: "a".into() }, 9));
         assert!(!line.detail.expect("detail").incomplete);
+    }
+
+    /// BUG-291: a change of keys read from Platform pairs with this computer's own line of the
+    /// same change (its key, its time and cost kept, no second line); one made elsewhere is a
+    /// line of its own, never paired by time with another own change; read again, no repeat.
+    #[test]
+    fn a_change_of_keys_read_pairs_with_its_own_line() {
+        let kind = |added: Vec<u32>, disabled: Vec<u32>| Kind::KeysChanged {
+            added,
+            disabled,
+            bound: 1,
+        };
+        let mut own = entry_of(kind(vec![9, 8], vec![]), 1_000, 34_000, Some("ID".into()));
+        own.source = Source::Here;
+        let read = |added: Vec<u32>, revision: u32, at| {
+            let mut e = entry_of(
+                Kind::KeysChanged {
+                    added,
+                    disabled: vec![],
+                    bound: 0,
+                },
+                at,
+                0,
+                Some("ID".into()),
+            );
+            e.source = Source::Network;
+            e.cost_known = false;
+            e.key = Some(format!("keys:ID:{revision}"));
+            e
+        };
+        let mut local = vec![own.clone()];
+        assert!(merge(&mut local, vec![read(vec![8, 9], 4, 1_900)]));
+        assert_eq!(local.len(), 1, "paired: no second line");
+        assert_eq!(local[0].key.as_deref(), Some("keys:ID:4"));
+        assert_eq!(
+            (local[0].at, local[0].spent),
+            (1_000, 34_000),
+            "its own time and cost"
+        );
+        // Elsewhere: another key, read within minutes of an own change — its own line.
+        merge(&mut local, vec![read(vec![11], 5, 1_950)]);
+        assert_eq!(local.len(), 2, "made elsewhere");
+        assert_eq!(local[1].source, Source::Network);
+        // Read again: no repeat.
+        assert!(!merge(&mut local, vec![read(vec![11], 5, 2_600)]) || local.len() == 2);
+        assert_eq!(local.len(), 2);
+    }
+
+    /// BUG-291 r1 (Should 2): two own changes between passes are read as one — {+8} and {−5},
+    /// read {+8, −5}: both paired, no line «in another app»; {+8} own, read {+8, +11}: only
+    /// «added 11» is from elsewhere.
+    #[test]
+    fn own_changes_read_as_one_leave_only_what_was_made_elsewhere() {
+        let own = |added: Vec<u32>, disabled: Vec<u32>, at| {
+            entry_of(
+                Kind::KeysChanged {
+                    added,
+                    disabled,
+                    bound: 0,
+                },
+                at,
+                30_000,
+                Some("ID".into()),
+            )
+        };
+        let read = |added: Vec<u32>, disabled: Vec<u32>| {
+            let mut e = entry_of(
+                Kind::KeysChanged {
+                    added,
+                    disabled,
+                    bound: 0,
+                },
+                9_000,
+                0,
+                Some("ID".into()),
+            );
+            e.source = Source::Network;
+            e.key = Some("keys:ID:7".into());
+            e
+        };
+        let mut local = vec![own(vec![8], vec![], 1_000), own(vec![], vec![5], 2_000)];
+        merge(&mut local, vec![read(vec![8], vec![5])]);
+        assert_eq!(local.len(), 2, "no line from elsewhere");
+        assert!(
+            local
+                .iter()
+                .all(|e| e.key.is_some() && e.source == Source::Here)
+        );
+        merge(&mut local, vec![read(vec![8], vec![5])]);
+        assert_eq!(local.len(), 2, "read again: nothing new");
+
+        let mut local = vec![own(vec![8], vec![], 1_000)];
+        merge(&mut local, vec![read(vec![8, 11], vec![])]);
+        assert_eq!(local.len(), 2);
+        let outside = local
+            .iter()
+            .find(|e| e.source == Source::Network)
+            .expect("elsewhere");
+        assert_eq!(
+            outside.kind,
+            Some(Kind::KeysChanged {
+                added: vec![11],
+                disabled: vec![],
+                bound: 0
+            })
+        );
+        merge(&mut local, vec![read(vec![8, 11], vec![])]);
+        assert_eq!(local.len(), 2, "read again: no repeat");
     }
 
     /// The index read from the document is kept by a merge; a later read without it keeps it.
@@ -2624,7 +2825,8 @@ mod key_change_tests {
             line.kind,
             ActivityKind::KeysChanged {
                 added: vec![7],
-                disabled: vec![0]
+                disabled: vec![0],
+                elsewhere: false,
             }
         );
         assert_eq!(line.amount, -1_234, "the cost in duffs");

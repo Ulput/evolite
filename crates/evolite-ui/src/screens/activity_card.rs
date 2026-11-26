@@ -1337,8 +1337,19 @@ fn detail_body(
     // What an app spent: the time of the read, and why no more is known (BUG-145 AC-A4).
     let spent_by_app = matches!(act.kind, ActivityKind::AppSpent { .. });
     let when = text::date_time(act.at, now);
+    // BUG-291 r1 (Should 1): a change of keys made elsewhere has no time of its own on Platform:
+    // its time is the pass's that noticed it (§8d).
+    let noticed = matches!(
+        act.kind,
+        ActivityKind::KeysChanged {
+            elsewhere: true,
+            ..
+        }
+    );
     let when = if spent_by_app {
         format!(tr!("as read at {}"), when)
+    } else if noticed {
+        format!(tr!("noticed {}"), when)
     } else {
         when
     };
