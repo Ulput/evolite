@@ -315,10 +315,16 @@ pub fn matches_query(act: &Activity, q: &str, book: &[SavedAddress]) -> bool {
     // txid, as the card shows it. And the person's note (FEAT-0003, FR-9), any case. And the
     // identity it was done as and its document's id, as the card names them (FEAT-0005, FR-9).
     let detail = act.detail.as_deref();
+    // FEAT-0056: a payment to several is found by any of its recipients.
+    let recipients: String = text::sent_to(act)
+        .iter()
+        .map(|r| format!("{} {} ", r.address, r.name.as_deref().unwrap_or_default()))
+        .collect();
     let identity = detail.and_then(|d| d.identity.as_ref());
     let shown = format!(
-        "{} {} {} {} {} {} {} {} {}",
+        "{} {} {} {} {} {} {} {} {} {}",
         text::activity_title_in(act, book),
+        recipients,
         crate::format::number(act.amount, true),
         counterparty,
         act.address.as_deref().unwrap_or_default(),

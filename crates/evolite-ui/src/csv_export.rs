@@ -226,8 +226,33 @@ fn direction(a: &Activity, own: &Own) -> Option<Line> {
 pub fn lines<'a>(activity: impl IntoIterator<Item = &'a Activity>, own: &Own) -> usize {
     activity
         .into_iter()
-        .filter(|a| line(a, own).is_some())
-        .count()
+        .filter_map(|a| Some(rows_of(a, line(a, own)?).len()))
+        .sum()
+}
+
+/// FEAT-0056 (Н3): the rows of one line — a payment out to several is a row a recipient, the
+/// same txid on each, what each got; the fee (and anything else the line took) on the first, so
+/// the rows add up to the line. Any other line is one row.
+fn rows_of(a: &Activity, l: Line) -> Vec<Line> {
+    let recipients = crate::text::sent_to(a);
+    let Line::Expense(total) = l else {
+        return vec![l];
+    };
+    let paid: Duffs = recipients.iter().map(|r| r.amount).sum();
+    if recipients.len() < 2 || paid > total {
+        return vec![l];
+    }
+    recipients
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            Line::Expense(if i == 0 {
+                r.amount + total - paid
+            } else {
+                r.amount
+            })
+        })
+        .collect()
 }
 
 /// The CSV of `activity` (any order), `own` telling moves inside the wallet apart.
@@ -235,6 +260,7 @@ pub fn taxbit(activity: &[Activity], own: &Own) -> String {
     let mut rows: Vec<(&Activity, Line, TaxCategory)> = activity
         .iter()
         .filter_map(|a| Some((a, line(a, own)?, tax_category(a, own)?)))
+        .flat_map(|(a, l, category)| rows_of(a, l).into_iter().map(move |l| (a, l, category)))
         .collect();
     // Oldest first (an operation without a time is no line, BUG-128).
     rows.sort_by_key(|(a, ..)| (!crate::text::known(a.at), a.at));
@@ -356,6 +382,49 @@ mod tests {
 
     /// The header and line of DashPay's own test (`TransactionExportTest`), with evolite's name
     /// in the source columns (and a second past the epoch: 0 is "no time" here, BUG-47).
+    /// FEAT-0056 (Н3, A7): a payment to three is three rows with its one txid, what each got,
+    /// the fee on the first — together the line; History counts three rows. Its title says the
+    /// count. Mutants: one row, or the fee lost → red.
+    #[test]
+    fn a_payment_to_several_is_a_row_a_recipient() {
+        let mut a = act(
+            ActivityKind::Sent { to: "yA".into() },
+            Chain::Core,
+            1_700_000_000,
+            -(1_000_000 + 2_000_000 + 3_000_000 + 260),
+            "ab12",
+        );
+        a.fee = Some(260);
+        let to = |address: &str, amount| evolite_api::SentTo {
+            address: address.into(),
+            name: None,
+            amount,
+        };
+        a.detail = Some(Box::new(evolite_api::Detail {
+            sent_to: vec![
+                to("yA", 1_000_000),
+                to("yB", 2_000_000),
+                to("yC", 3_000_000),
+            ],
+            ..Default::default()
+        }));
+        let csv = taxbit(std::slice::from_ref(&a), &Own::default());
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(rows.len(), 3, "{csv}");
+        assert!(rows.iter().all(|r| r.ends_with(",ab12")), "{csv}");
+        assert!(
+            rows[0].contains(",0.01000260,"),
+            "the fee on the first: {}",
+            rows[0]
+        );
+        assert!(
+            rows[1].contains(",0.02,") && rows[2].contains(",0.03,"),
+            "{csv}"
+        );
+        assert_eq!(lines([&a], &Own::default()), 3);
+        assert_eq!(crate::text::activity_title(&a), "Sent to 3 recipients");
+    }
+
     #[test]
     fn writes_what_dashpay_writes() {
         let csv = taxbit(

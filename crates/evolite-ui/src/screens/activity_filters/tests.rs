@@ -428,3 +428,53 @@ fn the_export_of_the_shown_lines_has_as_many_rows() {
     assert_eq!(some.lines().count(), shown.len() + 1);
     assert_eq!(some.lines().next(), all.lines().next(), "the same columns");
 }
+
+/// FEAT-0056 (the architect's class test, UI half): a payment to three whose second recipient
+/// is a contact, as History has it named — found by the contact's name and by any recipient's
+/// address, counted among the contact's payments, three rows in CSV, titled by the count.
+/// Mutant «only `to`» (the search, the contact's payments) → red.
+#[test]
+fn a_payment_to_several_is_found_and_counted_by_any_recipient() {
+    let mut act = line(
+        ActivityKind::Sent {
+            to: "yFirst1".into(),
+        },
+        1_700_000_000,
+        -(1_000 + 2_000 + 3_000 + 300),
+        Proof::ChainLock,
+        layer::CORE,
+        Flow::Out,
+    );
+    act.txid = Some("ab12".into());
+    act.fee = Some(300);
+    let to = |address: &str, name: Option<&str>, amount| evolite_api::SentTo {
+        address: address.into(),
+        name: name.map(Into::into),
+        amount,
+    };
+    act.detail = Some(Box::new(evolite_api::Detail {
+        sent_to: vec![
+            to("yFirst1", None, 1_000),
+            to("ySecond2", Some("@carol"), 2_000),
+            to("yThird3", None, 3_000),
+        ],
+        ..Default::default()
+    }));
+    assert!(
+        matches_query(&act, "@carol", &[]),
+        "by the second recipient's name"
+    );
+    assert!(
+        matches_query(&act, "ythird3", &[]),
+        "by the third's address"
+    );
+    assert!(!matches_query(&act, "@dave", &[]));
+    assert_eq!(crate::text::activity_title(&act), "Sent to 3 recipients");
+    assert_eq!(
+        crate::screens::contacts::paid_for_tests(std::slice::from_ref(&act), "@carol"),
+        1,
+        "the contact's payments count it"
+    );
+    let own = crate::csv_export::Own::default();
+    assert_eq!(crate::csv_export::lines([&act], &own), 3);
+}

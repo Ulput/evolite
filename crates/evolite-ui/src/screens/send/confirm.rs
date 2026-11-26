@@ -663,7 +663,7 @@ fn lookalike_warning(ui: &mut Ui, p: &crate::theme::Palette, to: &str, similar: 
 }
 
 /// The wallet's password, asked in the last look.
-fn password_field(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
+pub(super) fn password_field(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
     let p = &a.p.clone();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;

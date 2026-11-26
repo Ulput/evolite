@@ -2528,3 +2528,183 @@ async fn payout_document_read() {
     println!("index {tx_index} → {:?}", again.as_ref().map(|d| d.id));
     assert_eq!(again.map(|d| d.id), Some(doc.id));
 }
+
+/// A testnet address of key `n`, not this wallet's.
+fn foreign(n: u8) -> Address {
+    let secret = dpp::secp256k1::SecretKey::from_secret_bytes([n; 32]).unwrap();
+    let public = key_wallet::dashcore::PublicKey::new(secret.public_key());
+    Address::p2pkh(&public, crate::network::dash())
+}
+
+fn row(to: &Address, amount: u64, all: bool) -> Recipient {
+    Recipient {
+        to: to.clone(),
+        amount,
+        all,
+    }
+}
+
+/// FEAT-0056 А-1: a signed payment is matched to its recipients by script (BIP-69 orders the
+/// outputs): each gets exactly its amount (a script twice, R-4: summed), an «All» row at least;
+/// one other output at most, ours (the change). Mutants: by place, ≥ for every row, or any
+/// number of others → red.
+#[test]
+fn a_signed_payment_pays_each_recipient_as_asked() {
+    let (a, b, change, stranger) = (foreign(1), foreign(2), foreign(3), foreign(4));
+    let out = |to: &Address, v: u64| (to.script_pubkey(), v);
+    let ours = |s: &key_wallet::dashcore::ScriptBuf| *s == change.script_pubkey();
+    let asked = [row(&a, 1_000, false), row(&b, 2_000, false)];
+    // In any order, with or without change.
+    let paid = [out(&change, 7_000), out(&b, 2_000), out(&a, 1_000)];
+    assert!(pays_as_asked(&paid, &asked, ours));
+    assert!(pays_as_asked(&paid[1..], &asked, ours), "no change");
+    // One duff less, or more, to a recipient: not as asked.
+    assert!(!pays_as_asked(
+        &[out(&a, 999), out(&b, 2_000)],
+        &asked,
+        ours
+    ));
+    assert!(!pays_as_asked(
+        &[out(&a, 1_001), out(&b, 2_000)],
+        &asked,
+        ours
+    ));
+    // A stranger's output, or a second «change».
+    assert!(!pays_as_asked(
+        &[out(&a, 1_000), out(&b, 2_000), out(&stranger, 1)],
+        &asked,
+        ours
+    ));
+    let two_changes = [
+        out(&a, 1_000),
+        out(&b, 2_000),
+        out(&change, 1),
+        out(&change, 2),
+    ];
+    assert!(!pays_as_asked(&two_changes, &asked, ours));
+    // A recipient missing.
+    assert!(!pays_as_asked(
+        &[out(&a, 1_000), out(&change, 2_000)],
+        &asked,
+        ours
+    ));
+    // R-4: the same address twice — two outputs, summed.
+    let twice = [row(&a, 1_000, false), row(&a, 500, false)];
+    assert!(pays_as_asked(&[out(&a, 500), out(&a, 1_000)], &twice, ours));
+    assert!(!pays_as_asked(&[out(&a, 1_400)], &twice, ours));
+    // «All»: at least what was shown (a smaller fee gives the row more), never less.
+    let all = [row(&a, 1_000, false), row(&b, 5_000, true)];
+    assert!(pays_as_asked(&[out(&a, 1_000), out(&b, 5_300)], &all, ours));
+    assert!(!pays_as_asked(
+        &[out(&a, 1_000), out(&b, 4_999)],
+        &all,
+        ours
+    ));
+    assert!(
+        !pays_as_asked(&[out(&a, 1_100), out(&b, 5_000)], &all, ours),
+        "only the «All» row"
+    );
+    assert!(!pays_as_asked(&[], &[], ours), "nobody asked");
+}
+
+/// FEAT-0056 AC-A1: three recipients, one transaction: an output each with exactly its amount
+/// and the change to this wallet, really signed (offline: the store only, a public test
+/// phrase), nothing sent. The total over the coins is refused before anything is signed.
+#[tokio::test(flavor = "multi_thread")]
+async fn three_recipients_are_one_transaction_with_change() {
+    use key_wallet::dashcore::hashes::Hash;
+    use key_wallet::dashcore::{OutPoint, TxOut, Txid};
+    let dir = std::env::temp_dir().join(format!("evolite-many-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let paths = ChainPaths {
+        spv: dir.join("spv").join("testnet"),
+        store: dir
+            .join("wallets")
+            .join("testnet")
+            .join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
+    };
+    let chain = Chain::default();
+    chain
+        .open_store_only(&paths)
+        .await
+        .expect("the store opens");
+    let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    let (_, wallet) = chain
+        .open_wallet(&crate::seed_from(phrase, "").unwrap(), 0)
+        .await
+        .expect("wallet opens");
+    let keys = crate::keys_of(phrase).expect("keys");
+    let address = wallet
+        .core()
+        .next_receive_address_for_account(0)
+        .await
+        .expect("an address");
+    let mut utxo = key_wallet::Utxo::new(
+        OutPoint::new(Txid::from_byte_array([9; 32]), 0),
+        TxOut {
+            value: 10_000_000,
+            script_pubkey: address.script_pubkey(),
+        },
+        address.clone(),
+        100,
+        false,
+    );
+    utxo.is_confirmed = true;
+    {
+        use key_wallet::account::account_type::StandardAccountType;
+        let mut state = wallet.state_mut().await;
+        state
+            .core_wallet
+            .accounts
+            .funds_account_mut(&key_wallet::AccountType::Standard {
+                index: 0,
+                standard_account_type: StandardAccountType::BIP44Account,
+            })
+            .expect("BIP44 account 0")
+            .utxos
+            .insert(utxo.outpoint, utxo.clone());
+    }
+    let asked = [
+        row(&foreign(1), 1_000_000, false),
+        row(&foreign(2), 2_000_000, false),
+        row(&foreign(3), 1_500_000, false),
+    ];
+    let signed = chain
+        .funded_many(&wallet, &keys, &asked, None, None)
+        .await
+        .expect("one coin pays the three");
+    let tx = signed.transaction();
+    assert_eq!(tx.output.len(), 4, "three recipients and the change");
+    for r in &asked {
+        let to: Vec<_> = tx
+            .output
+            .iter()
+            .filter(|o| o.script_pubkey == r.to.script_pubkey())
+            .map(|o| o.value)
+            .collect();
+        assert_eq!(to, vec![r.amount]);
+    }
+    let change = 10_000_000 - 4_500_000 - signed.fee();
+    assert!(
+        tx.output.iter().any(|o| o.value == change),
+        "the change, the rest"
+    );
+    assert_eq!(paid_to_all(tx, &asked), 4_500_000);
+    wallet.core().abandon_transaction(&signed).await;
+    let too_much = [
+        row(&foreign(1), 6_000_000, false),
+        row(&foreign(2), 5_000_000, false),
+    ];
+    assert!(
+        chain
+            .funded_many(&wallet, &keys, &too_much, None, None)
+            .await
+            .is_err(),
+        "more than the coins hold"
+    );
+    drop(wallet);
+    chain.stop().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

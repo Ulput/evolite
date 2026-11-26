@@ -1080,9 +1080,33 @@ impl App {
                 to: "@alice".into(),
             });
         }
+        // FEAT-0056: `--screen send-many-confirm` — the last look of a payment to three (two
+        // addresses and a contact), with the advanced features on.
+        if preset("send-many-confirm") {
+            self.settings.set("advanced", true);
+            let row = |to: &str, amount: &str| crate::screens::send::many::Row {
+                to: to.into(),
+                amount: amount.into(),
+                all: false,
+            };
+            let rows = vec![
+                row("yXdxCB2vAX6wPHeaQqyB6XJT9eSZGJx3qB", "0.1"),
+                row("@alice", "0.2"),
+                row("yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d", "0.3"),
+            ];
+            for r in &rows {
+                self.core.send(Command::PreviewPayment { to: r.to.clone() });
+            }
+            self.send.many = Some(crate::screens::send::many::Many {
+                rows,
+                ..Default::default()
+            });
+            self.send.confirming = true;
+        }
         if demo {
             // `--screen send-confirm` opens the last look before signing.
-            self.send.confirming = preset("send-confirm")
+            self.send.confirming = preset("send-many-confirm")
+                || preset("send-confirm")
                 || preset("send-confirm-note")
                 || preset("send-confirm-link")
                 || preset("send-confirm-wait");

@@ -352,6 +352,80 @@ pub fn top_up_identity_unknown_text() -> &'static str {
     )
 }
 
+/// FEAT-0056: one recipient of a Core payment: its address and amount. `all`: the row «All»
+/// (UC-2) — at least `amount` (the rest less the fee shown), with chosen coins all of them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recipient {
+    pub to: Address,
+    pub amount: u64,
+    pub all: bool,
+}
+
+/// FEAT-0056: one recipient as the core asks for it: an address, or a DashPay contact with the
+/// address its preview showed (`shown`) and its addresses paid before (`paid`, `contact_paid`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Payee {
+    Address(Recipient),
+    Contact {
+        to: Identifier,
+        shown: String,
+        paid: Vec<String>,
+        amount: u64,
+        all: bool,
+    },
+}
+
+/// FEAT-0056 А-2: the largest signed payment sent — Dash Core's `MAX_STANDARD_TX_SIZE`. Above
+/// it the network would not relay it: abandoned, nothing sent.
+pub const MAX_SIGNED_SIZE: usize = 100_000;
+
+/// FEAT-0056 А-2: what a payment too large is refused with, before the password or after signing.
+pub fn too_large_text() -> &'static str {
+    tr!("The payment is too large — remove recipients or coins")
+}
+
+/// FEAT-0056 А-1: whether a signed payment's `outputs` (script, value) pay `recipients` as
+/// asked. BIP-69 orders the outputs, so they are matched by script, never by place:
+/// - each recipient's script (a script twice, R-4: its rows summed) gets exactly its amount —
+///   a group with the row «All», at least that;
+/// - every other output is `ours` (the change), and there is one at most;
+/// - no more outputs than recipients and the change.
+///
+/// Anything else is a payment nobody asked for: abandoned, nothing sent.
+pub fn pays_as_asked(
+    outputs: &[(key_wallet::dashcore::ScriptBuf, u64)],
+    recipients: &[Recipient],
+    ours: impl Fn(&key_wallet::dashcore::ScriptBuf) -> bool,
+) -> bool {
+    if recipients.is_empty() || outputs.len() > recipients.len() + 1 {
+        return false;
+    }
+    let mut asked: Vec<(key_wallet::dashcore::ScriptBuf, u64, bool)> = Vec::new();
+    for r in recipients {
+        let script = r.to.script_pubkey();
+        match asked.iter_mut().find(|(s, ..)| *s == script) {
+            Some((_, sum, all)) => {
+                *sum = sum.saturating_add(r.amount);
+                *all |= r.all;
+            }
+            None => asked.push((script, r.amount, r.all)),
+        }
+    }
+    let each_paid = asked.iter().all(|(script, sum, all)| {
+        let paid: u64 = outputs
+            .iter()
+            .filter(|(s, _)| s == script)
+            .map(|(_, v)| *v)
+            .sum();
+        paid == *sum || (*all && paid >= *sum)
+    });
+    let others: Vec<_> = outputs
+        .iter()
+        .filter(|(s, _)| !asked.iter().any(|(a, ..)| a == s))
+        .collect();
+    each_paid && others.len() <= 1 && others.iter().all(|(s, _)| ours(s))
+}
+
 /// A Core payment handed to the network.
 pub struct Paid {
     pub txid: String,
@@ -369,9 +443,27 @@ pub struct Paid {
 /// FEAT-0040: at `fee_rate` duffs per kB when given (a Core payment to an address, the advanced
 /// features on); else the normal rate, the builder's own.
 pub fn payment_builder(to: &Address, amount: u64, fee_rate: Option<u64>) -> TransactionBuilder {
-    let builder = TransactionBuilder::new()
-        .require_final_inputs()
-        .add_output(to, amount);
+    multi_payment_builder(
+        &[Recipient {
+            to: to.clone(),
+            amount,
+            all: false,
+        }],
+        fee_rate,
+    )
+}
+
+/// FEAT-0056: [`payment_builder`] with an output for each recipient (one transaction, one fee,
+/// R-2); a recipient twice is two outputs (R-4).
+pub fn multi_payment_builder(
+    recipients: &[Recipient],
+    fee_rate: Option<u64>,
+) -> TransactionBuilder {
+    let builder = recipients
+        .iter()
+        .fold(TransactionBuilder::new().require_final_inputs(), |b, r| {
+            b.add_output(&r.to, r.amount)
+        });
     match fee_rate {
         Some(rate) => builder.set_fee_rate(
             key_wallet::wallet::managed_wallet_info::fee::FeeRate::new(rate),
@@ -1203,12 +1295,34 @@ impl Chain {
     /// The payment to `to`, built and signed, not sent. With `chosen` (FEAT-0013) only those
     /// coins are candidates — largest first, or with `all` every one of them and no change — and
     /// the signed transaction is checked against them before anything is sent (R-6, АРХ-2).
+    #[cfg(test)]
     async fn funded_payment(
         &self,
         wallet: &PlatformWallet,
         keys: &key_wallet::Wallet,
         to: &Address,
         amount: u64,
+        chosen: Option<&evolite_api::CoinChoice>,
+        fee_rate: Option<u64>,
+    ) -> Result<platform_wallet::SignedCoreTransaction, String> {
+        let one = [Recipient {
+            to: to.clone(),
+            amount,
+            // «Max» of chosen coins: at least `amount`, as before (FEAT-0013).
+            all: chosen.is_some_and(|c| c.all()),
+        }];
+        self.funded_many(wallet, keys, &one, chosen, fee_rate).await
+    }
+
+    /// FEAT-0056: the payment to `recipients`, one transaction, built and signed, not sent. Checked
+    /// before anything is sent (А-1, А-2): it pays each recipient as asked
+    /// ([`pays_as_asked`]), takes only the chosen coins (FEAT-0013), and is not larger than the
+    /// network relays ([`MAX_SIGNED_SIZE`]); else abandoned, its coins back at once.
+    async fn funded_many(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        recipients: &[Recipient],
         chosen: Option<&evolite_api::CoinChoice>,
         fee_rate: Option<u64>,
     ) -> Result<platform_wallet::SignedCoreTransaction, String> {
@@ -1222,7 +1336,7 @@ impl Chain {
         // AC-A6); then that account signs them too, and the change goes to the first source.
         let mut sources = SEND_FUNDING_SOURCES.to_vec();
         let builder = match chosen {
-            None => payment_builder(to, amount, fee_rate).add_inputs(coins),
+            None => multi_payment_builder(recipients, fee_rate).add_inputs(coins),
             Some(choice) => {
                 let unfinished: Vec<_> = {
                     let state = wallet.state().await;
@@ -1251,7 +1365,7 @@ impl Chain {
                         key_wallet::wallet::managed_wallet_info::transaction_building::AccountTypePreference::CoinJoin,
                     );
                 }
-                payment_builder(to, amount, fee_rate)
+                multi_payment_builder(recipients, fee_rate)
                     .add_inputs(coins)
                     .set_selection_strategy(if choice.all() {
                         SelectionStrategy::All
@@ -1265,17 +1379,34 @@ impl Chain {
             .finalize_transaction_with_options(builder, &sources, 0, keys, true)
             .await
             .map_err(|e| e.to_string())?;
-        if let Some(choice) = chosen {
-            let tx = signed.transaction();
+        let tx = signed.transaction();
+        let refused = if key_wallet::dashcore::consensus::encode::serialize(tx).len()
+            > MAX_SIGNED_SIZE
+        {
+            Some(too_large_text().to_owned())
+        } else {
+            let own = {
+                use key_wallet::wallet::managed_wallet_info::wallet_info_interface::WalletInfoInterface;
+                wallet.state().await.core_wallet.monitored_addresses()
+            };
+            let outputs: Vec<_> = tx
+                .output
+                .iter()
+                .map(|o| (o.script_pubkey.clone(), o.value))
+                .collect();
+            // «Max»: an «All» row is the set less the fee shown; less than that is a higher fee.
             let inputs: Vec<_> = tx.input.iter().map(|i| i.previous_output).collect();
-            // «Max»: `amount` is the set less the fee shown; less than that means a higher fee.
-            let kept = crate::coins::inputs_kept(&inputs, choice.outpoints(), choice.all())
-                && paid_to(tx, to) >= amount;
-            if !kept {
-                // Not sent: the coins it reserved go back at once.
-                wallet.core().abandon_transaction(&signed).await;
-                return Err(crate::coins::refusal(&crate::coins::ChoiceError::Changed));
-            }
+            let kept = chosen.is_none_or(|choice| {
+                crate::coins::inputs_kept(&inputs, choice.outpoints(), choice.all())
+            }) && pays_as_asked(&outputs, recipients, |script| {
+                Address::from_script(script, crate::network::dash()).is_ok_and(|a| own.contains(&a))
+            });
+            (!kept).then(|| crate::coins::refusal(&crate::coins::ChoiceError::Changed))
+        };
+        if let Some(refusal) = refused {
+            // Not sent: the coins it reserved go back at once.
+            wallet.core().abandon_transaction(&signed).await;
+            return Err(refusal);
         }
         Ok(signed)
     }
@@ -1291,10 +1422,28 @@ impl Chain {
         to: &Address,
         amount: u64,
         chosen: Option<&evolite_api::CoinChoice>,
+        fees: (Option<u64>, Option<u64>),
+    ) -> Result<Paid, String> {
+        let one = [Recipient {
+            to: to.clone(),
+            amount,
+            all: chosen.is_some_and(|c| c.all()),
+        }];
+        self.pay_many(wallet, keys, &one, chosen, fees).await
+    }
+
+    /// FEAT-0056: [`Self::pay`] to several recipients, one transaction. `sent` is what all of
+    /// them get together («To recipients»).
+    pub async fn pay_many(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        recipients: &[Recipient],
+        chosen: Option<&evolite_api::CoinChoice>,
         (fee_rate, fee_shown): (Option<u64>, Option<u64>),
     ) -> Result<Paid, String> {
         let signed = self
-            .funded_payment(wallet, keys, to, amount, chosen, fee_rate)
+            .funded_many(wallet, keys, recipients, chosen, fee_rate)
             .await?;
         // FEAT-0040 R-7 (AC-T-F4): the coins moved since the last look and the fee grew past
         // what it showed — not sent, the coins it reserved back at once.
@@ -1304,7 +1453,7 @@ impl Chain {
         }
         let fee = signed.fee();
         let txid = signed.transaction().txid().to_string();
-        let sent = paid_to(signed.transaction(), to);
+        let sent = paid_to_all(signed.transaction(), recipients);
         match wallet.core().broadcast_finalized_transaction(&signed).await {
             Ok(_) => Ok(Paid {
                 txid,
@@ -1419,12 +1568,15 @@ async fn tear_down(manager: &Manager) {
     }
 }
 
-/// What `tx` pays to `to`.
-fn paid_to(tx: &key_wallet::dashcore::Transaction, to: &Address) -> u64 {
-    let script = to.script_pubkey();
+/// What `tx` pays to the recipients' scripts together (a script twice counted once).
+fn paid_to_all(tx: &key_wallet::dashcore::Transaction, recipients: &[Recipient]) -> u64 {
+    let mut scripts: Vec<_> = recipients.iter().map(|r| r.to.script_pubkey()).collect();
+    scripts.dedup();
+    scripts.sort();
+    scripts.dedup();
     tx.output
         .iter()
-        .filter(|o| o.script_pubkey == script)
+        .filter(|o| scripts.contains(&o.script_pubkey))
         .map(|o| o.value)
         .sum()
 }

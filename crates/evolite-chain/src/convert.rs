@@ -185,14 +185,8 @@ pub fn name_contact_payments(
     keys: &std::collections::HashMap<String, (String, String)>,
     contacts: &[Contact],
 ) {
-    for a in history {
-        let ActivityKind::Sent { to } = &mut a.kind else {
-            continue;
-        };
-        let Some((_, friend)) = keys.get(to.as_str()) else {
-            continue;
-        };
-        let name = contacts
+    let name_of = |friend: &str| {
+        contacts
             .iter()
             .find(|c| c.identity_id == *friend)
             .and_then(|c| c.name.clone())
@@ -202,8 +196,33 @@ pub fn name_contact_payments(
                 let head: String = chars.iter().take(4).collect();
                 let tail: String = chars[chars.len().saturating_sub(4)..].iter().collect();
                 format!("{head}…{tail}")
-            });
-        a.address = Some(std::mem::replace(to, name));
+            })
+    };
+    for a in history {
+        let ActivityKind::Sent { to } = &mut a.kind else {
+            continue;
+        };
+        // FEAT-0056 (А-3): each recipient of a payment to several, by its own address.
+        if let Some(detail) = a.detail.as_deref_mut() {
+            for r in &mut detail.sent_to {
+                if let Some((_, friend)) = keys.get(r.address.as_str()) {
+                    r.name = Some(name_of(friend));
+                }
+            }
+        }
+        let Some((_, friend)) = keys.get(to.as_str()) else {
+            continue;
+        };
+        a.address = Some(std::mem::replace(to, name_of(friend)));
+    }
+}
+
+/// FEAT-0056: the addresses a payment out went to — every recipient of one to several, else its
+/// one address.
+pub fn paid_addresses(a: &Activity) -> Vec<&str> {
+    match a.detail.as_deref().filter(|d| !d.sent_to.is_empty()) {
+        Some(d) => d.sent_to.iter().map(|r| r.address.as_str()).collect(),
+        None => a.address.as_deref().into_iter().collect(),
     }
 }
 
@@ -227,10 +246,10 @@ pub fn count_contact_payments(
     {
         let to_them = history.iter().filter(|a| {
             matches!(a.kind, ActivityKind::Sent { .. })
-                && a.address
-                    .as_ref()
-                    .and_then(|ad| keys.get(ad))
-                    .is_some_and(|(ours, friend)| ours == me && *friend == c.identity_id)
+                && paid_addresses(a).into_iter().any(|ad| {
+                    keys.get(ad)
+                        .is_some_and(|(ours, friend)| ours == me && *friend == c.identity_id)
+                })
         });
         let (count, last) =
             to_them.fold((0u32, None), |(n, last), a| (n + 1, last.max(Some(a.at))));
@@ -240,9 +259,11 @@ pub fn count_contact_payments(
 }
 
 /// FEAT-0057 П5 (R-5.2): what was paid each way with each of `me`'s established contacts, from
-/// FEAT-0056's seam: a Sent line's outputs to others, each its address and amount. One for
-/// now — the line's address, its amount less the network's fee, or with the fee in it when the
-/// fee is not known (`exact: false`); FEAT-0056 gives each recipient of `Detail.recipients`.
+/// FEAT-0056's seam: a Sent line's outputs to others, each its address and amount.
+/// - A payment to several (FEAT-0056, `Detail.sent_to`): each recipient, its own output's
+///   amount, exact — the fee is not in any output, so a fee not known changes none of them.
+/// - A payment to one: the line's address, its amount less the network's fee, or with the fee in
+///   it when the fee is not known (`exact: false`).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct SentOutput {
     pub address: String,
@@ -251,6 +272,17 @@ pub struct SentOutput {
 }
 
 pub fn sent_outputs(a: &Activity) -> Vec<SentOutput> {
+    if let Some(d) = a.detail.as_deref().filter(|d| !d.sent_to.is_empty()) {
+        return d
+            .sent_to
+            .iter()
+            .map(|r| SentOutput {
+                address: r.address.clone(),
+                amount: r.amount,
+                exact: true,
+            })
+            .collect();
+    }
     let Some(address) = a.address.clone() else {
         return Vec::new();
     };
@@ -653,7 +685,23 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
     let (layers, flow) = crate::layers::of(&kind, chain);
     let proof = proof(&record.context, instant_verified);
     let block = record.context.block_info().map(|b| b.height());
-    let detail = detail_of(record, &kind, proof, block);
+    let mut detail = detail_of(record, &kind, proof, block);
+    // FEAT-0056 (А-3): a payment to several names them all, from the transaction alone.
+    let sent: Vec<evolite_api::SentTo> = record
+        .output_details
+        .iter()
+        .filter(|o| o.role == OutputRole::Sent)
+        .filter_map(|o| {
+            Some(evolite_api::SentTo {
+                address: o.address.as_ref()?.to_string(),
+                name: None,
+                amount: o.value as Duffs,
+            })
+        })
+        .collect();
+    if sent.len() > 1 {
+        detail.sent_to = sent;
+    }
     Activity {
         key: format!("core:{txid}"),
         // default-ok: display id only: a txid is always hex
@@ -3390,6 +3438,90 @@ mod tests {
         );
     }
 
+    /// FEAT-0056 with FEAT-0057 П5: a payment to three with two contacts among them gives each
+    /// contact what its own output got — not the line's whole amount — and counts it once for
+    /// each; a fee not known leaves them exact (no output carries the fee). Mutant:
+    /// `sent_outputs` without the recipients (the line's one address) → red.
+    #[test]
+    fn a_payment_to_several_gives_each_contact_its_own_output() {
+        let to = |address: &str, name: Option<&str>, amount| evolite_api::SentTo {
+            address: address.into(),
+            name: name.map(Into::into),
+            amount,
+        };
+        let many = |fee| Activity {
+            id: 1,
+            kind: ActivityKind::Sent { to: "@bob".into() },
+            chain: Chain::Core,
+            at: 1_800_000_000,
+            amount: -(100_000 + 200_000 + 300_000 + 374),
+            proof: Proof::ChainLock,
+            txid: None,
+            fee,
+            block: None,
+            address: Some("ybob1".into()),
+            layers: 1,
+            flow: Flow::Out,
+            key: String::new(),
+            detail: Some(Box::new(evolite_api::Detail {
+                sent_to: vec![
+                    to("ybob1", Some("@bob"), 100_000),
+                    to("ystranger", None, 200_000),
+                    to("ycarol1", Some("@carol"), 300_000),
+                ],
+                ..Default::default()
+            })),
+            note: None,
+            rate: None,
+            tax_transfer: false,
+        };
+        assert_eq!(
+            sent_outputs(&many(None))
+                .into_iter()
+                .map(|o| (o.address, o.amount, o.exact))
+                .collect::<Vec<_>>(),
+            vec![
+                ("ybob1".to_string(), 100_000, true),
+                ("ystranger".to_string(), 200_000, true),
+                ("ycarol1".to_string(), 300_000, true),
+            ]
+        );
+        let keys: std::collections::HashMap<String, (String, String)> = [
+            (
+                "ybob1".to_string(),
+                ("Me111".to_string(), "Bob".to_string()),
+            ),
+            (
+                "ycarol1".to_string(),
+                ("Me111".to_string(), "Carol".to_string()),
+            ),
+        ]
+        .into();
+        let contact = |id: &str| Contact {
+            identity_id: id.into(),
+            name: None,
+            profile: Default::default(),
+            state: ContactState::Established,
+            payments: 0,
+            last_payment: None,
+            channel_broken: false,
+            record: Default::default(),
+        };
+        for fee in [Some(374), None] {
+            let mut contacts = vec![contact("Bob"), contact("Carol")];
+            total_contact_payments(
+                &[many(fee)],
+                &keys,
+                &Default::default(),
+                Some("Me111"),
+                &mut contacts,
+            );
+            let got = |c: &Contact| (c.record.sent, c.record.sent_count, c.record.sent_exact);
+            assert_eq!(got(&contacts[0]), (100_000, 1, true), "bob, fee {fee:?}");
+            assert_eq!(got(&contacts[1]), (300_000, 1, true), "carol, fee {fee:?}");
+        }
+    }
+
     /// BUG-232 review (QA batch 31) condition 2: the live side of «ours» leaves out the
     /// addresses we pay a contact at (`DashpayExternalAccount`), so a payment to a contact never
     /// becomes a transfer between own; our own contact-receiving account's are in.
@@ -4702,6 +4834,97 @@ mod detail_tests {
             outputs,
             net,
         )
+    }
+
+    /// FEAT-0056 А-3 (§8d п.1): a payment to three, read from the transaction alone (another
+    /// copy, a restore: no local record of it) — two to contacts' keys, one to a stranger — is one
+    /// line with all three recipients and what each got; each contact is named, the stranger's
+    /// address stays; each contact counts it as a payment. A payment to one keeps no list.
+    /// Mutants: the first recipient only, or the list not named → red.
+    #[test]
+    fn a_payment_to_several_names_every_recipient_from_the_chain() {
+        let out = |index, at: u8, value| OutputDetail {
+            index,
+            role: OutputRole::Sent,
+            address: Some(address(at)),
+            value,
+        };
+        let many = record(
+            tx(&[(1, 0)], &[(11, 1_000), (12, 2_000), (13, 3_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![],
+            vec![out(0, 11, 1_000), out(1, 12, 2_000), out(2, 13, 3_000)],
+            -6_226,
+        );
+        let mut line = activity(&many, 0, false);
+        let sent = &line.detail.as_ref().unwrap().sent_to;
+        assert_eq!(
+            sent.iter()
+                .map(|r| (r.address.clone(), r.amount))
+                .collect::<Vec<_>>(),
+            vec![
+                (address(11).to_string(), 1_000),
+                (address(12).to_string(), 2_000),
+                (address(13).to_string(), 3_000),
+            ]
+        );
+        let keys: std::collections::HashMap<String, (String, String)> = [
+            (
+                address(12).to_string(),
+                ("Me".to_owned(), "Carol1".to_owned()),
+            ),
+            (
+                address(13).to_string(),
+                ("Me".to_owned(), "Dave22".to_owned()),
+            ),
+        ]
+        .into();
+        let contact = |id: &str, name: &str| Contact {
+            identity_id: id.into(),
+            name: Some(name.into()),
+            profile: Default::default(),
+            state: ContactState::Established,
+            payments: 0,
+            last_payment: None,
+            channel_broken: false,
+            record: Default::default(),
+        };
+        let mut contacts = [contact("Carol1", "carol"), contact("Dave22", "dave")];
+        name_contact_payments(std::slice::from_mut(&mut line), &keys, &contacts);
+        let names: Vec<_> = line
+            .detail
+            .as_ref()
+            .unwrap()
+            .sent_to
+            .iter()
+            .map(|r| r.name.clone())
+            .collect();
+        // The second recipient is a contact: named, not lost behind the first (the architect).
+        assert_eq!(
+            names,
+            vec![None, Some("@carol".into()), Some("@dave".into())]
+        );
+        count_contact_payments(
+            std::slice::from_ref(&line),
+            &keys,
+            Some("Me"),
+            &mut contacts,
+        );
+        assert_eq!(
+            (contacts[0].payments, contacts[1].payments),
+            (1, 1),
+            "the third one too"
+        );
+        let one = record(
+            tx(&[(2, 0)], &[(11, 1_000)]),
+            TransactionContext::Mempool,
+            TransactionDirection::Outgoing,
+            vec![],
+            vec![out(0, 11, 1_000)],
+            -1_226,
+        );
+        assert!(activity(&one, 0, false).detail.unwrap().sent_to.is_empty());
     }
 
     /// FEAT-0046 R-5 (AC-T-T3): a standard payment going out or between own addresses may be

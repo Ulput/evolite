@@ -692,3 +692,91 @@ fn the_four_lock_paths_and_nothing_else_are_checked() {
         );
     }
 }
+
+/// FEAT-0056 R-8, UC-2 (A5): before the password a payment to several is refused with more than
+/// 50 rows, fewer than two, or «All» on two of them; 50 with one «All» goes on. Mutants: the
+/// limit or the «All» count gone → red.
+#[test]
+fn a_payment_to_several_is_refused_before_the_password_when_its_rows_cannot_be() {
+    use crate::real::ops::core::many_refused;
+    let row = |all| evolite_api::SendTo {
+        to: "yAddr".into(),
+        amount: 1_000,
+        all,
+    };
+    let mut rows: Vec<_> = (0..evolite_api::MAX_RECIPIENTS)
+        .map(|_| row(false))
+        .collect();
+    rows[3].all = true;
+    assert!(many_refused(&rows).is_none(), "50, one «All»");
+    rows.push(row(false));
+    let too_many = many_refused(&rows)
+        .map(|e| format!("{e:?}"))
+        .unwrap_or_default();
+    assert!(
+        too_many.contains("No more than 50 recipients"),
+        "{too_many}"
+    );
+    rows.truncate(3);
+    rows[0].all = true;
+    rows[1].all = true;
+    let twice = many_refused(&rows)
+        .map(|e| format!("{e:?}"))
+        .unwrap_or_default();
+    assert!(
+        twice.contains("already set for another recipient"),
+        "{twice}"
+    );
+    assert!(
+        many_refused(&[row(false)]).is_some(),
+        "one row is Spend::Send"
+    );
+}
+
+/// FEAT-0056 r1 Should 1: a payment to several refused by a check after the contacts' previews
+/// (here the sync) keeps them: signed again, it gets past «the address was not shown» to the same
+/// check. Mutant: the previews taken before the checks → the second answer is that refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_payment_to_several_keeps_the_contacts_preview() {
+    use dpp::platform_value::string_encoding::Encoding;
+    let mut core = core_with_vault("many-previews", "pw");
+    assert_eq!(core.unlock(&pw("pw")).await, Ok(()));
+    let carol = dpp::prelude::Identifier::from([5; 32]).to_string(Encoding::Base58);
+    core.contacts = vec![evolite_api::Contact {
+        identity_id: carol.clone(),
+        name: Some("carol".into()),
+        profile: Default::default(),
+        state: evolite_api::ContactState::Established,
+        payments: 0,
+        last_payment: None,
+        channel_broken: false,
+        record: Default::default(),
+    }];
+    core.previews
+        .lock()
+        .unwrap()
+        .insert(carol.clone(), "yRk7Hc2pWq9mN4vT8sLb3XeJ6uZa1Df5Gh".into());
+    let rows = || {
+        vec![
+            evolite_api::SendTo {
+                to: "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ".into(),
+                amount: 10_000,
+                all: false,
+            },
+            evolite_api::SendTo {
+                to: carol.clone(),
+                amount: 20_000,
+                all: false,
+            },
+        ]
+    };
+    for attempt in ["first", "again"] {
+        assert_eq!(
+            core.send_many(1, rows(), (None, None, None), (None, None))
+                .await,
+            Err(CoreError::NotSynced),
+            "{attempt}"
+        );
+    }
+    assert!(core.previews.lock().unwrap().contains_key(&carol), "kept");
+}

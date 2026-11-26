@@ -4,6 +4,9 @@ use super::*;
 
 /// What one frame of the form knows, worked out once before anything is drawn.
 pub(super) struct FormView<'a> {
+    /// FEAT-0056: «+ Recipient» is offered; the rows' totals when there are rows.
+    pub(super) many_allowed: bool,
+    pub(super) many: Option<super::many::ManyView>,
     pub(super) all: &'a [SourceView],
     pub(super) source: &'a SourceView,
     pub(super) core_as_of: Option<evolite_api::CoreAsOf>,
@@ -424,6 +427,8 @@ impl<'a> FormView<'a> {
                 .as_ref()
                 .is_some_and(|n| !cx.wallet().identities.iter().any(|i| i.id == n.identity_id));
         FormView {
+            many_allowed: false,
+            many: None,
             mixed_quote,
             mixed_refused,
             mixed_hint,
@@ -495,7 +500,18 @@ pub(super) fn form_card(
         source_cards(ui, a, form, v);
         super::coins::coins_row(ui, a, form, v, asked);
         if let Some((choice, to_contact)) = v.fee_row {
+            // FEAT-0056 (А-1): with several recipients the rate holds for contacts too.
+            let to_contact = to_contact && v.many.is_none();
             super::fee::fee_row(ui, a, form, choice, to_contact, asked);
+        }
+        if let Some(mv) = &v.many {
+            super::many::rows_card(ui, a, form, mv);
+            super::many::privacy_line(ui, &p, form);
+            note_field(ui, a, form);
+            super::many::totals(ui, &p, mv);
+            super::many::send_row(ui, a, form, mv, v.synced && v.source.read, asked);
+            payment_answer(ui, a, form, v);
+            return;
         }
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 6.0;
@@ -555,6 +571,10 @@ pub(super) fn form_card(
             return;
         }
         amount_row(ui, a, form, v);
+        // FEAT-0056 UC-1: another recipient in the same payment.
+        if v.many_allowed && button(ui, a, tr!("+ Recipient"), ButtonKind::Ghost, None).clicked() {
+            form.add_recipient();
+        }
         // A funding of the own address carries no note, and its plate says how it is confirmed
         // (frame 14).
         if !v.fund_own {

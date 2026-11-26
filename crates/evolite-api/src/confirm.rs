@@ -25,6 +25,19 @@ pub fn outgoing(op: &Spend, fees: &Fees) -> Option<Duffs> {
             let fee = fee_rate.map_or(fee, |rate| crate::fee_choice::at_rate(fee, rate));
             Some(amount.saturating_add(fee))
         }
+        // FEAT-0056 (A6): the tick by the total of all the rows and the fee of their outputs.
+        Spend::SendMany {
+            recipients,
+            fee_rate,
+            ..
+        } => {
+            let total = recipients
+                .iter()
+                .fold(0 as Duffs, |sum, r| sum.saturating_add(r.amount));
+            let fee = fees.core_payment_to(total, recipients.len());
+            let fee = fee_rate.map_or(fee, |rate| crate::fee_choice::at_rate(fee, rate));
+            Some(total.saturating_add(fee))
+        }
         // What the coins hold over the amount goes with the fee: it leaves the wallet too.
         Spend::SendMixed {
             amount,
@@ -435,5 +448,56 @@ mod tests {
         assert!(!asks_tick(&top(1), &f, limit));
         assert!(!asks_tick(&top(Duffs::MAX), &f, None), "no threshold");
         assert!(!asks_tick(&Spend::ResumeTopUp, &f, limit), "no amount");
+    }
+
+    /// FEAT-0056 A6: the large-spend tick by the total of all the rows and the fee of their
+    /// outputs (each past the first 34 bytes more), at the chosen rate. FEAT-0056 А-2: the
+    /// coins a payment takes and its size. Mutants: one output's fee, or the first row only → red.
+    #[test]
+    fn a_payment_to_several_is_reckoned_by_its_total_and_outputs() {
+        let mut f = fees();
+        f.core_coins = vec![
+            crate::CoreCoin {
+                value: 100_000_000,
+                fee: 226,
+            },
+            crate::CoreCoin {
+                value: 50_000_000,
+                fee: 374,
+            },
+        ];
+        let row = |amount: Duffs| crate::SendTo {
+            to: "yAddr".into(),
+            amount,
+            all: false,
+        };
+        let many = |fee_rate| Spend::SendMany {
+            id: 1,
+            recipients: vec![row(30_000_000), row(40_000_000), row(20_000_000)],
+            note: None,
+            rate: None,
+            coins: None,
+            fee_rate,
+            fee_shown: None,
+        };
+        assert_eq!(
+            crate::extra_outputs_fee(2),
+            68,
+            "two outputs more, 34 bytes each"
+        );
+        assert_eq!(f.core_payment_to(90_000_000, 3), 226 + 68);
+        assert_eq!(outgoing(&many(None), &f), Some(90_000_000 + 226 + 68));
+        assert_eq!(
+            outgoing(&many(Some(2_000)), &f),
+            Some(90_000_000 + 2 * (226 + 68)),
+            "at the chosen rate"
+        );
+        // One coin covers it; past it, the second too — the fee of two inputs.
+        assert_eq!(f.core_inputs_for(90_000_000, 3), 1);
+        assert_eq!(f.core_inputs_for(100_000_000, 3), 2);
+        assert_eq!(f.core_payment_to(100_000_000, 3), 374 + 68);
+        // А-2: 500 inputs and 50 recipients with change fit the estimate's limit.
+        assert!(crate::estimated_payment_size(500, 51) <= crate::MAX_ESTIMATED_SIZE);
+        assert!(crate::estimated_payment_size(610, 51) > crate::MAX_ESTIMATED_SIZE);
     }
 }

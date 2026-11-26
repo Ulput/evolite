@@ -461,6 +461,20 @@ pub struct Detail {
     /// of this computer's own (another device, a restore). The row shows «—» and «fee: no
     /// record», and the line is in no total: unknown is not zero.
     pub cost_unknown: bool,
+    /// FEAT-0056 (А-3): every recipient of a payment out to two or more, from the transaction
+    /// itself (another copy, a restore see them alike), in its outputs' order; empty for a
+    /// payment to one. A contact's is named once its key is known ([`SentTo::name`]).
+    pub sent_to: Vec<SentTo>,
+}
+
+/// FEAT-0056: one recipient of a payment to several, as History shows it.
+#[derive(Clone, PartialEq, Debug)]
+pub struct SentTo {
+    /// Its Core address, whole (FEAT-0051).
+    pub address: String,
+    /// A DashPay contact's `@name` (or short id while it has none): the address is of its key.
+    pub name: Option<String>,
+    pub amount: Duffs,
 }
 
 /// An identity of this wallet, as a card names it.
@@ -1613,7 +1627,61 @@ pub struct CoreCoin {
     pub fee: Duffs,
 }
 
+/// FEAT-0056: one recipient of [`Spend::SendMany`]: a Core address or a contact's @name, and
+/// the amount. `all`: the row «All» (UC-2) — the rest after the others and the fee; `amount` is
+/// what the last look showed, and it gets at least that.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SendTo {
+    pub to: String,
+    pub amount: Duffs,
+    pub all: bool,
+}
+
+/// FEAT-0056 R-8 (Н5): the most recipients of one payment.
+pub const MAX_RECIPIENTS: usize = 50;
+
+/// FEAT-0056 А-2: a payment estimated larger than this is refused before the password; the
+/// signed one is checked against the network's 100 000 bytes after signing. The margin is the
+/// signatures' spread.
+pub const MAX_ESTIMATED_SIZE: usize = 90_000;
+
+/// FEAT-0056 А-2: the size of a Core payment of `inputs` P2PKH inputs and `outputs` outputs (the
+/// change among them), in bytes — the frame, ≈ 148 an input, ≈ 34 an output.
+pub fn estimated_payment_size(inputs: usize, outputs: usize) -> usize {
+    10 + 148 * inputs + 34 * outputs
+}
+
+/// FEAT-0056: the fee of `extra` outputs more than one, at the normal rate (a P2PKH output is
+/// 34 bytes); the chosen rate scales it with the rest ([`fee_choice::at_rate`]).
+pub fn extra_outputs_fee(extra: usize) -> Duffs {
+    let bytes = 34 * extra as u64;
+    (bytes * fee_choice::NORMAL).div_ceil(1_000) as Duffs
+}
+
 impl Fees {
+    /// FEAT-0056: [`Self::core_payment_for`] of a payment of `total` to `outputs` recipients: the
+    /// coins cover the total and the fee of the outputs past the first too.
+    pub fn core_payment_to(&self, total: Duffs, outputs: usize) -> Duffs {
+        let extra = extra_outputs_fee(outputs.saturating_sub(1));
+        self.core_payment_for(total.saturating_add(extra))
+            .saturating_add(extra)
+    }
+
+    /// FEAT-0056 А-2: how many of the wallet's coins a payment of `total` to `outputs` recipients
+    /// takes, as [`Self::core_payment_to`] reckons it (the largest first); all of them when they
+    /// do not cover it.
+    pub fn core_inputs_for(&self, total: Duffs, outputs: usize) -> usize {
+        let extra = extra_outputs_fee(outputs.saturating_sub(1));
+        let mut held: Duffs = 0;
+        for (n, coin) in self.core_coins.iter().enumerate() {
+            held = held.saturating_add(coin.value);
+            if held >= total.saturating_add(coin.fee).saturating_add(extra) {
+                return n + 1;
+            }
+        }
+        self.core_coins.len()
+    }
+
     /// The fee of a Core payment of `amount` (0: nothing typed yet — the cheapest payment, from
     /// one coin). As the wallet chooses the coins when no set fits without change: the largest
     /// first, until they cover the amount and their own fee. Not that many coins: what spending
@@ -2884,6 +2952,21 @@ pub enum Spend {
         /// against it yet (review r1, Could 1). `None` only where no fee is shown.
         fee_shown: Option<Duffs>,
     },
+    /// FEAT-0056: one Core payment to several `recipients` (2 to [`MAX_RECIPIENTS`]) — Core
+    /// addresses of this network and DashPay contacts by @name — one transaction, one fee, one
+    /// password; from Core only, never from «Mixed» (Н4). A contact's output goes to the address
+    /// its `PreviewPayment` showed, checked again before signing (А-1). At most one row is «All».
+    /// Answered with [`Event::Sent`], its amount what all of them got together.
+    SendMany {
+        id: u64,
+        recipients: Vec<SendTo>,
+        note: Option<NoteText>,
+        rate: Option<FiatRate>,
+        coins: Option<CoinChoice>,
+        /// FEAT-0040: with @names too (А-1).
+        fee_rate: Option<u64>,
+        fee_shown: Option<Duffs>,
+    },
     /// Pay exactly `amount` to the Dash address `to` from «Mixed» (FEAT-0030 phase A): fully
     /// mixed coins of the CoinJoin account only, never with other coins, no change. What the
     /// coins hold over the amount and the fee goes with the fee ([`MixedQuote::excess`]).
@@ -3131,6 +3214,7 @@ impl Spend {
             | Spend::ApproveApp { grant: Some(_), .. } => true,
             Spend::ApproveApp { grant: None, .. }
             | Spend::Send { .. }
+            | Spend::SendMany { .. }
             | Spend::SendMixed { .. }
             | Spend::Shield { .. }
             | Spend::ShieldRefund
@@ -3152,7 +3236,7 @@ impl Spend {
     /// The `what` of the operation's `Done` (or `"send"` for [`Event::Sent`]).
     pub fn what(&self) -> DoneWhat {
         match self {
-            Spend::Send { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
+            Spend::Send { .. } | Spend::SendMany { .. } | Spend::SendMixed { .. } => DoneWhat::Send,
             Spend::TopUpIdentity { .. } | Spend::TopUpFromMixed { .. } | Spend::ResumeTopUp => {
                 DoneWhat::TopUp
             }
@@ -3189,10 +3273,12 @@ impl Spend {
     /// there): the event its screen already waits for.
     pub fn refused(&self, why: CoreError) -> Event {
         match self {
-            Spend::Send { id, .. } | Spend::SendMixed { id, .. } => Event::Sent {
-                id: *id,
-                result: Err(why),
-            },
+            Spend::Send { id, .. } | Spend::SendMany { id, .. } | Spend::SendMixed { id, .. } => {
+                Event::Sent {
+                    id: *id,
+                    result: Err(why),
+                }
+            }
             _ => Event::Done {
                 what: self.what(),
                 result: Err(why),

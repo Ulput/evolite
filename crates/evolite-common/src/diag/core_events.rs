@@ -109,6 +109,7 @@ pub fn command_name(command: &Command) -> &'static str {
 fn spend(op: &Spend) -> &'static str {
     match op {
         Spend::Send { .. } => "send",
+        Spend::SendMany { .. } => "send_many",
         Spend::SendMixed { .. } => "send_mixed",
         Spend::TopUpIdentity { .. } => "top_up_identity",
         Spend::ResumeTopUp => "resume_top_up",

@@ -473,6 +473,105 @@ impl Chain {
             .and_then(|account| next_contact_address(account, paid)))
     }
 
+    /// FEAT-0056 А-1: pays several recipients — addresses and DashPay contacts — in one
+    /// transaction of this wallet's own builder ([`Self::pay_many`]), so the fee choice works with
+    /// contacts too. A contact's output goes to the address its preview showed: each is checked
+    /// again before anything is signed (as [`Self::pay_contact`]); one changed, nothing is
+    /// signed. Once the network answered — took it, or no clear answer — each contact's address is
+    /// marked used in its account (what platform-wallet's `send_payment` does for one), before
+    /// the answer goes back; the core keeps them in `contact_paid` for good.
+    pub async fn pay_payees(
+        &self,
+        wallet: &PlatformWallet,
+        keys: &key_wallet::Wallet,
+        me: Option<&Identifier>,
+        payees: &[Payee],
+        chosen: Option<&evolite_api::CoinChoice>,
+        fees: (Option<u64>, Option<u64>),
+    ) -> Result<Paid, String> {
+        let mut recipients = Vec::with_capacity(payees.len());
+        for payee in payees {
+            match payee {
+                Payee::Address(r) => recipients.push(r.clone()),
+                Payee::Contact {
+                    to,
+                    shown,
+                    paid,
+                    amount,
+                    all,
+                } => {
+                    let me =
+                        me.ok_or_else(|| tr!("Paying by @name takes an identity").to_owned())?;
+                    if self
+                        .contact_address(wallet, keys, me, *to, paid)
+                        .await?
+                        .as_deref()
+                        != Some(shown.as_str())
+                    {
+                        return Err(tr!("The contact's address changed after the check — nothing was sent, check the payment again").into());
+                    }
+                    let address = shown
+                        .parse::<Address<key_wallet::dashcore::address::NetworkUnchecked>>()
+                        .map_err(|e| e.to_string())?
+                        .require_network(crate::network::dash())
+                        .map_err(|e| e.to_string())?;
+                    recipients.push(Recipient {
+                        to: address,
+                        amount: *amount,
+                        all: *all,
+                    });
+                }
+            }
+        }
+        let paid = self
+            .pay_many(wallet, keys, &recipients, chosen, fees)
+            .await?;
+        if let Some(me) = me {
+            for payee in payees {
+                if let Payee::Contact { to, shown, .. } = payee {
+                    self.mark_contact_address_used(wallet, me, *to, shown).await;
+                }
+            }
+        }
+        Ok(paid)
+    }
+
+    /// Marks `address` of contact `to`'s account used: the next payment to `to` goes to the
+    /// next one (DIP-15).
+    async fn mark_contact_address_used(
+        &self,
+        wallet: &PlatformWallet,
+        me: &Identifier,
+        to: Identifier,
+        address: &str,
+    ) {
+        use key_wallet::managed_account::managed_account_trait::ManagedAccountTrait;
+        let key = DashpayAccountKey {
+            index: 0,
+            user_identity_id: me.to_buffer(),
+            friend_identity_id: to.to_buffer(),
+        };
+        let mut state = wallet.state_mut().await;
+        if let Some(account) = state
+            .core_wallet
+            .accounts
+            .dashpay_external_accounts
+            .get_mut(&key)
+        {
+            let found: Vec<Address> = account
+                .managed_account_type()
+                .address_pools()
+                .iter()
+                .flat_map(|pool| pool.addresses.values())
+                .filter(|info| info.address.to_string() == address)
+                .map(|info| info.address.clone())
+                .collect();
+            for a in &found {
+                account.mark_address_used(a);
+            }
+        }
+    }
+
     /// Pays a DashPay contact from Core: to the next address of the key its request gave us,
     /// signed with our keys — and only if that is still `shown`, the address the person saw
     /// before signing. Never resent: when the network gives no clear answer the payment may

@@ -648,11 +648,23 @@ pub fn chain(c: Chain) -> &'static str {
     }
 }
 
+/// FEAT-0056: the recipients of a payment out to several (empty for a payment to one).
+pub fn sent_to(a: &Activity) -> &[evolite_api::SentTo] {
+    match (&a.kind, a.detail.as_deref()) {
+        (ActivityKind::Sent { .. }, Some(d)) => &d.sent_to,
+        _ => &[],
+    }
+}
+
 /// The address-book name of the address a payment out went to, when the person named it.
 pub fn book_label<'a>(a: &Activity, book: &'a [SavedAddress]) -> Option<&'a str> {
     let ActivityKind::Sent { to } = &a.kind else {
         return None;
     };
+    // FEAT-0056: a payment to several is named by its count, each one in its card.
+    if !sent_to(a).is_empty() {
+        return None;
+    }
     let address = a.address.as_deref().unwrap_or(to);
     book.iter()
         .find(|e| e.address == address)
@@ -684,6 +696,12 @@ pub fn activity_title(a: &Activity) -> String {
             from = crate::i18n::own(&crate::i18n::t(from))
         ),
         ActivityKind::Received { from: None } => tr!("Received").into(),
+        // FEAT-0056 (Н3): one line a payment to several, by their count.
+        ActivityKind::Sent { .. } if !sent_to(a).is_empty() => plural_in(
+            sent_to(a).len() as u32,
+            tr!("Sent to {} recipient"),
+            tr!("Sent to {} recipients"),
+        ),
         ActivityKind::Sent { to } if to.is_empty() => tr!("Sent").into(),
         // BUG-261 A4: a contact paid from «Mixed» — its address is one of the contact's paid
         // ones (`contact-addresses.json`), so the core names it after a restart too.

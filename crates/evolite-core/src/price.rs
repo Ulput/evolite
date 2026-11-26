@@ -104,6 +104,21 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
                 fee_rate.map_or(price, |rate| evolite_api::fee_choice::at_rate(price, rate));
             of("send_core", price, covers(seen.core, *amount, price))
         }
+        // FEAT-0056: the fee of all the outputs, against Core, at the rate the payment is signed
+        // at (BUG-255 (2), as a payment to one; the confirmation's tick uses the same rate).
+        Spend::SendMany {
+            recipients,
+            fee_rate,
+            ..
+        } => {
+            let total = recipients
+                .iter()
+                .fold(0 as Duffs, |sum, r| sum.saturating_add(r.amount));
+            let price = fees.core_payment_to(total, recipients.len());
+            let price =
+                fee_rate.map_or(price, |rate| evolite_api::fee_choice::at_rate(price, rate));
+            of("send_many", price, covers(seen.core, total, price))
+        }
         // FEAT-0030: the usual fee plus the excess the person agreed to burn, against the fully
         // mixed coins (the core checks the coins themselves too: `NotEnough`).
         // `Spend::Send` from «Mixed» is refused (it goes as `SendMixed`): priced the same.
@@ -507,6 +522,32 @@ pub(crate) mod tests {
         let seen = seen(10_000_000);
         let normal = declared_on(Network::Testnet, &send(None), &seen, 0).declared;
         let higher = declared_on(Network::Testnet, &send(Some(2_000)), &seen, 0).declared;
+        assert!(normal > 0);
+        assert_eq!(higher, 2 * normal);
+    }
+
+    /// FEAT-0056 with BUG-255 (2): a payment to several at a chosen rate is declared at that rate
+    /// too — «Higher» twice the normal fee of all its outputs. Mutant: the normal fee whatever
+    /// the rate → red.
+    #[test]
+    fn a_payment_to_several_is_declared_at_its_rate() {
+        let row = |amount| evolite_api::SendTo {
+            to: "yAddress".into(),
+            amount,
+            all: false,
+        };
+        let many = |fee_rate| Spend::SendMany {
+            id: 1,
+            recipients: vec![row(100_000), row(200_000), row(300_000)],
+            note: None,
+            rate: None,
+            coins: None,
+            fee_rate,
+            fee_shown: None,
+        };
+        let seen = seen(10_000_000);
+        let normal = declared_on(Network::Testnet, &many(None), &seen, 0).declared;
+        let higher = declared_on(Network::Testnet, &many(Some(2_000)), &seen, 0).declared;
         assert!(normal > 0);
         assert_eq!(higher, 2 * normal);
     }

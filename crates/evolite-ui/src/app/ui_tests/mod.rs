@@ -49,6 +49,7 @@ mod lock_coins;
 mod login;
 mod low_login;
 mod low_menu;
+mod many_recipients;
 mod message;
 mod missing_keys;
 mod mixed;

@@ -8,6 +8,7 @@ mod confirm;
 mod currency;
 mod fee;
 mod form;
+pub(crate) mod many;
 mod mixed;
 mod note;
 mod recipient;
@@ -145,6 +146,8 @@ pub struct SendForm {
     pub name_rows: Vec<crate::components::name_suggest::Row>,
     /// «To»'s widget id as last drawn: whether it has the focus.
     pub to_field: Option<egui::Id>,
+    /// FEAT-0056: a payment to several — its rows in place of «To» and «Amount».
+    pub many: Option<many::Many>,
 }
 
 impl SendForm {
@@ -238,6 +241,21 @@ impl SendForm {
         }
         // The last look was held open for this answer (BUG-92).
         let held = last && self.signing.take().is_some();
+        // FEAT-0056: the rows of a payment to several go once it went, stay if refused.
+        if last && self.many.as_ref().is_some_and(|m| m.signed) {
+            if result.is_ok() {
+                self.many = None;
+                self.coins.reset();
+                self.signed_note.zeroize();
+            } else {
+                if let Some(many) = self.many.as_mut() {
+                    many.signed = false;
+                }
+                if self.note.is_empty() {
+                    self.note = std::mem::take(&mut self.signed_note);
+                }
+            }
+        }
         if last {
             // Not sent: the form has it again (AC-A3); sent: the core keeps the note with it.
             if result.is_err() && self.amount.is_empty() {
@@ -484,6 +502,12 @@ impl SendForm {
         if to == self.previewed {
             self.preview = Some(result.clone());
         }
+        // FEAT-0056: each recipient of a payment to several, by the text asked.
+        if let Some(many) = self.many.as_mut()
+            && many.rows.iter().any(|r| r.to.trim() == to)
+        {
+            many.previews.insert(to.to_owned(), result.clone());
+        }
     }
 }
 
@@ -562,6 +586,7 @@ impl Default for SendForm {
             names: Default::default(),
             name_rows: Vec::new(),
             to_field: None,
+            many: None,
         }
     }
 }
@@ -659,7 +684,16 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
             .quote_for(&typed, typed_amount)
             .and_then(|q| q.as_ref().ok()),
     );
-    let view = FormView::of(cx, form, &all, typed, ask_password, reveal);
+    let mut view = FormView::of(cx, form, &all, typed, ask_password, reveal);
+    // FEAT-0056: «+ Recipient» from Core with the advanced features on; the rows' totals.
+    view.many_allowed = many::allowed(cx, view.source.source) && !view.fund_own;
+    if !view.many_allowed && form.many.is_some() && form.waiting == 0 {
+        // Another source, or the features off: one recipient again, the first row's.
+        while form.many.is_some() {
+            form.remove_row(1);
+        }
+    }
+    view.many = many::view(cx, form, view.source);
     let mut asked = Asked::default();
 
     // Side by side when the form keeps at least 420 px, otherwise the summary goes below.
@@ -712,7 +746,12 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
     let signed = form
         .signing
         .and_then(|_| crate::format::parse_amount(&form.signed).filter(|d| *d > 0));
-    if form.confirming
+    if let Some(mv) = &view.many {
+        if form.confirming {
+            many::confirm(ui, a, cx, form, mv, ask_password);
+        }
+        many::paste_dialog(ui, a, form);
+    } else if form.confirming
         && let Some(amount) = view.amount.or(signed)
     {
         confirm(

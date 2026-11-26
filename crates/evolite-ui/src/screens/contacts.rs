@@ -665,10 +665,22 @@ fn row(
 /// Core payments to and from `handle` (the core names a contact's payments by it), newest first.
 fn paid<'a>(activity: &'a [Activity], handle: &'a str) -> impl Iterator<Item = &'a Activity> {
     activity.iter().filter(move |act| match &act.kind {
-        ActivityKind::Sent { to } => to == handle,
+        // FEAT-0056: a payment to several counts for each contact among its recipients.
+        ActivityKind::Sent { to } => {
+            to == handle
+                || crate::text::sent_to(act)
+                    .iter()
+                    .any(|r| r.name.as_deref() == Some(handle))
+        }
         ActivityKind::Received { from: Some(from) } => from == handle,
         _ => false,
     })
+}
+
+/// [`paid`]'s count, for the History filter's class test (FEAT-0056).
+#[cfg(test)]
+pub(crate) fn paid_for_tests(activity: &[Activity], handle: &str) -> usize {
+    paid(activity, handle).count()
 }
 
 /// 22 · Contact profile: the picture, name, "Bio" and what we know of the contact, with its

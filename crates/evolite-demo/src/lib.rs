@@ -1447,6 +1447,27 @@ impl Mock {
             }
             return Event::Sent { id: *id, result };
         }
+        // FEAT-0056: a Core payment to several, as the real core answers it.
+        if let Spend::SendMany {
+            id,
+            recipients,
+            rate,
+            fee_rate,
+            ..
+        } = &op
+        {
+            let result = self.pay_many(recipients, *fee_rate);
+            if result.is_ok()
+                && let Some(line) = self
+                    .snapshot
+                    .wallet
+                    .as_mut()
+                    .and_then(|w| w.activity.first_mut())
+            {
+                line.rate = rate.clone();
+            }
+            return Event::Sent { id: *id, result };
+        }
         // BUG-205: a token sent or bought of exactly [`UNCLEAR_UNITS`] is «not known to have gone
         // through», for the windows' tests and presets.
         if matches!(&op, Spend::SendToken { amount, .. } if *amount == UNCLEAR_UNITS)
@@ -1920,6 +1941,104 @@ impl Mock {
     /// A payment from the Platform addresses in the demo (FEAT-0015), as the real core makes
     /// it: the recipient chooses the operation; a foreign Core address or name is refused; the
     /// addresses give what [`address_plan`] says, the line goes into the history.
+    /// FEAT-0056 in the demo: one Core payment to several, with the real core's rules — 2 to 50
+    /// rows, «All» on one at most, an @name only a contact (paid at its preview's address), not
+    /// dust — and its fee of all the outputs at the rate; one line «Sent to {n} recipients»
+    /// naming each.
+    fn pay_many(
+        &mut self,
+        recipients: &[evolite_api::SendTo],
+        fee_rate: Option<u64>,
+    ) -> Result<SentPayment, CoreError> {
+        let wallet = self
+            .snapshot
+            .wallet
+            .as_mut()
+            .ok_or(CoreError::NotAvailable(NO_WALLET.into()))?;
+        if recipients.len() > evolite_api::MAX_RECIPIENTS {
+            return Err(CoreError::NotAvailable(format!(
+                tr!("No more than {} recipients"),
+                evolite_api::MAX_RECIPIENTS
+            )));
+        }
+        if recipients.len() < 2 {
+            return Err(CoreError::NotAvailable(
+                tr!("Check the payment again").into(),
+            ));
+        }
+        if recipients.iter().filter(|r| r.all).count() > 1 {
+            return Err(CoreError::NotAvailable(
+                tr!("\"All\" is already set for another recipient").into(),
+            ));
+        }
+        let mut sent_to = Vec::with_capacity(recipients.len());
+        for r in recipients {
+            if r.amount <= 0 {
+                return Err(CoreError::BadAmount);
+            }
+            if r.amount < evolite_api::coin_plan::DUST {
+                return Err(CoreError::NotAvailable(
+                    tr!("This amount is too small: the network does not relay so small a payment")
+                        .into(),
+                ));
+            }
+            let to = r.to.trim();
+            let address = answers::preview(to, &wallet.contacts)?;
+            if !address.starts_with('y') {
+                return Err(CoreError::BadAddress);
+            }
+            sent_to.push(evolite_api::SentTo {
+                address,
+                name: to.starts_with('@').then(|| to.to_owned()),
+                amount: r.amount,
+            });
+        }
+        let total: Duffs = recipients.iter().map(|r| r.amount).sum();
+        let fee = wallet.fees.core_payment_to(total, recipients.len());
+        let fee = fee_rate.map_or(fee, |rate| evolite_api::fee_choice::at_rate(fee, rate));
+        if wallet.balances.core < total + fee {
+            return Err(CoreError::NotEnough);
+        }
+        wallet.balances.core -= total + fee;
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let kind = ActivityKind::Sent {
+            to: recipients[0].to.trim().to_owned(),
+        };
+        let (layers, flow) = evolite_common::layers::of(&kind, Chain::Core);
+        let txid = format!("{line:064x}");
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind,
+                chain: Chain::Core,
+                at: now(),
+                amount: -(total + fee),
+                proof: Proof::InstantLock,
+                txid: Some(txid.clone()),
+                fee: Some(fee),
+                block: None,
+                address: Some(sent_to[0].address.clone()),
+                layers,
+                flow,
+                key: format!("core:{txid}"),
+                note: None,
+                rate: None,
+                detail: Some(Box::new(evolite_api::Detail {
+                    sent_to,
+                    ..Default::default()
+                })),
+                tax_transfer: false,
+            },
+        );
+        Ok(SentPayment {
+            txid,
+            amount: total,
+            fee,
+            relayed: true,
+        })
+    }
+
     fn pay_from_addresses(&mut self, to: &str, amount: Duffs) -> Result<SentPayment, CoreError> {
         use evolite_api::address_plan::{
             AddressMove, AddressRefusal, CREDITS_PER_DUFF, duffs_up, move_for, plan_to,
@@ -2628,6 +2747,73 @@ mod tests {
     /// pool holds, is refused with nothing changed.
     /// FEAT-0048 UC-4: the demo has no refused creation, so «Shield again» is refused and
     /// nothing moves.
+    /// FEAT-0056 (A1, A3, A7) in the demo: two addresses and a contact by @name are one line
+    /// naming all three at the contact's preview address; Core gives the total and the fee of
+    /// three outputs; «All» twice or 51 rows are refused with nothing changed.
+    #[test]
+    fn a_payment_to_several_is_one_line_naming_each() {
+        let (mut m, _tx, _rx) = mock();
+        let core = m.snapshot.wallet.as_ref().unwrap().balances.core;
+        let contact = format!("@{}", crate::answers::PEOPLE[1].name);
+        let row = |to: &str, amount, all| evolite_api::SendTo {
+            to: to.into(),
+            amount,
+            all,
+        };
+        let rows = vec![
+            row("yXk3Tq9mD8vJw2RfL6pN4sB7cH1eZ5a9f2c", 1_000_000, false),
+            row(&contact, 2_000_000, false),
+            row("yMXp7gU4uQ4mVQ4V1V3H6cPCXxWfNrsW3d", 3_000_000, true),
+        ];
+        let many = |recipients| Spend::SendMany {
+            id: 7,
+            recipients,
+            note: None,
+            rate: None,
+            coins: None,
+            fee_rate: None,
+            fee_shown: None,
+        };
+        let mut twice = rows.clone();
+        twice[0].all = true;
+        let refused = m.spend(many(twice));
+        assert!(
+            matches!(&refused, Event::Sent { result: Err(_), .. }),
+            "{refused:?}"
+        );
+        let too_many = (0..51).map(|_| row("yA", 1_000, false)).collect();
+        assert!(matches!(
+            m.spend(many(too_many)),
+            Event::Sent { result: Err(_), .. }
+        ));
+        assert_eq!(
+            m.snapshot.wallet.as_ref().unwrap().balances.core,
+            core,
+            "nothing moved"
+        );
+        let answer = m.spend(many(rows));
+        let Event::Sent {
+            id: 7,
+            result: Ok(sent),
+        } = &answer
+        else {
+            panic!("{answer:?}");
+        };
+        assert_eq!(sent.amount, 6_000_000);
+        let wallet = m.snapshot.wallet.as_ref().unwrap();
+        assert_eq!(wallet.balances.core, core - 6_000_000 - sent.fee);
+        assert_eq!(sent.fee, wallet.fees.core_payment_to(6_000_000, 3));
+        let line = &wallet.activity[0];
+        let to = &line.detail.as_ref().unwrap().sent_to;
+        assert_eq!(to.len(), 3);
+        assert_eq!(to[1].name.as_deref(), Some(contact.as_str()));
+        assert_eq!(
+            to[1].address, "yRk7Hc2pWq9mN4vT8sLb3XeJ6uZa1Df5Gh",
+            "the preview's"
+        );
+        assert_eq!(line.amount, -(6_000_000 + sent.fee));
+    }
+
     #[test]
     fn shield_again_has_nothing_to_put_back_in_the_demo() {
         let (mut m, _tx, _rx) = mock();

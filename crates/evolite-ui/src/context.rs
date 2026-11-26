@@ -11,6 +11,8 @@ pub struct Pay {
     pub source: Source,
     pub to: String,
     pub amount: Option<Duffs>,
+    /// FEAT-0056 UC-5: a payment to several made again — every recipient and amount.
+    pub rows: Vec<(String, Duffs)>,
 }
 
 pub struct Ctx<'a> {
@@ -210,6 +212,7 @@ impl<'a> Ctx<'a> {
             source,
             to,
             amount: None,
+            rows: Vec::new(),
         });
         self.go(Screen::Send);
     }
@@ -231,6 +234,18 @@ impl<'a> Ctx<'a> {
             source,
             to,
             amount: Some(amount),
+            rows: Vec::new(),
+        });
+        self.go(Screen::Send);
+    }
+
+    /// FEAT-0056 UC-5: «Send again» of a payment to several, from Core.
+    pub fn pay_again_many(&mut self, rows: Vec<(String, Duffs)>) {
+        self.pay = Some(Pay {
+            source: Source::Core,
+            to: String::new(),
+            amount: None,
+            rows,
         });
         self.go(Screen::Send);
     }

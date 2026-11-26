@@ -79,8 +79,14 @@ pub fn card_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx) {
             cx.open_contest(&identity, &label);
         }
         // "Send again": the Send screen with the same recipient and amount.
-        if let Some((to, amount)) = answer.again {
-            cx.pay_again(Source::Core, to, amount);
+        if let Some(mut rows) = answer.again {
+            match rows.len() {
+                1 => {
+                    let (to, amount) = rows.remove(0);
+                    cx.pay_again(Source::Core, to, amount);
+                }
+                _ => cx.pay_again_many(rows),
+            }
         }
     }
 }
@@ -636,6 +642,28 @@ fn sides(act: &Activity, detail: &Detail, book: &[SavedAddress]) -> (Vec<Side>, 
                 sub: (inputs > 0).then(|| text::plural(inputs, tr!("input"), tr!("inputs"))),
                 copy: None,
             };
+            // FEAT-0056: each recipient of a payment to several, its address whole with the
+            // card's «Copy» (FEAT-0051, as a payment to one), what it got and a contact's name.
+            if !detail.sent_to.is_empty() {
+                let to = detail
+                    .sent_to
+                    .iter()
+                    .map(|r| Side {
+                        value: r.address.clone(),
+                        mono: true,
+                        sub: Some(match &r.name {
+                            Some(name) => format!(
+                                "{} · {}",
+                                crate::i18n::own(name),
+                                crate::format::amount(r.amount)
+                            ),
+                            None => crate::format::amount(r.amount),
+                        }),
+                        copy: Some(r.address.clone()),
+                    })
+                    .collect();
+                return (vec![from], to);
+            }
             let to = counterparty(act).map(|(_, who, note)| Side {
                 mono: !who.starts_with('@'),
                 // An address the person named says so.
@@ -1510,8 +1538,8 @@ fn body_of_id() -> egui::Id {
 #[derive(Default)]
 struct CardAnswer {
     closed: bool,
-    /// The payment to make again.
-    again: Option<(String, Duffs)>,
+    /// The payment to make again: its recipients and amounts (FEAT-0056: one or several).
+    again: Option<Vec<(String, Duffs)>>,
     go: Option<crate::screens::Screen>,
     /// The note to write (FEAT-0003).
     note: Option<Command>,
@@ -1562,7 +1590,7 @@ fn identity_to_open<'a>(act: &'a Activity, identities: &[IdentityChoice]) -> Opt
 /// asked, and the screen asked for.
 fn card(ui: &mut Ui, a: &mut Assets, act: &Activity, around: &Around) -> CardAnswer {
     let (now, book) = (around.now, around.book);
-    let repeat = again(act);
+    let repeat = again_rows(act);
     let mut answer = CardAnswer::default();
     // A note edited in place: Escape and a click outside are its own, the card stays (AC-D4).
     let editing = note_edit(ui.ctx()).is_some_and(|e| !act.key.is_empty() && e.key == act.key);
@@ -2030,7 +2058,7 @@ fn document_block(ui: &mut Ui, a: &mut Assets, act: &Activity, id: &str) {
 struct Footer<'a> {
     answer_there: bool,
     not_added: bool,
-    repeat: &'a Option<(String, Duffs)>,
+    repeat: &'a Option<Vec<(String, Duffs)>>,
     identity: Option<&'a str>,
     /// «Open Identity»: to see the credits, with no promise to continue (FEAT-0016).
     open_identity: bool,
@@ -2105,6 +2133,29 @@ fn card_footer(ui: &mut Ui, a: &mut Assets, footer: &Footer, answer: &mut CardAn
                 }
     });
     close
+}
+
+/// FEAT-0056 UC-5: what «Send again» pays — a payment to several, every recipient (a contact by
+/// its @name, else its address) and what each got, no coins chosen; else [`again`]'s one.
+/// Not when a recipient is a contact without a name (its short id cannot be paid).
+fn again_rows(act: &Activity) -> Option<Vec<(String, Duffs)>> {
+    let sent = text::sent_to(act);
+    if sent.is_empty() {
+        return again(act).map(|one| vec![one]);
+    }
+    if act.chain != Chain::Core {
+        return None;
+    }
+    sent.iter()
+        .map(|r| {
+            let to = match &r.name {
+                Some(name) if name.starts_with('@') => name.clone(),
+                Some(_) => return None,
+                None => r.address.clone(),
+            };
+            (r.amount > 0).then_some((to, r.amount))
+        })
+        .collect()
 }
 
 /// What "Send again" pays: a Core payment out, to its @name or address, the amount
@@ -2416,6 +2467,38 @@ mod title_tests {
 #[cfg(test)]
 mod again_tests {
     use super::*;
+
+    /// FEAT-0056 UC-5 (A7): «Send again» of a payment to three gives all three with what each
+    /// got (a contact by its @name), not the total to one; a contact without a name stops it.
+    #[test]
+    fn a_payment_to_several_is_sent_again_to_all_of_them() {
+        let mut act = out("yA1", Some("yA1"), -6_000_300, Some(300));
+        let to = |address: &str, name: Option<&str>, amount| evolite_api::SentTo {
+            address: address.into(),
+            name: name.map(Into::into),
+            amount,
+        };
+        act.detail = Some(Box::new(evolite_api::Detail {
+            sent_to: vec![
+                to("yA1", None, 1_000_000),
+                to("yC3", Some("@carol"), 2_000_000),
+                to("yD4", None, 3_000_000),
+            ],
+            ..Default::default()
+        }));
+        assert_eq!(
+            again_rows(&act),
+            Some(vec![
+                ("yA1".into(), 1_000_000),
+                ("@carol".into(), 2_000_000),
+                ("yD4".into(), 3_000_000),
+            ])
+        );
+        if let Some(d) = act.detail.as_deref_mut() {
+            d.sent_to[1].name = Some("Abcd…wxyz".into());
+        }
+        assert_eq!(again_rows(&act), None, "a contact without a name");
+    }
     use evolite_api::Proof;
 
     fn out(to: &str, address: Option<&str>, amount: Duffs, fee: Option<Duffs>) -> Activity {

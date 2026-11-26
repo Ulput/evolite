@@ -13,7 +13,7 @@ const SMALLEST: [f32; 2] = [800.0, 440.0];
 /// spends (a spend's row of buttons or password field). Each must be seen by the presets with its
 /// summary, spending where it spends; and the code holds no other
 /// (`the_summary_dialogs_are_all_listed`). BUG-249 r3, the architect.
-const SUMMARY_DIALOGS: [(&str, bool); 28] = [
+const SUMMARY_DIALOGS: [(&str, bool); 29] = [
     ("accept-contact", true),
     ("add-contact", true),
     ("add-name", true),
@@ -32,6 +32,8 @@ const SUMMARY_DIALOGS: [(&str, bool); 28] = [
     ("key-change", true),
     ("resend", true),
     ("send-confirm", true),
+    // FEAT-0056: a payment to several.
+    ("send-many-confirm", true),
     ("shield-dialog", true),
     // FEAT-0048 UC-4 «Shield again»: a refused identity's money back into the pool.
     ("shield-refund", true),

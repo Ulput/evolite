@@ -2218,10 +2218,15 @@ impl eframe::App for App {
         // "Withdraw to Core", "Transfer", "Send again": the Send screen from that source,
         // to that recipient (and that amount).
         if let Some(pay) = pay {
-            self.send
-                .replace(screens::send::SendForm::paying(pay.source, pay.to));
-            if let Some(amount) = pay.amount {
-                self.send.amount = crate::format::input_text(amount);
+            if pay.rows.len() > 1 {
+                self.send
+                    .replace(screens::send::SendForm::paying_many(pay.rows));
+            } else {
+                self.send
+                    .replace(screens::send::SendForm::paying(pay.source, pay.to));
+                if let Some(amount) = pay.amount {
+                    self.send.amount = crate::format::input_text(amount);
+                }
             }
         }
         if going_back && go.is_none() {

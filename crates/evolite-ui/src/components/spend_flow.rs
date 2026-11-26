@@ -447,6 +447,8 @@ mod tests {
         "components/spend_flow.rs",
         "components/spend_password.rs",
         "screens/send/confirm.rs",
+        // FEAT-0056: the last look of a payment to several, the same form's one send.
+        "screens/send/many.rs",
         "screens/send/mixed.rs",
     ];
 

@@ -209,7 +209,13 @@ fn name_history(
         };
         match &mut act.kind {
             ActivityKind::Received { from: from @ None } => *from = Some(payee.clone()),
-            ActivityKind::Sent { to } => *to = payee.clone(),
+            // FEAT-0056: a payment to several is named recipient by recipient, by address
+            // (`convert::name_contact_payments`): its first one need not be this contact.
+            ActivityKind::Sent { to }
+                if act.detail.as_deref().is_none_or(|d| d.sent_to.is_empty()) =>
+            {
+                *to = payee.clone()
+            }
             _ => {}
         }
     }

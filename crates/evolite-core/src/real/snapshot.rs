@@ -1483,13 +1483,12 @@ impl Real {
         .await;
         // BUG-212: the wallet's own payments to addresses of contacts' keys are paid ones — kept
         // in memory and written where the file lacks them (a file set aside or started over).
+        // FEAT-0056: every recipient of a payment to several.
         let seen: Vec<(String, String)> = history
             .iter()
             .filter(|a| a.amount < 0)
-            .filter_map(|a| {
-                let address = a.address.as_ref()?;
-                Some((keys.get(address)?.1.clone(), address.clone()))
-            })
+            .flat_map(convert::paid_addresses)
+            .filter_map(|address| Some((keys.get(address)?.1.clone(), address.to_owned())))
             .collect();
         if !seen.is_empty() {
             self.contact_paid.saw(&seen);

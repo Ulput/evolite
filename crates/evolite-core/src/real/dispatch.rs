@@ -59,6 +59,24 @@ impl Real {
                     Err(e) => Event::Sent { id, result: Err(e) },
                 }
             }
+            Spend::SendMany {
+                id,
+                recipients,
+                note,
+                rate,
+                coins,
+                fee_rate,
+                fee_shown,
+            } => {
+                let fee_rate = fee_rate.filter(|_| self.advanced_features);
+                match self
+                    .send_many(id, recipients, (note, rate, coins), (fee_rate, fee_shown))
+                    .await
+                {
+                    Ok(()) => return (None, true),
+                    Err(e) => Event::Sent { id, result: Err(e) },
+                }
+            }
             Spend::SendMixed {
                 id,
                 to,
@@ -462,8 +480,18 @@ impl Real {
         {
             return (Some(op.refused(why)), true);
         }
+        // FEAT-0056 R-8, UC-2: too many rows, or «All» twice, before the password.
+        if let Spend::SendMany { recipients, .. } = &op
+            && let Some(why) = super::ops::core::many_refused(recipients)
+        {
+            return (Some(op.refused(why)), true);
+        }
         // FEAT-0040 (AC-T-F3): a rate out of bounds is refused before the password.
         if let Spend::Send {
+            fee_rate: Some(rate),
+            ..
+        }
+        | Spend::SendMany {
             fee_rate: Some(rate),
             ..
         } = &op

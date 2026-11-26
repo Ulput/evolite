@@ -221,7 +221,13 @@ impl Real {
         }
         let wallet = loaded(&self.chain, &id).await?;
         if let Some(choice) = &coins {
-            self.chosen_can_pay(&wallet, choice, &payee, amount).await?;
+            // R-1 of FEAT-0013: one contact alone goes by platform-wallet's own payment.
+            if matches!(payee, CorePayee::Contact(_)) {
+                return Err(CoreError::NotAvailable(
+                    tr!("The wallet chooses the coins for a payment to a contact.").into(),
+                ));
+            }
+            self.chosen_can_pay(&wallet, choice, amount, 1).await?;
         }
         core_pays(&wallet, amount).await?;
         coins_settled(
@@ -318,6 +324,210 @@ impl Real {
                 .map(|paid| SentPayment {
                     txid: paid.txid,
                     // «Max» of chosen coins: what was left of them after the fee.
+                    amount: paid.sent as Duffs,
+                    fee: paid.fee as Duffs,
+                    relayed: paid.relayed,
+                })
+                .map_err(core_failure);
+            let event = Event::Sent {
+                id: payment,
+                result,
+            };
+            prices.finish(&event);
+            let _ = out.send(event);
+            dirty.store(true, Ordering::Relaxed);
+            wake();
+        });
+        Ok(())
+    }
+}
+
+impl Real {
+    /// FEAT-0056: [`Spend::SendMany`] — one Core payment to several recipients, one transaction
+    /// of this wallet's own builder (А-1). Each row is checked as a payment of its own (an
+    /// address of this network or an established contact, not dust); a contact's address is the
+    /// one its preview showed, checked again before signing. Built off the loop, as [`Self::send`];
+    /// once the network answered (took it, or no clear answer), every contact address of it goes
+    /// to `contact_paid` for good, before the answer goes to the screen.
+    pub(in crate::real) async fn send_many(
+        &mut self,
+        payment: u64,
+        recipients: Vec<evolite_api::SendTo>,
+        (note, rate, coins): (Option<NoteText>, Option<FiatRate>, Option<CoinChoice>),
+        (fee_rate, fee_shown): (Option<u64>, Option<Duffs>),
+    ) -> Result<(), CoreError> {
+        let open = self
+            .unlocked
+            .as_ref()
+            .ok_or(CoreError::NotAvailable(tr!("The wallet is locked").into()))?;
+        let id = open.id;
+        if let Some(why) = many_refused(&recipients) {
+            return Err(why);
+        }
+        let kept = Kept {
+            note: send_note(note)?,
+            rate: self.payment_rate(rate),
+        };
+        let mut payees = Vec::with_capacity(recipients.len());
+        let mut contacts: Vec<String> = Vec::new();
+        for row in &recipients {
+            let amount = positive_duffs(row.amount)?;
+            match self.core_payee(&row.to)? {
+                CorePayee::Address(address) => {
+                    if convert::is_dust(Some(&address), amount) {
+                        return Err(CoreError::NotAvailable(TOO_SMALL.into()));
+                    }
+                    payees.push(evolite_chain::chain::Payee::Address(
+                        evolite_chain::chain::Recipient {
+                            to: address,
+                            amount,
+                            all: row.all,
+                        },
+                    ));
+                }
+                CorePayee::Contact(contact) => {
+                    if convert::is_dust(None, amount) {
+                        return Err(CoreError::NotAvailable(TOO_SMALL.into()));
+                    }
+                    let key = contact.to_string(Encoding::Base58);
+                    // R-4: a contact twice is paid twice to the one address its preview showed.
+                    let shown = self
+                        .previews
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get(&key)
+                        .cloned()
+                        .ok_or(CoreError::NotAvailable(
+                            tr!("The contact's address was not shown before signing — check the payment again")
+                                .into(),
+                        ))?;
+                    payees.push(evolite_chain::chain::Payee::Contact {
+                        to: contact,
+                        shown,
+                        paid: self.contact_paid.paid(&key),
+                        amount,
+                        all: row.all,
+                    });
+                    if !contacts.contains(&key) {
+                        contacts.push(key);
+                    }
+                }
+            }
+        }
+        let total = recipients
+            .iter()
+            .fold(0u64, |sum, r| sum.saturating_add(r.amount.max(0) as u64));
+        let status = self.chain.status();
+        if !coins_known(&status, true) || status.phase == Phase::Error {
+            return Err(CoreError::NotSynced);
+        }
+        let wallet = loaded(&self.chain, &id).await?;
+        let outputs = recipients.len();
+        if let Some(choice) = &coins {
+            self.chosen_can_pay(&wallet, choice, total, outputs).await?;
+        }
+        core_pays(&wallet, total).await?;
+        let values: Vec<u64> = convert::coins_once(&wallet.state().await.core_wallet)
+            .iter()
+            .map(|u| u.value())
+            .collect();
+        let extra = evolite_api::extra_outputs_fee(outputs - 1) as u64;
+        coins_settled(
+            &wallet.state().await.core_wallet,
+            total.saturating_add(extra),
+            false,
+            |txid| self.chain.instant_lock_verified(txid),
+        )?;
+        // А-2: before anything is signed, the size the coins it would take make.
+        let inputs = match &coins {
+            Some(choice) => choice.outpoints().len(),
+            None => {
+                let mut estimate = fees(values.len());
+                estimate.core_coins = convert::core_coins(values.clone());
+                estimate.core_inputs_for(total as Duffs, outputs)
+            }
+        };
+        if evolite_api::estimated_payment_size(inputs, outputs + 1)
+            > evolite_api::MAX_ESTIMATED_SIZE
+        {
+            return Err(CoreError::NotAvailable(
+                evolite_chain::chain::too_large_text().into(),
+            ));
+        }
+        let keys = self
+            .unlocked
+            .as_ref()
+            .and_then(|open| open.keys.clone())
+            .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
+        let fee_shown = fee_shown.map(|d| d.max(0) as u64);
+        let fee = payment_fee_to(values, total as Duffs, outputs);
+        let fee = fee_rate.map_or(fee, |rate| evolite_api::fee_choice::at_rate(fee, rate));
+        // In the history as «sending» until the wallet sees it: the payment's first recipient
+        // and its total (the line names them all once the transaction is seen).
+        let key = self
+            .outgoing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .start(&recipients[0].to, total as Duffs, fee, now());
+        // FEAT-0056 r1 Should 1: each preview is taken by this payment only now, past every check
+        // that could still refuse it (the sync, the coins, the size): a refused one is signed
+        // again with the same look. The next look asks again.
+        {
+            let mut previews = self.previews.lock().unwrap_or_else(|e| e.into_inner());
+            for key in &contacts {
+                previews.remove(key);
+            }
+        }
+        let outgoing = self.outgoing.clone();
+        let contact_paid = self.contact_paid.clone();
+        let chain = self.chain.clone();
+        let out = self.out.clone();
+        let wake = self.wake.clone();
+        let notes = self.notes.clone();
+        let prices = self.prices.clone();
+        let dirty = self.dirty.clone();
+        let pinned = self.shown_now(id);
+        tokio::spawn(async move {
+            let me = if contacts.is_empty() {
+                None
+            } else {
+                pinned_acting(&wallet, pinned).await.map(|(_, me)| me)
+            };
+            let paid = chain
+                .pay_payees(
+                    &wallet,
+                    &keys,
+                    me.as_ref(),
+                    &payees,
+                    coins.as_ref(),
+                    (fee_rate, fee_shown),
+                )
+                .await;
+            // Taken, or maybe taken: never these addresses again, after a restart too.
+            if paid.is_ok() {
+                for payee in &payees {
+                    if let evolite_chain::chain::Payee::Contact { to, shown, .. } = payee {
+                        contact_paid.add(&to.to_string(Encoding::Base58), shown);
+                    }
+                }
+            }
+            outgoing.lock().unwrap_or_else(|e| e.into_inner()).answered(
+                key,
+                match &paid {
+                    Ok(paid) => outgoing::Answer::Sent {
+                        txid: Some(paid.txid.clone()),
+                        fee: paid.fee as Duffs,
+                    },
+                    Err(_) => outgoing::Answer::Refused,
+                },
+            );
+            if let (Ok(paid), false) = (&paid, kept.is_empty()) {
+                let key = format!("core:{}", paid.txid);
+                keep_note(notes, move |n| kept.into_notes(n, &key)).await;
+            }
+            let result = paid
+                .map(|paid| SentPayment {
+                    txid: paid.txid,
                     amount: paid.sent as Duffs,
                     fee: paid.fee as Duffs,
                     relayed: paid.relayed,
@@ -444,9 +654,41 @@ pub(in crate::real) fn positive_duffs(amount: Duffs) -> Result<u64, CoreError> {
 /// make it (the same estimate as the Send screen's, `Fees::core_payment_for`), not as spending
 /// every coin of the wallet would (BUG-55 review, should 2).
 pub(in crate::real) fn payment_fee(coin_values: Vec<u64>, amount: Duffs) -> Duffs {
+    payment_fee_to(coin_values, amount, 1)
+}
+
+/// FEAT-0056: [`payment_fee`] of a payment of `total` to `outputs` recipients.
+pub(in crate::real) fn payment_fee_to(
+    coin_values: Vec<u64>,
+    total: Duffs,
+    outputs: usize,
+) -> Duffs {
     let mut estimate = fees(coin_values.len());
     estimate.core_coins = convert::core_coins(coin_values);
-    estimate.core_payment_for(amount)
+    estimate.core_payment_to(total, outputs)
+}
+
+/// FEAT-0056: what a payment to several recipients is refused with before anything is built:
+/// fewer than two or more than [`evolite_api::MAX_RECIPIENTS`] rows (R-8), or «All» on more than
+/// one (UC-2).
+pub(in crate::real) fn many_refused(recipients: &[evolite_api::SendTo]) -> Option<CoreError> {
+    if recipients.len() > evolite_api::MAX_RECIPIENTS {
+        return Some(CoreError::NotAvailable(format!(
+            tr!("No more than {} recipients"),
+            evolite_api::MAX_RECIPIENTS
+        )));
+    }
+    if recipients.len() < 2 {
+        return Some(CoreError::NotAvailable(
+            tr!("Check the payment again").into(),
+        ));
+    }
+    if recipients.iter().filter(|r| r.all).count() > 1 {
+        return Some(CoreError::NotAvailable(
+            tr!("\"All\" is already set for another recipient").into(),
+        ));
+    }
+    None
 }
 
 impl Real {
@@ -457,14 +699,11 @@ impl Real {
         &self,
         wallet: &platform_wallet::PlatformWallet,
         choice: &CoinChoice,
-        payee: &CorePayee,
         amount: u64,
+        outputs: usize,
     ) -> Result<(), CoreError> {
-        if matches!(payee, CorePayee::Contact(_)) {
-            return Err(CoreError::NotAvailable(
-                tr!("The wallet chooses the coins for a payment to a contact.").into(),
-            ));
-        }
+        // FEAT-0056: each output past the first adds its bytes to the fee.
+        let extra = evolite_api::extra_outputs_fee(outputs.saturating_sub(1));
         let (payable, unfinished) = {
             let state = wallet.state().await;
             let verified =
@@ -489,7 +728,7 @@ impl Real {
         fees.core_coins = convert::core_coins(values.clone());
         let values: Vec<Duffs> = values.into_iter().map(|v| v as Duffs).collect();
         match evolite_api::coin_plan::coin_plan(&values, amount as Duffs, choice.all(), |k| {
-            fees.core_fee_for_inputs(k)
+            fees.core_fee_for_inputs(k).saturating_add(extra)
         }) {
             Ok(_) => Ok(()),
             Err(short) => {
