@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Kredit yang tersisa akan sedikit",
+  "Lock": "Kunci",
   "All completed · updated {}": "Semua selesai · diperbarui {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite memeriksa tanda tangan BLS dari kuorum masternode.",
@@ -26,6 +28,8 @@
   "The weekly copy is not being made: its setting could not be read": "Salinan mingguan tidak dibuat: pengaturannya tidak dapat dibaca",
   "Open the backup settings ›": "Buka pengaturan cadangan ›",
   "The backup setting could not be read": "Pengaturan cadangan tidak dapat dibaca",
+  "calculating…": "menghitung…",
+  "could not read": "tidak dapat dibaca",
   "the weekly copy's setting": "pengaturan salinan mingguan",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Salinan mingguan tetap mati sampai Anda memilih foldernya lagi. Salinan yang sudah disimpan tetap ada di foldernya.",
   "The wallet's keys could not be checked yet — try again in a minute": "Kunci dompet belum bisa diperiksa — coba lagi dalam semenit",
@@ -260,12 +264,14 @@
   "The identity is busy: wait for the current operation to end": "Identitas sedang sibuk: tunggu operasi yang berjalan selesai",
   "the network is still syncing": "jaringan masih menyinkronkan",
   "tick that you checked the amount and where it goes": "centang bahwa Anda sudah memeriksa jumlah dan tujuannya",
+  "{} (last known) · could not update": "{} (terakhir diketahui) · tidak dapat diperbarui",
   "{} app sign-in|{} app sign-ins": {
     "other": "{} login aplikasi"
   },
   "{} contact name|{} contact names": {
     "other": "{} nama kontak"
   },
+  "{} credits": "Kredit {}",
   "{} duffs per kB — twice the normal": "{} duff per kB — dua kali normal",
   "{} hidden request|{} hidden requests": {
     "other": "{} permintaan tersembunyi"
@@ -285,6 +291,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · pembayaran selesai dan tidak dapat dibatalkan",
   "{} · {} duffs per kB": "{} · {} duff per kB",
+  "{} › at least {}": "{} › setidaknya {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· Identitas ini sudah memilikinya",
   "≈ {} in credits": "≈ {} dalam kredit",
   "checked {}": "diperiksa {}",
@@ -2211,7 +2219,6 @@
   "Claim": "Klaim",
   "Claim the distribution · {}": "Klaim distribusi · {}",
   "Claimed: the amount is in the balance and in History.": "Diterima: jumlahnya ada di saldo dan di Riwayat.",
-  "Credits of {}": "Kredit {}",
   "Distribution": "Distribusi",
   "From {} — {} each": "Mulai {} — {} per unit",
   "How much to buy": "Berapa yang dibeli",
@@ -2229,7 +2236,6 @@
   "The token's supply limit is reached.": "Batas pasokan token telah tercapai.",
   "Tokens are not on this network": "Token tidak ada di jaringan ini",
   "Your balance of this token is frozen.": "Saldo token ini milik Anda dibekukan.",
-  "after ≈ {}": "setelahnya ≈ {}",
   "at least {}": "minimal {}",
   "becomes known after the claim": "diketahui setelah klaim",
   "on a schedule": "sesuai jadwal",
@@ -2369,7 +2375,6 @@
   "Claim another name": "Ajukan nama lain",
   "Claim another ›": "Ajukan yang lain ›",
   "Contenders": "Pesaing",
-  "Credits {}": "Kredit {}",
   "Fund": "Biaya",
   "Fund for the vote": "Biaya voting",
   "Hide from the list": "Sembunyikan dari daftar",
@@ -2430,7 +2435,6 @@
     "other": "{} pesaing"
   },
   "{} left": "tersisa {}",
-  "{} now, ≈ {} after": "{} sekarang, ≈ {} setelahnya",
   "{} vote|{} votes": {
     "other": "{} suara"
   },
@@ -2599,7 +2603,6 @@
   "Create a token": "Buat token",
   "Creating tokens comes in the next version": "Pembuatan token hadir di versi berikutnya",
   "Credits after": "Kredit sesudah",
-  "Credits left": "Sisa kredit",
   "Credits {}: {}": "Kredit {}: {}",
   "Dash Platform's rules refuse this collection.": "Aturan Dash Platform menolak koleksi ini.",
   "For creators": "Untuk kreator",

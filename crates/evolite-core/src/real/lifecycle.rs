@@ -181,6 +181,7 @@ impl Real {
             names_stale: Default::default(),
             identity_links: Default::default(),
             credits_checked: Arc::new(AtomicBool::new(false)),
+            credits_failed: Arc::new(AtomicBool::new(false)),
             phrase_check: None,
             stored_history: Vec::new(),
             mixed_rounds_said: Default::default(),

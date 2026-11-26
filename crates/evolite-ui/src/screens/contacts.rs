@@ -1061,6 +1061,14 @@ fn add_contact(
                     &format!(tr!("{me} · credits"), me = me),
                     value,
                 );
+                // FEAT-0057 П3: what the credits are now and after this write.
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    &me,
+                    crate::components::Credits::of(wallet),
+                    crate::components::Charge::About(fee),
+                );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                 password.summary_tick(ui, &p);
                 return false;
@@ -1392,6 +1400,14 @@ fn accept_dialog(
                     tr!("A write to Platform"),
                     &format!("≈ {}", crate::format::amount(wallet.fees.contact_request)),
                     mono(13.0, Weight::Medium),
+                );
+                // FEAT-0057 П3: what the credits are now and after this answer.
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    &crate::components::payer_name(wallet),
+                    crate::components::Credits::of(wallet),
+                    crate::components::Charge::About(wallet.fees.contact_request),
                 );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                 state.flow.password.summary_tick(ui, &p);

@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "残りのクレジットがわずかになります",
+  "Lock": "ロック",
   "All completed · updated {}": "すべて完了 · {} に更新",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock：evolite はマスターノード・クォーラムの BLS 署名を確認しました。",
@@ -26,6 +28,8 @@
   "The weekly copy is not being made: its setting could not be read": "週ごとのコピーが作成されていません: 設定を読み込めませんでした",
   "Open the backup settings ›": "バックアップの設定を開く ›",
   "The backup setting could not be read": "バックアップの設定を読み込めませんでした",
+  "calculating…": "計算中…",
+  "could not read": "読み取れませんでした",
   "the weekly copy's setting": "週ごとのコピーの設定",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "フォルダを選び直すまで、週ごとのコピーはオフのままです。保存済みのコピーはそのフォルダに残ります。",
   "The wallet's keys could not be checked yet — try again in a minute": "ウォレットの鍵をまだ確認できません。1分後にもう一度お試しください",
@@ -260,12 +264,14 @@
   "The identity is busy: wait for the current operation to end": "アイデンティティは処理中です。進行中の操作が終わるまでお待ちください",
   "the network is still syncing": "ネットワークはまだ同期中です",
   "tick that you checked the amount and where it goes": "金額と送り先を確認したことにチェックしてください",
+  "{} (last known) · could not update": "{}（最後に確認した値）・更新できませんでした",
   "{} app sign-in|{} app sign-ins": {
     "other": "アプリのサインイン {} 件"
   },
   "{} contact name|{} contact names": {
     "other": "連絡先の名前 {} 件"
   },
+  "{} credits": "{} のクレジット",
   "{} duffs per kB — twice the normal": "{} duff / kB — 通常の 2 倍",
   "{} hidden request|{} hidden requests": {
     "other": "非表示のリクエスト {} 件"
@@ -285,6 +291,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · 支払いは完了し、取り消せません",
   "{} · {} duffs per kB": "{} · {} duff / kB",
+  "{} › at least {}": "{} › {} 以上",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· このアイデンティティにはすでにあります",
   "≈ {} in credits": "≈ {}（クレジット）",
   "checked {}": "確認済み {}",
@@ -2211,7 +2219,6 @@
   "Claim": "受け取る",
   "Claim the distribution · {}": "配布を受け取る · {}",
   "Claimed: the amount is in the balance and in History.": "受け取りました。金額は残高と履歴にあります。",
-  "Credits of {}": "{} のクレジット",
   "Distribution": "配布",
   "From {} — {} each": "{} から — 1 あたり {}",
   "How much to buy": "購入する数量",
@@ -2229,7 +2236,6 @@
   "The token's supply limit is reached.": "トークンの発行上限に達しました。",
   "Tokens are not on this network": "このネットワークにはトークンがありません",
   "Your balance of this token is frozen.": "このトークンの残高は凍結されています。",
-  "after ≈ {}": "その後 ≈ {}",
   "at least {}": "最低 {}",
   "becomes known after the claim": "受け取り後に判明します",
   "on a schedule": "スケジュールどおり",
@@ -2369,7 +2375,6 @@
   "Claim another name": "別の名前を申請",
   "Claim another ›": "別の名前を申請 ›",
   "Contenders": "候補者",
-  "Credits {}": "クレジット {}",
   "Fund": "参加料",
   "Fund for the vote": "投票の参加料",
   "Hide from the list": "一覧から隠す",
@@ -2430,7 +2435,6 @@
     "other": "候補者 {} 人"
   },
   "{} left": "あと {}",
-  "{} now, ≈ {} after": "現在 {}、その後 ≈ {}",
   "{} vote|{} votes": {
     "other": "{} 票"
   },
@@ -2599,7 +2603,6 @@
   "Create a token": "トークンを作成",
   "Creating tokens comes in the next version": "トークンの作成は次のバージョンで対応します",
   "Credits after": "実行後のクレジット",
-  "Credits left": "残りのクレジット",
   "Credits {}: {}": "クレジット {}：{}",
   "Dash Platform's rules refuse this collection.": "Dash Platform のルールにより、このコレクションは受け付けられません。",
   "For creators": "クリエイター向け",

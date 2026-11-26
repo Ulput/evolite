@@ -1472,6 +1472,22 @@ impl eframe::App for App {
         self.save_prefs();
         self.backup_step();
         self.take_events(ui.ctx());
+        // FEAT-0057 П8 R-8.2: Ctrl+L (⌘L) locks from anywhere, a text field too — taken before
+        // any widget of the frame sees it; with no open wallet it does nothing.
+        // A8.4: not on the welcome, the unlock or the onboarding — only beside the menu.
+        let wallet_screen = !matches!(
+            self.screen,
+            Screen::Welcome | Screen::Unlock | Screen::Onboarding(_)
+        );
+        if wallet_screen
+            && self
+                .snapshot
+                .as_ref()
+                .is_some_and(screens::sidebar::lockable)
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::L))
+        {
+            self.core.send(Command::Lock);
+        }
         // BUG-204: «Report a problem» from a banner of a file set aside, its subject filled in.
         if let Some(subject) = ui
             .ctx()
@@ -2107,6 +2123,14 @@ impl eframe::App for App {
                 });
             }
             self.identity.open_contest(&identity, &label);
+        }
+        // FEAT-0057 П3: «Top up» from the line «Credits: now › after» in any window that writes.
+        if ui
+            .ctx()
+            .data_mut(|d| d.remove_temp::<bool>(crate::components::top_up_asked_id()))
+            .is_some()
+        {
+            cx.top_up();
         }
         if cx.take_top_up() {
             self.identity.open_top_up();

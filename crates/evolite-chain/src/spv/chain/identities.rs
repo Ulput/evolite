@@ -16,6 +16,16 @@ pub fn choose_identity(wallet: WalletId, slot: u32) {
 
 /// Which of the wallet's identity `slots` it works with: the chosen one while the wallet has
 /// it, else the lowest.
+/// What a round of [`Chain::refresh_balances`] read: how many identities answered of how many
+/// were asked (BUG-115), and whether the shown one answered — in a round of all of them another
+/// one's answer says nothing of its credits (FEAT-0057 П3 r2, the architect's Must 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BalancesRead {
+    pub read: usize,
+    pub asked: usize,
+    pub shown_answered: bool,
+}
+
 pub fn shown_slot(wallet: WalletId, slots: impl Iterator<Item = u32>) -> Option<u32> {
     let slots: Vec<u32> = slots.collect();
     let chosen = CHOSEN.lock().ok().and_then(|c| c.get(&wallet).copied());
@@ -584,23 +594,30 @@ impl Chain {
     /// The store's balance is only what the last run of the app saw, and other apps (or other
     /// runs of this one) spend and top up the same identities. `all`: every identity, else only
     /// the one the interface shows (one query, not one per identity). Answers how many
-    /// were read and how many were asked (BUG-115: all of them read is a check of the credits).
+    /// were read and how many were asked (BUG-115: all of them read is a check of the credits),
+    /// and whether the shown one answered (FEAT-0057 П3 r2).
     pub async fn refresh_balances(
         &self,
         wallet: &PlatformWallet,
         all: bool,
-    ) -> Result<(usize, usize), String> {
-        let ids: Vec<Identifier> = {
+    ) -> Result<BalancesRead, String> {
+        let (ids, shown_id): (Vec<Identifier>, Option<Identifier>) = {
             let state = wallet.state().await;
             let mine: Vec<_> = of_wallet(&state.identity_manager, wallet.wallet_id()).collect();
             let shown = shown_slot(
                 wallet.wallet_id(),
                 mine.iter().filter_map(|m| m.identity_index),
             );
-            mine.into_iter()
+            let shown_id = mine
+                .iter()
+                .find(|m| m.identity_index == shown)
+                .map(|m| m.identity.id());
+            let ids = mine
+                .into_iter()
                 .filter(|m| all || m.identity_index == shown)
                 .map(|m| m.identity.id())
-                .collect()
+                .collect();
+            (ids, shown_id)
         };
         // SYNC-2: four at once, not one after another.
         let answers = each_at_once(&ids, |id| {
@@ -616,10 +633,16 @@ impl Chain {
         })
         .await;
         let read = answers.iter().filter(|(_, r)| r.is_ok()).count();
+        let shown_answered =
+            shown_id.is_none_or(|s| answers.iter().any(|(id, r)| *id == s && r.is_ok()));
         let failed = answers.into_iter().find_map(|(_, r)| r.err());
         match failed {
             Some(why) if read == 0 && !ids.is_empty() => Err(why),
-            _ => Ok((read, ids.len())),
+            _ => Ok(BalancesRead {
+                read,
+                asked: ids.len(),
+                shown_answered,
+            }),
         }
     }
 

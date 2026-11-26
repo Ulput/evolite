@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "سيتبقى القليل من الأرصدة",
+  "Lock": "اقفل",
   "All completed · updated {}": "اكتمل كل شيء · حُدّث {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: تحقّق evolite من توقيع BLS لنصاب الماسترنود.",
@@ -31,6 +33,8 @@
   "The weekly copy is not being made: its setting could not be read": "لا تُنشأ النسخة الأسبوعية: تعذّرت قراءة إعدادها",
   "Open the backup settings ›": "فتح إعدادات النسخة الاحتياطية ›",
   "The backup setting could not be read": "تعذّرت قراءة إعداد النسخة الاحتياطية",
+  "calculating…": "جارٍ الحساب…",
+  "could not read": "تعذّرت القراءة",
   "the weekly copy's setting": "إعداد النسخة الأسبوعية",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "تبقى النسخة الأسبوعية متوقفة حتى تختار مجلدها من جديد. تبقى النسخ المحفوظة سابقًا في مجلدها.",
   "The wallet's keys could not be checked yet — try again in a minute": "تعذّر التحقق من مفاتيح المحفظة بعد — حاول مرة أخرى بعد دقيقة",
@@ -265,6 +269,7 @@
   "The identity is busy: wait for the current operation to end": "الهوية مشغولة: انتظر حتى تنتهي العملية الجارية",
   "the network is still syncing": "ما زالت الشبكة تتزامن",
   "tick that you checked the amount and where it goes": "ضع علامة تؤكد أنك تحققت من المبلغ ووجهته",
+  "{} (last known) · could not update": "{} (آخر قيمة معروفة) · تعذّر التحديث",
   "{} app sign-in|{} app sign-ins": {
     "zero": "{} تسجيل دخول إلى تطبيق",
     "one": "تسجيل دخول واحد إلى تطبيق",
@@ -281,6 +286,7 @@
     "many": "{} اسمًا لجهات الاتصال",
     "other": "{} اسم جهة اتصال"
   },
+  "{} credits": "أرصدة {}",
   "{} duffs per kB — twice the normal": "{} داف لكل كيلوبايت — ضعف العادية",
   "{} hidden request|{} hidden requests": {
     "zero": "{} طلب مخفي",
@@ -320,6 +326,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · اكتملت الدفعة ولا يمكن التراجع عنها",
   "{} · {} duffs per kB": "{} · {} داف لكل كيلوبايت",
+  "{} › at least {}": "{} › على الأقل {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· لدى هذه الهوية واحد بالفعل",
   "≈ {} in credits": "≈ {} بالأرصدة",
   "checked {}": "تم التحقق {}",
@@ -2346,7 +2354,6 @@
   "Claim": "مطالبة",
   "Claim the distribution · {}": "المطالبة بالتوزيع · {}",
   "Claimed: the amount is in the balance and in History.": "تم الاستلام: المبلغ في الرصيد وفي السجل.",
-  "Credits of {}": "أرصدة {}",
   "Distribution": "التوزيع",
   "From {} — {} each": "من {} — {} للواحد",
   "How much to buy": "الكمية المراد شراؤها",
@@ -2364,7 +2371,6 @@
   "The token's supply limit is reached.": "تم بلوغ حد إصدار الرمز.",
   "Tokens are not on this network": "الرموز غير متاحة على هذه الشبكة",
   "Your balance of this token is frozen.": "رصيدك من هذا الرمز مجمّد.",
-  "after ≈ {}": "بعدها ≈ {}",
   "at least {}": "{} على الأقل",
   "becomes known after the claim": "يُعرف بعد المطالبة",
   "on a schedule": "حسب جدول",
@@ -2519,7 +2525,6 @@
   "Claim another name": "طلب اسم آخر",
   "Claim another ›": "طلب اسم آخر ›",
   "Contenders": "المتنافسون",
-  "Credits {}": "الأرصدة {}",
   "Fund": "المساهمة",
   "Fund for the vote": "مساهمة التصويت",
   "Hide from the list": "إخفاء من القائمة",
@@ -2585,7 +2590,6 @@
     "zero": "{} متنافس"
   },
   "{} left": "بقي {}",
-  "{} now, ≈ {} after": "{} الآن، ≈ {} بعد ذلك",
   "{} vote|{} votes": {
     "few": "{} أصوات",
     "many": "{} صوتًا",
@@ -2784,7 +2788,6 @@
   "Create a token": "إنشاء رمز",
   "Creating tokens comes in the next version": "إنشاء الرموز في الإصدار القادم",
   "Credits after": "الأرصدة بعد ذلك",
-  "Credits left": "الأرصدة المتبقية",
   "Credits {}: {}": "الأرصدة {}: {}",
   "Dash Platform's rules refuse this collection.": "قواعد Dash Platform ترفض هذه المجموعة.",
   "For creators": "للمبدعين",

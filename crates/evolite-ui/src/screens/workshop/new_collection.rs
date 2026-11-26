@@ -280,7 +280,7 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
             ui,
             a,
             &who,
-            credits,
+            crate::components::Credits::of(&wallet),
             fee,
             counting,
             why.as_deref(),
@@ -465,7 +465,7 @@ fn summary(
     ui: &mut Ui,
     a: &mut Assets,
     who: &str,
-    credits: Option<Duffs>,
+    credits: crate::components::Credits,
     fee: Option<ContractFee>,
     counting: bool,
     why: Option<&str>,
@@ -475,22 +475,26 @@ fn summary(
     let p = a.p;
     let width = ui.available_width();
     let value = crate::theme::mono(13.0, Weight::Medium);
-    let shown = |d: Option<Duffs>| d.map_or("—".to_owned(), crate::format::amount);
     let about = |d: Option<Duffs>| super::estimate(d, counting);
     crate::components::card(&p, egui::Margin::same(24)).show(ui, |ui| {
         ui.set_width(crate::components::inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;
         ui.label(txt(tr!("Summary"), 18.0, Weight::SemiBold, p.text));
         kv_row_fit(ui, &p, tr!("Identity"), &crate::i18n::own(who), value.clone());
-        kv_row_fit(ui, &p, tr!("Credits"), &shown(credits), value.clone());
         crate::components::divider(ui, &p);
         let total = fee.map(|f| f.total());
         kv_row_fit(ui, &p, tr!("Collection registration"), &about(total), value.clone());
-        let left = match (credits, total) {
-            (Some(c), Some(t)) => Some(c - t),
-            _ => None,
-        };
-        kv_row_fit(ui, &p, tr!("Credits left"), &about(left), value.clone());
+        // FEAT-0057 П3 (R-3.1): the one line «Credits: now › after» for the registration.
+        crate::components::credits_after(
+            ui,
+            a,
+            &crate::i18n::own(who),
+            credits,
+            match total {
+                Some(t) if !counting => crate::components::Charge::About(t),
+                _ => crate::components::Charge::Calculating,
+            },
+        );
         super::super::tokens::para(
             ui,
             tr!(

@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Es bleiben nur wenige Credits",
+  "Lock": "Sperren",
   "All completed · updated {}": "Alles erledigt · aktualisiert {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite hat die BLS-Signatur des Masternode-Quorums geprüft.",
@@ -27,6 +29,8 @@
   "The weekly copy is not being made: its setting could not be read": "Die wöchentliche Kopie wird nicht erstellt: Ihre Einstellung konnte nicht gelesen werden",
   "Open the backup settings ›": "Einstellungen der Sicherung öffnen ›",
   "The backup setting could not be read": "Die Einstellung der Sicherung konnte nicht gelesen werden",
+  "calculating…": "wird berechnet…",
+  "could not read": "nicht lesbar",
   "the weekly copy's setting": "die Einstellung der wöchentlichen Kopie",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Die wöchentliche Kopie bleibt aus, bis du ihren Ordner wieder wählst. Die bereits gespeicherten Kopien bleiben in ihrem Ordner.",
   "The wallet's keys could not be checked yet — try again in a minute": "Die Schlüssel der Wallet konnten noch nicht geprüft werden — versuchen Sie es in einer Minute erneut",
@@ -261,6 +265,7 @@
   "The identity is busy: wait for the current operation to end": "Die Identität ist beschäftigt: Warten Sie, bis der laufende Vorgang endet",
   "the network is still syncing": "das Netzwerk synchronisiert noch",
   "tick that you checked the amount and where it goes": "Hake an, dass du den Betrag und das Ziel geprüft hast",
+  "{} (last known) · could not update": "{} (zuletzt bekannt) · Aktualisierung fehlgeschlagen",
   "{} app sign-in|{} app sign-ins": {
     "one": "{} App-Anmeldung",
     "other": "{} App-Anmeldungen"
@@ -269,6 +274,7 @@
     "one": "{} Kontaktname",
     "other": "{} Kontaktnamen"
   },
+  "{} credits": "Credits von {}",
   "{} duffs per kB — twice the normal": "{} Duffs pro kB — doppelt so viel wie normal",
   "{} hidden request|{} hidden requests": {
     "one": "{} ausgeblendete Anfrage",
@@ -292,6 +298,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · die Zahlung ist erledigt und lässt sich nicht rückgängig machen",
   "{} · {} duffs per kB": "{} · {} Duffs pro kB",
+  "{} › at least {}": "{} › mindestens {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· Diese Identität hat bereits einen",
   "≈ {} in credits": "≈ {} in Credits",
   "checked {}": "geprüft {}",
@@ -2238,7 +2246,6 @@
   "Claim": "Abrufen",
   "Claim the distribution · {}": "Ausschüttung abrufen · {}",
   "Claimed: the amount is in the balance and in History.": "Abgerufen: Der Betrag ist im Guthaben und im Verlauf.",
-  "Credits of {}": "Credits von {}",
   "Distribution": "Ausschüttung",
   "From {} — {} each": "Ab {} – je {}",
   "How much to buy": "Wie viel kaufen",
@@ -2256,7 +2263,6 @@
   "The token's supply limit is reached.": "Das Ausgabelimit des Tokens ist erreicht.",
   "Tokens are not on this network": "Token gibt es in diesem Netzwerk nicht",
   "Your balance of this token is frozen.": "Ihr Guthaben dieses Tokens ist eingefroren.",
-  "after ≈ {}": "danach ≈ {}",
   "at least {}": "mindestens {}",
   "becomes known after the claim": "wird nach dem Abruf bekannt",
   "on a schedule": "nach Zeitplan",
@@ -2399,7 +2405,6 @@
   "Claim another name": "Anderen Namen beantragen",
   "Claim another ›": "Anderen beantragen ›",
   "Contenders": "Bewerber",
-  "Credits {}": "Credits {}",
   "Fund": "Einsatz",
   "Fund for the vote": "Einsatz für die Abstimmung",
   "Hide from the list": "Aus der Liste ausblenden",
@@ -2461,7 +2466,6 @@
     "other": "{} Bewerber"
   },
   "{} left": "noch {}",
-  "{} now, ≈ {} after": "{} jetzt, ≈ {} danach",
   "{} vote|{} votes": {
     "one": "{} Stimme",
     "other": "{} Stimmen"
@@ -2636,7 +2640,6 @@
   "Create a token": "Token erstellen",
   "Creating tokens comes in the next version": "Das Erstellen von Tokens kommt in der nächsten Version",
   "Credits after": "Credits danach",
-  "Credits left": "Verbleibende Credits",
   "Credits {}: {}": "Credits {}: {}",
   "Dash Platform's rules refuse this collection.": "Die Regeln von Dash Platform lehnen diese Sammlung ab.",
   "For creators": "Für Urheber",

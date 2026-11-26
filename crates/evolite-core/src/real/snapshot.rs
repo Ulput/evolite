@@ -753,6 +753,7 @@ impl Real {
                     .map_or(0, |p| identity::credits_as_duffs(p.credits)),
                 credits_read,
                 credits_checked,
+                credits_failed: self.credits_failed.load(Ordering::Relaxed),
                 platform_address_read: platform_address_known(
                     self.chain.status().platform_address_read,
                     platform_credits,
@@ -2013,7 +2014,7 @@ pub(super) async fn keep_balances_fresh(
     id: WalletId,
     live: impl Fn() -> bool,
     stale: Arc<tokio::sync::Notify>,
-    checked: Arc<AtomicBool>,
+    (checked, failed): (Arc<AtomicBool>, Arc<AtomicBool>),
     refresh: impl Fn(),
     budgets: ops::app_connect2::AppBudgets,
     works: Arc<super::works::Works>,
@@ -2032,6 +2033,9 @@ pub(super) async fn keep_balances_fresh(
             let result =
                 turn::timed("refresh_balances", chain.refresh_balances(&wallet, all)).await;
             drop(working);
+            if live() {
+                note_credits_read(&failed, &result);
+            }
             if round_reads_all(all, &result) && live() {
                 checked.store(true, Ordering::Relaxed);
                 crate::diag::fresh("balances", "network");
@@ -2057,6 +2061,23 @@ pub(super) async fn keep_balances_fresh(
     }
 }
 
+/// FEAT-0057 П3: what a round of [`keep_balances_fresh`] says of the shown identity's credits —
+/// its read failed (its last known amount stays, «could not update»), or it answered. By the
+/// shown one's own answer: in a round of all of them another's answer is not its (r2, Must 1).
+pub(super) fn note_credits_read(failed: &AtomicBool, result: &Result<chain::BalancesRead, String>) {
+    let shown_failed = match result {
+        Err(_) => true,
+        Ok(round) => !round.shown_answered,
+    };
+    failed.store(shown_failed, Ordering::Relaxed);
+}
+
+/// FEAT-0057 П3: another identity shown, a new search or the lock — its credits' failure is not
+/// this one's.
+pub(super) fn forget_credits_failure(failed: &AtomicBool) {
+    failed.store(false, Ordering::Relaxed);
+}
+
 /// How often the connected apps' budgets are read while the wallet is open (BUG-147).
 const BUDGETS_EVERY: Duration = Duration::from_secs(600);
 
@@ -2075,6 +2096,59 @@ fn budgets_due(dropped: bool, since: Option<Duration>) -> bool {
 #[cfg(test)]
 mod budgets_due_tests {
     use super::*;
+
+    /// FEAT-0057 П3 (the architect): a failed read raises the flag, a read that answers clears
+    /// it, and another identity shown clears it.
+    #[test]
+    fn a_failed_credits_read_is_said_until_one_answers_or_another_identity_is_shown() {
+        let failed = AtomicBool::new(false);
+        note_credits_read(&failed, &Err("no answer".into()));
+        assert!(failed.load(Ordering::Relaxed), "a failure");
+        note_credits_read(&failed, &answered(1, 1, true));
+        assert!(!failed.load(Ordering::Relaxed), "an answer clears it");
+        note_credits_read(&failed, &Err("no answer".into()));
+        forget_credits_failure(&failed);
+        assert!(
+            !failed.load(Ordering::Relaxed),
+            "identity B shown: not A's failure"
+        );
+    }
+
+    fn answered(
+        read: usize,
+        asked: usize,
+        shown_answered: bool,
+    ) -> Result<chain::BalancesRead, String> {
+        Ok(chain::BalancesRead {
+            read,
+            asked,
+            shown_answered,
+        })
+    }
+
+    /// FEAT-0057 П3 r2 (the architect's Must 1): in a round of all of them — werner555's eight —
+    /// the shown identity did not answer and the others did. The round is no failure as a whole,
+    /// yet the shown one's credits are its last known ones: the flag is up, not cleared by
+    /// another's answer. Its own answer in the next round clears it.
+    #[test]
+    fn the_shown_identitys_failure_is_said_though_the_others_answered() {
+        let failed = AtomicBool::new(false);
+        note_credits_read(&failed, &answered(7, 8, false));
+        assert!(
+            failed.load(Ordering::Relaxed),
+            "the shown one did not answer"
+        );
+        note_credits_read(&failed, &answered(7, 8, true));
+        assert!(
+            !failed.load(Ordering::Relaxed),
+            "it answered, another did not"
+        );
+        note_credits_read(&failed, &answered(0, 1, false));
+        assert!(
+            failed.load(Ordering::Relaxed),
+            "the shown one alone, no answer"
+        );
+    }
 
     /// BUG-147 AC-T2: credits down with no journal line read the budgets at once; down with a
     /// line (evolite's own write) or up do not; otherwise once at the start and every 10 minutes.
@@ -2109,8 +2183,8 @@ fn credits_checked(read_all: bool, has_identities: bool, search: &IdentitySearch
 
 /// Whether a round of [`keep_balances_fresh`] read every identity's credits: one of all of them
 /// (`all`), none failed. `result`: how many it read and how many it asked.
-fn round_reads_all(all: bool, result: &Result<(usize, usize), String>) -> bool {
-    all && matches!(result, Ok((read, asked)) if read == asked)
+fn round_reads_all(all: bool, result: &Result<chain::BalancesRead, String>) -> bool {
+    all && matches!(result, Ok(round) if round.read == round.asked)
 }
 
 /// Whether the Platform address's balance is known (BUG-91): Platform answered this run, or the
@@ -2121,7 +2195,7 @@ fn platform_address_known(answered_this_run: bool, stored_credits: u64) -> bool 
 
 #[cfg(test)]
 mod platform_known_tests {
-    use super::{credits_checked, credits_known, platform_address_known, round_reads_all};
+    use super::{chain, credits_checked, credits_known, platform_address_known, round_reads_all};
     use evolite_api::IdentitySearch::{Done, Failed, Searching};
 
     /// BUG-115: the credits kept in the store are not checked until Platform was asked for every
@@ -2142,9 +2216,16 @@ mod platform_known_tests {
     /// BUG-115: only a round of all of them with none failed reads them all.
     #[test]
     fn a_round_reads_all_only_when_it_asked_all_and_none_failed() {
-        assert!(round_reads_all(true, &Ok((3, 3))));
-        assert!(!round_reads_all(true, &Ok((2, 3))), "one failed");
-        assert!(!round_reads_all(false, &Ok((1, 1))), "the shown one only");
+        let round = |read, asked| {
+            Ok(chain::BalancesRead {
+                read,
+                asked,
+                shown_answered: true,
+            })
+        };
+        assert!(round_reads_all(true, &round(3, 3)));
+        assert!(!round_reads_all(true, &round(2, 3)), "one failed");
+        assert!(!round_reads_all(false, &round(1, 1)), "the shown one only");
         assert!(!round_reads_all(true, &Err("no".into())));
     }
 

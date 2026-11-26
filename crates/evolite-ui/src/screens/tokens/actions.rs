@@ -330,6 +330,7 @@ fn width(ui: &Ui) -> f32 {
 
 /// K1, K1u: «Claim the distribution · {token}».
 pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut TokensState) {
+    let payer_credits = crate::components::Credits::of(cx.wallet());
     let p = a.p;
     let Some(form) = &mut tokens.claiming else {
         return;
@@ -418,6 +419,14 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
                         &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
                         &format!("≈ {}", crate::format::amount(fee as i64)),
                         mono(13.0, Weight::Medium),
+                    );
+                    // FEAT-0057 П3: the credits now and after this write.
+                    crate::components::credits_after(
+                        ui,
+                        a,
+                        &crate::i18n::own(&from),
+                        payer_credits,
+                        crate::components::Charge::about(fee),
                     );
                 }
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
@@ -615,6 +624,12 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
         .map_or(live.clone(), |s| s.offer.clone());
     let wallet = cx.wallet();
     let mut who = sender(wallet);
+    // FEAT-0057 П3: the credits line — as signed while it runs and once done (BUG-179), else as
+    // the snapshot has them, a failed read too (§8d).
+    let payer_credits = match &form.signed {
+        Some(s) => crate::components::Credits::signed(s.credits),
+        None => crate::components::Credits::of(wallet),
+    };
     if let Some(signed) = &form.signed {
         who.credits = signed.credits;
     }
@@ -695,7 +710,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
                 buy_summary(
                     ui,
                     a,
-                    (total, fee, who.credits),
+                    (total, fee, payer_credits),
                     &from,
                     &mut top_up,
                     problem,
@@ -960,7 +975,7 @@ pub(super) fn buy_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut
 fn buy_summary(
     ui: &mut Ui,
     a: &mut Assets,
-    (total, fee, credits): (Option<u64>, u64, Option<u64>),
+    (total, fee, credits): (Option<u64>, u64, crate::components::Credits),
     from: &str,
     top_up: &mut bool,
     problem: Option<BuyProblem>,
@@ -988,22 +1003,15 @@ fn buy_summary(
             mono(13.0, Weight::Medium),
         );
     }
-    if let (Some(have), Some(total)) = (credits, total) {
-        let after = have.saturating_sub(purchase_total_duffs(total).saturating_add(fee));
-        // BUG-180: a long @name and both sums do not share one line: the value goes under.
-        crate::components::kv_row_fit(
+    // FEAT-0057 П3 (R-3.1): the one line «Credits: now › after» — the price with the fee.
+    if let Some(total) = total {
+        let charge = purchase_total_duffs(total).saturating_add(fee);
+        crate::components::credits_after(
             ui,
-            &p,
-            &format!(tr!("Credits of {}"), crate::i18n::own(from)),
-            &format!(
-                "{} · {}",
-                crate::format::amount(have as i64),
-                crate::i18n::t(&format!(
-                    tr!("after ≈ {}"),
-                    crate::format::amount(after as i64)
-                ))
-            ),
-            sans(13.0, Weight::Medium),
+            a,
+            &crate::i18n::own(from),
+            credits,
+            crate::components::Charge::about(charge),
         );
     }
     quiet(

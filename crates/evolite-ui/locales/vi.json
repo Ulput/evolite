@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Sẽ còn lại ít tín dụng",
+  "Lock": "Khóa",
   "All completed · updated {}": "Tất cả đã hoàn tất · cập nhật {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite đã kiểm tra chữ ký BLS của nhóm masternode.",
@@ -26,6 +28,8 @@
   "The weekly copy is not being made: its setting could not be read": "Bản sao hằng tuần không được tạo: không đọc được cài đặt của nó",
   "Open the backup settings ›": "Mở cài đặt sao lưu ›",
   "The backup setting could not be read": "Không đọc được cài đặt sao lưu",
+  "calculating…": "đang tính…",
+  "could not read": "không đọc được",
   "the weekly copy's setting": "cài đặt bản sao hằng tuần",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Bản sao hằng tuần sẽ tắt cho đến khi bạn chọn lại thư mục của nó. Các bản sao đã lưu vẫn nằm trong thư mục của chúng.",
   "The wallet's keys could not be checked yet — try again in a minute": "Chưa thể kiểm tra các khóa của ví — hãy thử lại sau một phút",
@@ -260,12 +264,14 @@
   "The identity is busy: wait for the current operation to end": "Danh tính đang bận: hãy chờ thao tác hiện tại kết thúc",
   "the network is still syncing": "mạng vẫn đang đồng bộ",
   "tick that you checked the amount and where it goes": "đánh dấu rằng bạn đã kiểm tra số tiền và nơi nó được gửi đến",
+  "{} (last known) · could not update": "{} (lần cuối biết) · không cập nhật được",
   "{} app sign-in|{} app sign-ins": {
     "other": "{} lần đăng nhập ứng dụng"
   },
   "{} contact name|{} contact names": {
     "other": "{} tên liên hệ"
   },
+  "{} credits": "Tín dụng của {}",
   "{} duffs per kB — twice the normal": "{} duff mỗi kB — gấp đôi mức thông thường",
   "{} hidden request|{} hidden requests": {
     "other": "{} yêu cầu đã ẩn"
@@ -285,6 +291,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · thanh toán đã hoàn tất và không thể hoàn tác",
   "{} · {} duffs per kB": "{} · {} duff mỗi kB",
+  "{} › at least {}": "{} › ít nhất {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· Danh tính này đã có một khóa như vậy",
   "≈ {} in credits": "≈ {} bằng tín dụng",
   "checked {}": "đã kiểm tra {}",
@@ -2211,7 +2219,6 @@
   "Claim": "Nhận",
   "Claim the distribution · {}": "Nhận phân phối · {}",
   "Claimed: the amount is in the balance and in History.": "Đã nhận: số tiền có trong số dư và Lịch sử.",
-  "Credits of {}": "Tín dụng của {}",
   "Distribution": "Phân phối",
   "From {} — {} each": "Từ {} — {} mỗi đơn vị",
   "How much to buy": "Mua bao nhiêu",
@@ -2229,7 +2236,6 @@
   "The token's supply limit is reached.": "Đã đạt giới hạn phát hành của token.",
   "Tokens are not on this network": "Mạng này không có token",
   "Your balance of this token is frozen.": "Số dư token này của bạn đang bị đóng băng.",
-  "after ≈ {}": "sau đó ≈ {}",
   "at least {}": "ít nhất {}",
   "becomes known after the claim": "sẽ biết sau khi nhận",
   "on a schedule": "theo lịch",
@@ -2369,7 +2375,6 @@
   "Claim another name": "Đăng ký tên khác",
   "Claim another ›": "Đăng ký tên khác ›",
   "Contenders": "Ứng viên",
-  "Credits {}": "Tín dụng {}",
   "Fund": "Phí",
   "Fund for the vote": "Phí bỏ phiếu",
   "Hide from the list": "Ẩn khỏi danh sách",
@@ -2430,7 +2435,6 @@
     "other": "{} ứng viên"
   },
   "{} left": "còn {}",
-  "{} now, ≈ {} after": "{} bây giờ, ≈ {} sau đó",
   "{} vote|{} votes": {
     "other": "{} phiếu"
   },
@@ -2599,7 +2603,6 @@
   "Create a token": "Tạo token",
   "Creating tokens comes in the next version": "Tính năng tạo token sẽ có ở phiên bản sau",
   "Credits after": "Tín dụng sau đó",
-  "Credits left": "Tín dụng còn lại",
   "Credits {}: {}": "Tín dụng {}: {}",
   "Dash Platform's rules refuse this collection.": "Quy tắc của Dash Platform từ chối bộ sưu tập này.",
   "For creators": "Dành cho nhà sáng tạo",

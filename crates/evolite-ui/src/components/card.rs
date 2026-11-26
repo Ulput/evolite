@@ -19,11 +19,24 @@ pub fn kv_row(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: Fo
 /// [`kv_row`] whose value goes under its label when the two do not share one line (BUG-180, the
 /// rule of BUG-157): a long `@name` in the label and two sums in the value.
 pub fn kv_row_fit(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font: FontId) {
+    kv_row_fit_in(ui, p, label, value, value_font, p.text);
+}
+
+/// [`kv_row_fit`] with the value in `color` (FEAT-0057 П3: amber when few credits are left);
+/// a value longer than the row itself wraps under its label, as [`kv_row_in`]'s.
+pub fn kv_row_fit_in(
+    ui: &mut Ui,
+    p: &Palette,
+    label: &str,
+    value: &str,
+    value_font: FontId,
+    color: egui::Color32,
+) {
     let width = ui.available_width();
     let label_w = super::text_width(ui, label, sans(13.0, Weight::Regular));
     let value_w = super::text_width(ui, value, value_font.clone());
-    if label_w + value_w + 16.0 <= width {
-        return kv_row(ui, p, label, value, value_font);
+    if label_w + value_w + 16.0 <= width || value_w > width {
+        return kv_row_in(ui, p, label, value, value_font, color);
     }
     let (rect, resp) = ui.allocate_exact_size(vec2(width, 36.0), Sense::hover());
     let spoken = format!(
@@ -46,7 +59,7 @@ pub fn kv_row_fit(ui: &mut Ui, p: &Palette, label: &str, value: &str, value_font
         Align2::RIGHT_CENTER,
         value,
         value_font,
-        p.text,
+        color,
     );
 }
 

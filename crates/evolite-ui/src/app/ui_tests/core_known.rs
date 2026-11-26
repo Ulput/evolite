@@ -188,6 +188,7 @@ fn a_core_amount_is_as_sure_as_core() {
         shielded: 0,
         credits_read: true,
         credits_checked: true,
+        credits_failed: false,
         platform_address_read: true,
         mixed: None,
     };
@@ -238,6 +239,7 @@ fn the_total_is_unknown_until_platform_is_read() {
         shielded: 0,
         credits_read: false,
         credits_checked: false,
+        credits_failed: false,
         platform_address_read: false,
         mixed: None,
     };

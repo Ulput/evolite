@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Кредитів залишиться мало",
+  "Lock": "Заблокувати",
   "All completed · updated {}": "Усе виконано · оновлено {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite перевірив BLS-підпис кворуму мастернод.",
@@ -29,6 +31,8 @@
   "The weekly copy is not being made: its setting could not be read": "Щотижнева копія не робиться: її налаштування не вдалося прочитати",
   "Open the backup settings ›": "Відкрити налаштування резервної копії ›",
   "The backup setting could not be read": "Налаштування резервної копії не вдалося прочитати",
+  "calculating…": "рахуємо…",
+  "could not read": "не вдалося прочитати",
   "the weekly copy's setting": "налаштування щотижневої копії",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Щотижнева копія вимкнена, доки ви знову не виберете для неї теку. Уже збережені копії залишаються у своїй теці.",
   "The wallet's keys could not be checked yet — try again in a minute": "Ключі гаманця ще не вдалося перевірити — спробуйте за хвилину",
@@ -263,6 +267,7 @@
   "The identity is busy: wait for the current operation to end": "Ідентичність зайнята: дочекайтеся кінця операції",
   "the network is still syncing": "мережа ще синхронізується",
   "tick that you checked the amount and where it goes": "позначте, що перевірили суму й куди вона йде",
+  "{} (last known) · could not update": "{} (останнє відоме) · не вдалося оновити",
   "{} app sign-in|{} app sign-ins": {
     "one": "{} вхід у застосунок",
     "few": "{} входи в застосунки",
@@ -275,6 +280,7 @@
     "many": "{} імен контактів",
     "other": "{} імені контактів"
   },
+  "{} credits": "Кредити {}",
   "{} duffs per kB — twice the normal": "{} дафів за кБ — удвічі більше за звичайну",
   "{} hidden request|{} hidden requests": {
     "one": "{} прихований запит",
@@ -306,6 +312,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · платіж виконано, скасувати його не можна",
   "{} · {} duffs per kB": "{} · {} дафів за кБ",
+  "{} › at least {}": "{} › не менше {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· У цієї ідентичності вже є",
   "≈ {} in credits": "≈ {} кредитами",
   "checked {}": "перевірено {}",
@@ -2292,7 +2300,6 @@
   "Claim": "Забрати",
   "Claim the distribution · {}": "Забрати роздачу · {}",
   "Claimed: the amount is in the balance and in History.": "Отримано: сума в балансі та в Історії.",
-  "Credits of {}": "Кредити {}",
   "Distribution": "Роздача",
   "From {} — {} each": "Від {} — по {}",
   "How much to buy": "Скільки купити",
@@ -2310,7 +2317,6 @@
   "The token's supply limit is reached.": "Досягнуто межі випуску токена.",
   "Tokens are not on this network": "Токенів у цій мережі немає",
   "Your balance of this token is frozen.": "Ваш баланс цього токена заморожено.",
-  "after ≈ {}": "після — ≈ {}",
   "at least {}": "не менше {}",
   "becomes known after the claim": "стане відомо після отримання",
   "on a schedule": "за розкладом",
@@ -2459,7 +2465,6 @@
   "Claim another name": "Заявити інше ім'я",
   "Claim another ›": "Заявити інше ›",
   "Contenders": "Претенденти",
-  "Credits {}": "Кредити {}",
   "Fund": "Внесок",
   "Fund for the vote": "Внесок за спір",
   "Hide from the list": "Сховати зі списку",
@@ -2523,7 +2528,6 @@
     "other": "{} претендента"
   },
   "{} left": "ще {}",
-  "{} now, ≈ {} after": "{}, після — ≈ {}",
   "{} vote|{} votes": {
     "few": "{} голоси",
     "many": "{} голосів",
@@ -2710,7 +2714,6 @@
   "Create a token": "Створити токен",
   "Creating tokens comes in the next version": "Створення токенів — у наступній версії",
   "Credits after": "Кредити після",
-  "Credits left": "Залишиться кредитів",
   "Credits {}: {}": "Кредити {}: {}",
   "Dash Platform's rules refuse this collection.": "Правила Dash Platform не приймають цю колекцію.",
   "For creators": "Для авторів",

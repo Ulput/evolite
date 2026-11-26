@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "剩余点数将不多",
+  "Lock": "锁定",
   "All completed · updated {}": "全部已完成 · 更新于 {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock：evolite 检查了主节点法定组的 BLS 签名。",
@@ -26,6 +28,8 @@
   "The weekly copy is not being made: its setting could not be read": "每周副本未在创建：无法读取其设置",
   "Open the backup settings ›": "打开备份设置 ›",
   "The backup setting could not be read": "无法读取备份设置",
+  "calculating…": "计算中…",
+  "could not read": "无法读取",
   "the weekly copy's setting": "每周副本的设置",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "在你重新选择文件夹之前，每周副本保持关闭。已保存的副本仍留在原文件夹中。",
   "The wallet's keys could not be checked yet — try again in a minute": "暂时无法核对钱包的密钥——请一分钟后再试",
@@ -260,12 +264,14 @@
   "The identity is busy: wait for the current operation to end": "身份正忙：请等待当前操作结束",
   "the network is still syncing": "网络仍在同步",
   "tick that you checked the amount and where it goes": "请勾选已核对金额和去向",
+  "{} (last known) · could not update": "{}（最后已知）· 无法更新",
   "{} app sign-in|{} app sign-ins": {
     "other": "{} 个应用登录"
   },
   "{} contact name|{} contact names": {
     "other": "{} 个联系人名称"
   },
+  "{} credits": "{} 的点数",
   "{} duffs per kB — twice the normal": "每 kB {} duff — 普通的两倍",
   "{} hidden request|{} hidden requests": {
     "other": "{} 个已隐藏的请求"
@@ -285,6 +291,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · 付款已完成，无法撤销",
   "{} · {} duffs per kB": "{} · 每 kB {} duff",
+  "{} › at least {}": "{} › 至少 {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· 该身份已有一个",
   "≈ {} in credits": "≈ {}（积分）",
   "checked {}": "已核对 {}",
@@ -2211,7 +2219,6 @@
   "Claim": "领取",
   "Claim the distribution · {}": "领取分配 · {}",
   "Claimed: the amount is in the balance and in History.": "已领取：金额已在余额和历史中。",
-  "Credits of {}": "{} 的点数",
   "Distribution": "分配",
   "From {} — {} each": "{} 起 — 每个 {}",
   "How much to buy": "购买数量",
@@ -2229,7 +2236,6 @@
   "The token's supply limit is reached.": "已达到代币发行上限。",
   "Tokens are not on this network": "此网络上没有代币",
   "Your balance of this token is frozen.": "你的该代币余额已被冻结。",
-  "after ≈ {}": "之后 ≈ {}",
   "at least {}": "至少 {}",
   "becomes known after the claim": "领取后可知",
   "on a schedule": "按计划",
@@ -2369,7 +2375,6 @@
   "Claim another name": "申请其他名称",
   "Claim another ›": "申请其他名称 ›",
   "Contenders": "竞争者",
-  "Credits {}": "积分 {}",
   "Fund": "参与费",
   "Fund for the vote": "投票参与费",
   "Hide from the list": "从列表中隐藏",
@@ -2430,7 +2435,6 @@
     "other": "{} 位竞争者"
   },
   "{} left": "还剩 {}",
-  "{} now, ≈ {} after": "现在 {}，之后 ≈ {}",
   "{} vote|{} votes": {
     "other": "{} 票"
   },
@@ -2599,7 +2603,6 @@
   "Create a token": "创建代币",
   "Creating tokens comes in the next version": "创建代币将在下一版本推出",
   "Credits after": "之后的积分",
-  "Credits left": "剩余积分",
   "Credits {}: {}": "积分 {}：{}",
   "Dash Platform's rules refuse this collection.": "Dash Platform 的规则拒绝此收藏。",
   "For creators": "面向创作者",

@@ -125,6 +125,10 @@ pub fn sidebar(
     } else {
         SYNC_WIDE
     };
+    // FEAT-0057 П8: the lock beside Settings while a wallet is open (R-8.1); in the rail in
+    // one row with it (the designer, 2026-11-26) — the footer as high as without it, so all
+    // ten items still fit in 800 × 600 (FEAT-0036 AC-T2).
+    let lock = lockable(cx.snap);
     let footer = egui::Rect::from_min_max(
         egui::pos2(area.left(), area.bottom() - 60.0),
         egui::pos2(area.right(), area.bottom() - 20.0),
@@ -195,51 +199,56 @@ pub fn sidebar(
     ui.data_mut(|d| d.insert_temp(more_id(), fade));
     #[cfg(not(test))]
     let _ = fade;
-    ui.scope_builder(
-        egui::UiBuilder::new()
-            .max_rect(footer)
-            .layout(Layout::left_to_right(Align::Center)),
-        |ui| {
-            if !rail {
-                network_chip(ui, a, network);
-            }
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                // 40 px square; raised while Settings is open, as in Figma.
-                let on = active == Screen::Settings;
-                let (rect, resp) = ui.allocate_exact_size(vec2(40.0, 40.0), egui::Sense::click());
-                // Р1: a newer release, signed — a dot on Settings, and said to a screen reader.
-                let newer = cx.snap.update.as_ref().is_some_and(|u| u.newer);
-                crate::components::named(&resp, egui::WidgetType::Button, true, tr!("Settings"));
-                if newer {
-                    let said = crate::i18n::spoken(tr!("A new version of evolite is out"));
-                    ui.ctx()
-                        .accesskit_node_builder(resp.id, |node| node.set_description(said));
+    if rail && lock {
+        // The rail's 76 px: the lock and Settings, 32 px each, 4 apart, the lock first as read
+        // across the rail's middle — on the right in Arabic by the frame's mirror (`rtl`).
+        let row = egui::Rect::from_center_size(
+            egui::pos2(area.center().x, footer.center().y),
+            vec2(68.0, RAIL_KEY),
+        );
+        let lock_at = egui::Rect::from_min_size(row.left_top(), vec2(RAIL_KEY, RAIL_KEY));
+        let settings_at = egui::Rect::from_min_size(
+            row.right_top() - vec2(RAIL_KEY, 0.0),
+            vec2(RAIL_KEY, RAIL_KEY),
+        );
+        // In reading order, for Tab: the lock, then Settings.
+        let mut row_ui = ui.new_child(egui::UiBuilder::new().max_rect(row));
+        lock_button(&mut row_ui, a, cx, Some(lock_at));
+        settings_button(&mut row_ui, a, cx, active, Some(settings_at));
+    } else {
+        ui.scope_builder(
+            egui::UiBuilder::new()
+                .max_rect(footer)
+                .layout(Layout::left_to_right(Align::Center)),
+            |ui| {
+                if !rail {
+                    network_chip(ui, a, network);
                 }
-                if on || resp.hovered() {
-                    ui.painter().rect_filled(rect, 10, p.raised);
-                }
-                let color = if on { p.text } else { p.muted };
-                a.icons.icon("settings", color, &p, 24.0).paint_at(
-                    ui,
-                    egui::Rect::from_center_size(rect.center(), vec2(24.0, 24.0)),
-                );
-                if newer {
-                    ui.painter().circle_filled(
-                        egui::pos2(rect.right() - 9.0, rect.top() + 9.0),
-                        4.0,
-                        p.accent,
+                if !rail && lock {
+                    // r2 (Should 1): the lock left of Settings at the foot's right, and made
+                    // first, so Tab reads them as the eye does — the lock, then Settings (as in
+                    // the rail; mirrored in Arabic by the frame's `rtl`).
+                    let settings_at = egui::Rect::from_min_size(
+                        egui::pos2(ui.max_rect().right() - 40.0, footer.center().y - 20.0),
+                        vec2(40.0, 40.0),
                     );
+                    let lock_at = settings_at.translate(vec2(-44.0, 0.0));
+                    lock_button(ui, a, cx, Some(lock_at));
+                    settings_button(ui, a, cx, active, Some(settings_at));
+                    return;
                 }
-                if resp
-                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text(crate::i18n::t(tr!("Settings")).into_owned())
-                    .clicked()
-                {
-                    cx.go(Screen::Settings);
-                }
-            });
-        },
-    );
+                let layout = if rail {
+                    Layout::bottom_up(Align::Max)
+                } else {
+                    Layout::right_to_left(Align::Center)
+                };
+                ui.with_layout(layout, |ui| {
+                    ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                    settings_button(ui, a, cx, active, None);
+                });
+            },
+        );
+    }
     let radius = egui::CornerRadius::same(12);
     ui.painter().rect(
         sync,
@@ -249,6 +258,103 @@ pub fn sidebar(
         egui::StrokeKind::Inside,
     );
     sync_card(ui, a, status, sync, rail, compact);
+}
+
+/// FEAT-0057 П8 R-8.1: a wallet is open and unlocked — there is something to lock.
+pub(crate) fn lockable(snap: &evolite_api::Snapshot) -> bool {
+    snap.vault == evolite_api::VaultState::Unlocked && snap.wallets.iter().any(|w| w.open)
+}
+
+/// The shortcut that locks, as the hint says it: ⌘L on macOS, Ctrl+L elsewhere (R-8.2).
+pub(crate) fn lock_shortcut() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "⌘L"
+    } else {
+        "Ctrl+L"
+    }
+}
+
+/// FEAT-0057 П8: the lock, 40 px square as Settings — what «Lock now» in Settings › Security
+/// does, the same command (UC-8.2). A Tab stop named «Lock» (R-8.3).
+fn lock_button(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, at: Option<egui::Rect>) {
+    let p = a.p;
+    let (rect, resp) = key_at(ui, at, "menu-lock");
+    crate::components::named(&resp, egui::WidgetType::Button, true, tr!("Lock"));
+    if resp.hovered() || resp.has_focus() {
+        ui.painter().rect_filled(rect, 10, p.raised);
+    }
+    a.icons.icon("lock", p.muted, &p, 24.0).paint_at(
+        ui,
+        egui::Rect::from_center_size(rect.center(), vec2(24.0, 24.0)),
+    );
+    let hint = format!("{} · {}", crate::i18n::t(tr!("Lock")), lock_shortcut());
+    if resp
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(hint)
+        .clicked()
+    {
+        cx.send(evolite_api::Command::Lock);
+    }
+}
+
+/// The side of the lock and Settings in the rail's one row (FEAT-0057 П8, the designer).
+const RAIL_KEY: f32 = 32.0;
+
+/// A square key of the menu's foot: 40 px where `at` is `None`, else at `at` (the rail's row).
+fn key_at(ui: &mut Ui, at: Option<egui::Rect>, salt: &str) -> (egui::Rect, egui::Response) {
+    match at {
+        Some(rect) => (
+            rect,
+            ui.interact(rect, ui.id().with(salt), egui::Sense::click()),
+        ),
+        None => ui.allocate_exact_size(vec2(40.0, 40.0), egui::Sense::click()),
+    }
+}
+
+/// Settings at the menu's foot: raised while Settings is open, as in Figma; the amber dot of a
+/// newer release (Р1).
+fn settings_button(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    active: Screen,
+    at: Option<egui::Rect>,
+) {
+    let p = a.p;
+    let on = active == Screen::Settings;
+    let (rect, resp) = key_at(ui, at, "menu-settings");
+    // Р1: a newer release, signed — a dot on Settings, and said to a screen reader.
+    let newer = cx.snap.update.as_ref().is_some_and(|u| u.newer);
+    crate::components::named(&resp, egui::WidgetType::Button, true, tr!("Settings"));
+    if newer {
+        let said = crate::i18n::spoken(tr!("A new version of evolite is out"));
+        ui.ctx()
+            .accesskit_node_builder(resp.id, |node| node.set_description(said));
+    }
+    if on || resp.hovered() {
+        ui.painter().rect_filled(rect, 10, p.raised);
+    }
+    let color = if on { p.text } else { p.muted };
+    a.icons.icon("settings", color, &p, 24.0).paint_at(
+        ui,
+        egui::Rect::from_center_size(rect.center(), vec2(24.0, 24.0)),
+    );
+    if newer {
+        // 9 px in from the corner of a 40 px key, 7 of the rail's 32.
+        let inset = if rect.width() < 36.0 { 7.0 } else { 9.0 };
+        ui.painter().circle_filled(
+            egui::pos2(rect.right() - inset, rect.top() + inset),
+            4.0,
+            p.accent,
+        );
+    }
+    if resp
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(crate::i18n::t(tr!("Settings")).into_owned())
+        .clicked()
+    {
+        cx.go(Screen::Settings);
+    }
 }
 
 /// The sync card's height in the wide menu (BUG-155, the designer's B).

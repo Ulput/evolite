@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Az kredi kalacak",
+  "Lock": "Kilitle",
   "All completed · updated {}": "Hepsi tamamlandı · {} güncellendi",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite masternode yeter sayısının BLS imzasını denetledi.",
@@ -27,6 +29,8 @@
   "The weekly copy is not being made: its setting could not be read": "Haftalık kopya alınmıyor: ayarı okunamadı",
   "Open the backup settings ›": "Yedek ayarlarını aç ›",
   "The backup setting could not be read": "Yedek ayarı okunamadı",
+  "calculating…": "hesaplanıyor…",
+  "could not read": "okunamadı",
   "the weekly copy's setting": "haftalık kopya ayarı",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "Klasörünü yeniden seçene kadar haftalık kopya kapalı kalır. Daha önce kaydedilen kopyalar kendi klasöründe kalır.",
   "The wallet's keys could not be checked yet — try again in a minute": "Cüzdanın anahtarları henüz denetlenemedi — bir dakika sonra yeniden deneyin",
@@ -261,6 +265,7 @@
   "The identity is busy: wait for the current operation to end": "Kimlik meşgul: süren işlemin bitmesini bekleyin",
   "the network is still syncing": "ağ hâlâ eşitleniyor",
   "tick that you checked the amount and where it goes": "tutarı ve nereye gittiğini kontrol ettiğinizi işaretleyin",
+  "{} (last known) · could not update": "{} (son bilinen) · güncellenemedi",
   "{} app sign-in|{} app sign-ins": {
     "one": "{} uygulama girişi",
     "other": "{} uygulama girişi"
@@ -269,6 +274,7 @@
     "one": "{} kişi adı",
     "other": "{} kişi adı"
   },
+  "{} credits": "{} kredileri",
   "{} duffs per kB — twice the normal": "kB başına {} duff — normalin iki katı",
   "{} hidden request|{} hidden requests": {
     "one": "{} gizli istek",
@@ -292,6 +298,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · ödeme tamamlandı ve geri alınamaz",
   "{} · {} duffs per kB": "{} · kB başına {} duff",
+  "{} › at least {}": "{} › en az {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· Bu kimlikte zaten bir tane var",
   "≈ {} in credits": "≈ {} kredi olarak",
   "checked {}": "denetlendi {}",
@@ -2238,7 +2246,6 @@
   "Claim": "Al",
   "Claim the distribution · {}": "Dağıtımı al · {}",
   "Claimed: the amount is in the balance and in History.": "Alındı: tutar bakiyede ve Geçmiş'te.",
-  "Credits of {}": "{} kredileri",
   "Distribution": "Dağıtım",
   "From {} — {} each": "{} itibarıyla — tanesi {}",
   "How much to buy": "Ne kadar alınacak",
@@ -2256,7 +2263,6 @@
   "The token's supply limit is reached.": "Tokenin arz sınırına ulaşıldı.",
   "Tokens are not on this network": "Bu ağda token yok",
   "Your balance of this token is frozen.": "Bu tokendeki bakiyeniz donduruldu.",
-  "after ≈ {}": "sonra ≈ {}",
   "at least {}": "en az {}",
   "becomes known after the claim": "alımdan sonra belli olur",
   "on a schedule": "takvime göre",
@@ -2399,7 +2405,6 @@
   "Claim another name": "Başka bir ad talep et",
   "Claim another ›": "Başka bir ad ›",
   "Contenders": "Adaylar",
-  "Credits {}": "Krediler {}",
   "Fund": "Katkı payı",
   "Fund for the vote": "Oylama katkı payı",
   "Hide from the list": "Listeden gizle",
@@ -2461,7 +2466,6 @@
     "other": "{} aday"
   },
   "{} left": "{} kaldı",
-  "{} now, ≈ {} after": "şimdi {}, sonra ≈ {}",
   "{} vote|{} votes": {
     "one": "{} oy",
     "other": "{} oy"
@@ -2636,7 +2640,6 @@
   "Create a token": "Token oluştur",
   "Creating tokens comes in the next version": "Token oluşturma bir sonraki sürümde geliyor",
   "Credits after": "Sonraki krediler",
-  "Credits left": "Kalan krediler",
   "Credits {}: {}": "Krediler {}: {}",
   "Dash Platform's rules refuse this collection.": "Dash Platform kuralları bu koleksiyonu reddediyor.",
   "For creators": "Yaratıcılar için",

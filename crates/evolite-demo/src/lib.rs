@@ -1208,11 +1208,24 @@ impl Mock {
                 }
                 Event::Snapshot(Box::new(self.shown()))
             }
-            Command::Lock => Event::Done {
-                what: DoneWhat::Lock,
-                result: Err(CoreError::NotAvailable(NO_WALLET.into())),
-                ask: None,
-            },
+            // FEAT-0057 П8: the open wallet locks, as the real core's (its unlock takes the demo
+            // password); with no wallet open there is nothing to lock.
+            Command::Lock => {
+                let result = if self.snapshot.wallets.iter().any(|w| w.open) {
+                    self.lock_wallet();
+                    // The real core's locked snapshot has no wallet; the unlock brings it back.
+                    self.snapshot.wallet = None;
+                    changed = true;
+                    Ok(())
+                } else {
+                    Err(CoreError::NotAvailable(NO_WALLET.into()))
+                };
+                Event::Done {
+                    what: DoneWhat::Lock,
+                    result,
+                    ask: None,
+                }
+            }
             // The demo wallet has no keys to forget.
             Command::AutoLock { .. } | Command::Touch => return changed,
             // Nor a network to choose nodes in.

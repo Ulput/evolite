@@ -383,7 +383,7 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
             a,
             state,
             identity,
-            wallet.fees.profile,
+            (wallet.fees.profile, crate::components::Credits::of(wallet)),
             wallet.password_each_send,
             &mut asked,
         );

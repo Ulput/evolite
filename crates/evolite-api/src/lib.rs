@@ -528,6 +528,10 @@ pub struct Balances {
     /// the identities ended (BUG-115). `credits_read` without it: what the store kept from an
     /// earlier run, not checked yet.
     pub credits_checked: bool,
+    /// FEAT-0057 П3 (§8d, the architect 2026-11-25): the last read of the shown identity's credits
+    /// failed — `credits` is the last known amount (when `credits_read`), not this run's. Cleared
+    /// by the next read that answers, and when another identity is shown.
+    pub credits_failed: bool,
     /// `platform_address` is known: Platform answered this run, or the store holds an earlier
     /// read that found credits there. `false`: «—», not a 0 (BUG-91).
     pub platform_address_read: bool,

@@ -121,7 +121,7 @@ pub(super) fn add_name_dialog(
                 match form.review {
                     _ if sent || written => {}
                     Some(r) => {
-                        review_summary(ui, a, wallet, &me, form, r);
+                        review_summary(ui, a, wallet, form, r);
                         // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                         form.flow.password.summary_tick(ui, &p);
                     }
@@ -363,14 +363,7 @@ fn review_body(
 /// BUG-249: N2's summary, pinned over the password: the write and the fund on lines of their
 /// own (the fund that rose, was and now, R-2), the link's write, the total and the credits
 /// before and after, and the fund «not returned» above the password in any window (AC-T6).
-fn review_summary(
-    ui: &mut Ui,
-    a: &mut Assets,
-    wallet: &Wallet,
-    me: &str,
-    form: &NameForm,
-    r: Review,
-) {
+fn review_summary(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, form: &NameForm, r: Review) {
     let p = a.p;
     let value = style(UI.weight(Weight::Medium).mono());
     // BUG-190: a contested domain costs more than a regular name: the bound the credits are
@@ -427,22 +420,14 @@ fn review_summary(
         &format!("≈ {}", dash(total)),
         style(UI.weight(Weight::SemiBold).mono()),
     );
-    let credits = wallet.balances.credits;
-    // BUG-193: a long name and two sums do not share a line: the sums go under it (BUG-180).
-    crate::components::kv_row_fit(
+    // FEAT-0057 П3 (R-3.1, R-3.4): the one line «Credits @me: now › after», after the total —
+    // the vote's fund in it.
+    crate::components::credits_after(
         ui,
-        &p,
-        &if me.is_empty() {
-            tr!("Identity credits").to_string()
-        } else {
-            format!(tr!("Credits {me}"), me = me)
-        },
-        &format!(
-            tr!("{now} now, ≈ {after} after"),
-            now = crate::format::balance(credits),
-            after = crate::format::balance(credits - total)
-        ),
-        value,
+        a,
+        &crate::components::payer_name(wallet),
+        crate::components::Credits::of(wallet),
+        crate::components::Charge::About(total),
     );
     notice(
         ui,

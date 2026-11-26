@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "बहुत कम क्रेडिट बचेंगे",
+  "Lock": "लॉक करें",
   "All completed · updated {}": "सब पूर्ण · अद्यतन {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite ने मास्टरनोड कोरम का BLS हस्ताक्षर जाँचा।",
@@ -27,6 +29,8 @@
   "The weekly copy is not being made: its setting could not be read": "साप्ताहिक प्रति नहीं बन रही: उसकी सेटिंग पढ़ी नहीं जा सकी",
   "Open the backup settings ›": "बैकअप की सेटिंग खोलें ›",
   "The backup setting could not be read": "बैकअप की सेटिंग पढ़ी नहीं जा सकी",
+  "calculating…": "गणना हो रही है…",
+  "could not read": "पढ़ा नहीं जा सका",
   "the weekly copy's setting": "साप्ताहिक प्रति की सेटिंग",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "जब तक आप उसका फ़ोल्डर फिर से नहीं चुनते, साप्ताहिक प्रति बंद रहती है। पहले सहेजी गई प्रतियाँ अपने फ़ोल्डर में रहती हैं।",
   "The wallet's keys could not be checked yet — try again in a minute": "वॉलेट की कुंजियाँ अभी जाँची नहीं जा सकीं — एक मिनट बाद फिर कोशिश करें",
@@ -261,6 +265,7 @@
   "The identity is busy: wait for the current operation to end": "पहचान व्यस्त है: चल रहे कार्य के ख़त्म होने तक रुकें",
   "the network is still syncing": "नेटवर्क अभी भी सिंक हो रहा है",
   "tick that you checked the amount and where it goes": "टिक करें कि आपने राशि और वह कहाँ जा रही है, जांच ली है",
+  "{} (last known) · could not update": "{} (आख़िरी ज्ञात) · अपडेट नहीं हो सका",
   "{} app sign-in|{} app sign-ins": {
     "one": "{} ऐप साइन-इन",
     "other": "{} ऐप साइन-इन"
@@ -269,6 +274,7 @@
     "one": "{} संपर्क नाम",
     "other": "{} संपर्क नाम"
   },
+  "{} credits": "{} के क्रेडिट",
   "{} duffs per kB — twice the normal": "{} डफ़ प्रति kB — सामान्य से दोगुना",
   "{} hidden request|{} hidden requests": {
     "one": "{} छिपा अनुरोध",
@@ -292,6 +298,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · भुगतान पूर्ण हुआ, इसे वापस नहीं लिया जा सकता",
   "{} · {} duffs per kB": "{} · {} डफ़ प्रति kB",
+  "{} › at least {}": "{} › कम से कम {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· इस पहचान के पास यह पहले से है",
   "≈ {} in credits": "≈ {} क्रेडिट में",
   "checked {}": "जाँचा गया {}",
@@ -2238,7 +2246,6 @@
   "Claim": "प्राप्त करें",
   "Claim the distribution · {}": "वितरण प्राप्त करें · {}",
   "Claimed: the amount is in the balance and in History.": "प्राप्त हुआ: राशि बैलेंस और इतिहास में है।",
-  "Credits of {}": "{} के क्रेडिट",
   "Distribution": "वितरण",
   "From {} — {} each": "{} से — {} प्रति",
   "How much to buy": "कितना खरीदना है",
@@ -2256,7 +2263,6 @@
   "The token's supply limit is reached.": "टोकन की आपूर्ति सीमा पूरी हो गई है।",
   "Tokens are not on this network": "इस नेटवर्क पर टोकन नहीं हैं",
   "Your balance of this token is frozen.": "इस टोकन का आपका बैलेंस फ़्रीज़ है।",
-  "after ≈ {}": "बाद में ≈ {}",
   "at least {}": "कम से कम {}",
   "becomes known after the claim": "प्राप्ति के बाद पता चलेगा",
   "on a schedule": "समय-सारणी के अनुसार",
@@ -2399,7 +2405,6 @@
   "Claim another name": "दूसरे नाम का दावा करें",
   "Claim another ›": "दूसरा नाम ›",
   "Contenders": "दावेदार",
-  "Credits {}": "क्रेडिट {}",
   "Fund": "योगदान",
   "Fund for the vote": "मतदान का योगदान",
   "Hide from the list": "सूची से छिपाएँ",
@@ -2461,7 +2466,6 @@
     "other": "{} दावेदार"
   },
   "{} left": "{} बाकी",
-  "{} now, ≈ {} after": "अभी {}, बाद में ≈ {}",
   "{} vote|{} votes": {
     "one": "{} मत",
     "other": "{} मत"
@@ -2636,7 +2640,6 @@
   "Create a token": "टोकन बनाएँ",
   "Creating tokens comes in the next version": "टोकन बनाना अगले संस्करण में आएगा",
   "Credits after": "बाद में क्रेडिट",
-  "Credits left": "बचे हुए क्रेडिट",
   "Credits {}: {}": "क्रेडिट {}: {}",
   "Dash Platform's rules refuse this collection.": "Dash Platform के नियम इस संग्रह को स्वीकार नहीं करते।",
   "For creators": "रचनाकारों के लिए",

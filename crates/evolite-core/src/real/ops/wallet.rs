@@ -308,6 +308,7 @@ impl Real {
             self.contact_accounts_busy.store(false, Ordering::Relaxed);
         }
         self.credits_checked.store(false, Ordering::Relaxed);
+        self.credits_failed.store(false, Ordering::Relaxed);
         // The names searched in this session go with the wallet (FEAT-0039, architect §3).
         self.name_search
             .lock()

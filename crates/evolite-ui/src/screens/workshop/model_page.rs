@@ -1056,10 +1056,6 @@ fn series_window(
         }
     }
     let wallet = cx.wallet().clone();
-    let credits = wallet
-        .balances
-        .credits_read
-        .then_some(wallet.balances.credits);
     let who = super::super::tokens::shown_name(&wallet);
     let name = crate::i18n::own(model);
     let title = match form.action {
@@ -1121,15 +1117,14 @@ fn series_window(
                     &format!("≈ {}", crate::format::amount(total)),
                     value.clone(),
                 );
-                if let Some(c) = credits {
-                    kv_row_fit(
-                        ui,
-                        &p,
-                        tr!("Credits after"),
-                        &format!("≈ {}", crate::format::amount(c - total)),
-                        value.clone(),
-                    );
-                }
+                // FEAT-0057 П3 (R-3.1): the one line «Credits: now › after» for the series.
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    &who,
+                    crate::components::Credits::of(&wallet),
+                    crate::components::Charge::About(total),
+                );
             }
             if form.action == Action::Give {
                 crate::components::warning(

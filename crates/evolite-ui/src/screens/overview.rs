@@ -717,6 +717,7 @@ mod tests {
             shielded: 0,
             credits_read: read,
             credits_checked: checked,
+            credits_failed: false,
             platform_address_read: true,
             mixed: None,
         };

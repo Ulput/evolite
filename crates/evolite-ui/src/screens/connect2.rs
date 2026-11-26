@@ -554,6 +554,16 @@ pub fn request(
                     &format!(tr!("{} · credits"), identity),
                     mono(13.0, Weight::Medium),
                 );
+                // FEAT-0057 П3: the credits now and after the keys are added; in BUG-249's one
+                // scroll it scrolls with the amounts (the coordinator, 2026-11-25).
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    identity,
+                    crate::components::Credits::of(cx.wallet()),
+                    // R-3.3: `fee_of_keys` is an upper bound — «after» at least.
+                    crate::components::Charge::AtMost(*cost),
+                );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                 if state.consent == Consent::Asking {
                     state.flow.password.summary_tick(ui, &p);

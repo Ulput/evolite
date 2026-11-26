@@ -484,7 +484,7 @@ fn the_reviews_credits_row_does_not_overlap_its_label() {
     let row = |kit: &Kit| {
         kit.query_all_by(|n| {
             n.label().or_else(|| n.value()).is_some_and(|w| {
-                w.starts_with("Credits") && w.contains("a-long-name") && w.contains("after")
+                w.contains(" credits: ") && w.contains("a-long-name") && w.contains(" › ")
             })
         })
         .next()

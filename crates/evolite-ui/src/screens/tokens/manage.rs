@@ -1159,6 +1159,7 @@ fn names_rows(ui: &mut Ui, a: &mut Assets, form: &mut IssuerForm) {
 
 /// M2…M7: one window per issuer action.
 pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mut TokensState) {
+    let payer_credits = crate::components::Credits::of(cx.wallet());
     let p = a.p;
     let Some(form) = &mut tokens.issuer else {
         return;
@@ -1270,6 +1271,14 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
                     &format!(tr!("Fee, in credits of {}"), crate::i18n::own(&from)),
                     &format!("≈ {}", crate::format::amount(fee as i64)),
                     mono(13.0, Weight::Medium),
+                );
+                // FEAT-0057 П3: the credits now and after this write.
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    &crate::i18n::own(&from),
+                    payer_credits,
+                    crate::components::Charge::About(fee as i64),
                 );
                 if tick {
                     let words = match &form.window {

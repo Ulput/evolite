@@ -204,10 +204,14 @@ fn every_dialog_puts_the_secondary_button_on_the_left() {
         }
         assert_eq!(same, 4, "{preset}: the row of buttons does not settle");
         assert_eq!(left.height(), 41.0, "{preset}: «{secondary}» is a button");
+        // The dialog's own buttons: the menu's foot (FEAT-0057 П8's lock in the rail) may stand
+        // at the row's height beside it.
+        let dialog = crate::components::dialog_seen(&kit.ctx).map(|s| s.rect);
         let row: Vec<_> = kit
             .query_all_by_role(Role::Button)
             .map(|b| b.rect())
             .filter(|r| (r.center().y - left.center().y).abs() < 1.0 && *r != left)
+            .filter(|r| dialog.is_none_or(|d| d.expand(1.0).contains_rect(*r)))
             .collect();
         assert!(!row.is_empty(), "{preset}: an action beside «{secondary}»");
         for r in &row {

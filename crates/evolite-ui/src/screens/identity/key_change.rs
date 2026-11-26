@@ -240,6 +240,7 @@ pub(super) fn change_dialog(
     // BUG-183 AC-T4: credits short of the fee are said before the password (BUG-108's estimate,
     // never below what testnet charged).
     let credits = &cx.wallet().balances;
+    let payer_credits = crate::components::Credits::of(cx.wallet());
     let credits_short = (plan.is_ok() && credits.credits_checked && fee > credits.credits)
         .then_some(credits.credits);
     let (title, icon, act, danger) = match change.kind {
@@ -291,7 +292,14 @@ pub(super) fn change_dialog(
             if part == Part::Summary {
                 if !change.answered() && refusal.is_none() && !last_sign_in {
                     ui.spacing_mut().item_spacing.y = 10.0;
-                    summary(ui, a, change, &plan, (&foreign, fee, credits_short), me);
+                    summary(
+                        ui,
+                        a,
+                        change,
+                        &plan,
+                        (&foreign, fee, credits_short),
+                        (me, payer_credits),
+                    );
                     // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                     if !change.flow.waiting() {
                         change.flow.password.summary_tick(ui, &p);
@@ -655,7 +663,7 @@ fn summary(
     change: &mut KeyChange,
     plan: &Result<key_plan::KeyPlan, key_plan::KeyRefusal>,
     (foreign, fee, credits_short): (&[u32], evolite_api::Duffs, Option<evolite_api::Duffs>),
-    me: &str,
+    (me, payer_credits): (&str, crate::components::Credits),
 ) {
     let p = a.p;
     let list = |ids: &mut dyn Iterator<Item = u32>| {
@@ -789,6 +797,15 @@ fn summary(
             tr!("Pays"),
             &format!(tr!("{} · credits"), me),
             style(UI),
+        );
+        // FEAT-0057 П3: the credits now and after the change, by the fee above.
+        crate::components::credits_after(
+            ui,
+            a,
+            me,
+            payer_credits,
+            // R-3.3: a key's fee with its margin (`KEY_ADD_*`) is an upper bound.
+            crate::components::Charge::AtMost(fee),
         );
         if let Some(has) = credits_short {
             ui.label(text(

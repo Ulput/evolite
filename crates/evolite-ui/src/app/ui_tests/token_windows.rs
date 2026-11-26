@@ -19,13 +19,13 @@ fn with_row(kit: &mut Kit, what: &str, edit: impl Fn(&mut evolite_api::tokens::T
     );
 }
 
-/// The «Credits of …» row: where it is drawn and what it says.
+/// The «… credits» row (FEAT-0057 П3): where it is drawn and what it says.
 fn credits_row(kit: &Kit) -> (egui::Rect, String) {
     let row = kit
         .query_all_by(|n| {
             n.label()
                 .or_else(|| n.value())
-                .is_some_and(|w| w.starts_with("Credits of"))
+                .is_some_and(|w| w.contains(" credits: "))
         })
         .next()
         .expect("the credits row");
@@ -86,7 +86,7 @@ fn a_claim_done_keeps_what_was_signed() {
     assert!(!has_words(&kit, "at least 210.00"), "not the next one");
 }
 
-/// BUG-179: bought, the credits after it in the snapshot: «Credits of …» stays as signed, not
+/// BUG-179: bought, the credits after it in the snapshot: «… credits» stays as signed, not
 /// reckoned as another purchase.
 #[test]
 fn a_purchase_done_keeps_its_credits_as_signed() {
@@ -150,12 +150,12 @@ fn the_credits_row_does_not_overlap_its_label() {
         kit.query_all_by(|n| {
             n.label()
                 .or_else(|| n.value())
-                .is_some_and(|w| w.starts_with("Credits of") && w.contains("a-long-name"))
+                .is_some_and(|w| w.contains(" credits: ") && w.contains("a-long-name"))
         })
         .next()
         .is_some()
     };
-    show_wallet_edited(&mut kit, 1, "«Credits of» with the long name", long, shown);
+    show_wallet_edited(&mut kit, 1, "«… credits» with the long name", long, shown);
     let (rect, _) = credits_row(&kit);
     assert!(rect.height() > 30.0, "{rect:?}");
 }

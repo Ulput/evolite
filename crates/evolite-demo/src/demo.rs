@@ -331,6 +331,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
             shielded: 250_000_000,
             credits_read: true,
             credits_checked: true,
+            credits_failed: false,
             platform_address_read: true,
             // FEAT-0030: coins mixed in DashPay — 1.2 DASH through 4 rounds, three not yet
             // ([`demo_coins`]).

@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "남는 크레딧이 적습니다",
+  "Lock": "잠그기",
   "All completed · updated {}": "모두 완료 · {} 업데이트",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite가 마스터노드 쿼럼의 BLS 서명을 확인했습니다.",
@@ -26,6 +28,8 @@
   "The weekly copy is not being made: its setting could not be read": "주간 사본이 만들어지지 않습니다: 설정을 읽을 수 없습니다",
   "Open the backup settings ›": "백업 설정 열기 ›",
   "The backup setting could not be read": "백업 설정을 읽을 수 없습니다",
+  "calculating…": "계산 중…",
+  "could not read": "읽지 못했습니다",
   "the weekly copy's setting": "주간 사본 설정",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "폴더를 다시 선택할 때까지 주간 사본은 꺼진 상태로 유지됩니다. 이미 저장된 사본은 해당 폴더에 그대로 남습니다.",
   "The wallet's keys could not be checked yet — try again in a minute": "지갑의 키를 아직 확인하지 못했습니다. 1분 후에 다시 시도하세요",
@@ -260,12 +264,14 @@
   "The identity is busy: wait for the current operation to end": "아이덴티티가 사용 중입니다: 진행 중인 작업이 끝날 때까지 기다리세요",
   "the network is still syncing": "네트워크가 아직 동기화 중입니다",
   "tick that you checked the amount and where it goes": "금액과 보내는 곳을 확인했다고 체크하세요",
+  "{} (last known) · could not update": "{} (마지막으로 확인된 값) · 업데이트하지 못했습니다",
   "{} app sign-in|{} app sign-ins": {
     "other": "앱 로그인 {}개"
   },
   "{} contact name|{} contact names": {
     "other": "연락처 이름 {}개"
   },
+  "{} credits": "{}의 크레딧",
   "{} duffs per kB — twice the normal": "{} duff/kB — 일반의 두 배",
   "{} hidden request|{} hidden requests": {
     "other": "숨긴 요청 {}개"
@@ -285,6 +291,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · 결제가 완료되어 되돌릴 수 없습니다",
   "{} · {} duffs per kB": "{} · {} duff/kB",
+  "{} › at least {}": "{} › 최소 {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· 이 아이덴티티에 이미 있습니다",
   "≈ {} in credits": "≈ {} 크레딧",
   "checked {}": "확인됨 {}",
@@ -2211,7 +2219,6 @@
   "Claim": "받기",
   "Claim the distribution · {}": "배분 받기 · {}",
   "Claimed: the amount is in the balance and in History.": "받았습니다. 금액이 잔액과 내역에 있습니다.",
-  "Credits of {}": "{}의 크레딧",
   "Distribution": "배분",
   "From {} — {} each": "{}부터 — 개당 {}",
   "How much to buy": "구매할 수량",
@@ -2229,7 +2236,6 @@
   "The token's supply limit is reached.": "토큰의 발행 한도에 도달했습니다.",
   "Tokens are not on this network": "이 네트워크에는 토큰이 없습니다",
   "Your balance of this token is frozen.": "이 토큰의 잔액이 동결되었습니다.",
-  "after ≈ {}": "이후 ≈ {}",
   "at least {}": "최소 {}",
   "becomes known after the claim": "받은 뒤에 알 수 있습니다",
   "on a schedule": "일정에 따라",
@@ -2369,7 +2375,6 @@
   "Claim another name": "다른 이름 신청",
   "Claim another ›": "다른 이름 신청 ›",
   "Contenders": "후보",
-  "Credits {}": "크레딧 {}",
   "Fund": "참가비",
   "Fund for the vote": "투표 참가비",
   "Hide from the list": "목록에서 숨기기",
@@ -2430,7 +2435,6 @@
     "other": "후보 {}명"
   },
   "{} left": "{} 남음",
-  "{} now, ≈ {} after": "지금 {}, 이후 ≈ {}",
   "{} vote|{} votes": {
     "other": "{}표"
   },
@@ -2599,7 +2603,6 @@
   "Create a token": "토큰 만들기",
   "Creating tokens comes in the next version": "토큰 만들기는 다음 버전에서 제공됩니다",
   "Credits after": "이후 크레딧",
-  "Credits left": "남는 크레딧",
   "Credits {}: {}": "크레딧 {}: {}",
   "Dash Platform's rules refuse this collection.": "Dash Platform 규칙이 이 컬렉션을 거부합니다.",
   "For creators": "제작자용",

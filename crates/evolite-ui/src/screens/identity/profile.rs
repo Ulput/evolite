@@ -9,7 +9,7 @@ pub(super) fn edit_profile(
     a: &mut Assets,
     state: &mut IdentityState,
     id: &Identity,
-    fee: i64,
+    (fee, credits): (i64, crate::components::Credits),
     ask: bool,
     asked: &mut Vec<Command>,
 ) {
@@ -38,6 +38,14 @@ pub(super) fn edit_profile(
                     &format!(tr!("A write to Platform, with {me}'s credits"), me = me),
                     &format!("≈ {}", crate::format::amount(fee)),
                     style(UI.weight(Weight::Medium).mono()),
+                );
+                // FEAT-0057 П3: the credits now and after this write.
+                crate::components::credits_after(
+                    ui,
+                    a,
+                    &me,
+                    credits,
+                    crate::components::Charge::About(fee),
                 );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
                 form.flow.password.summary_tick(ui, &p);

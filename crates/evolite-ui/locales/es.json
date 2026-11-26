@@ -1,4 +1,6 @@
 {
+  "Few credits will be left": "Quedarán pocos créditos",
+  "Lock": "Bloquear",
   "All completed · updated {}": "Todo completado · actualizado {}",
   "ChainLock": "ChainLock",
   "ChainLock: evolite checked the BLS signature of the masternode quorum.": "ChainLock: evolite comprobó la firma BLS del quórum de masternodes.",
@@ -28,6 +30,8 @@
   "The weekly copy is not being made: its setting could not be read": "La copia semanal no se está haciendo: no se pudo leer su ajuste",
   "Open the backup settings ›": "Abrir los ajustes de la copia de seguridad ›",
   "The backup setting could not be read": "No se pudo leer el ajuste de la copia de seguridad",
+  "calculating…": "calculando…",
+  "could not read": "no se pudo leer",
   "the weekly copy's setting": "el ajuste de la copia semanal",
   "The weekly copy stays off until you choose its folder again. The copies already written stay in their folder.": "La copia semanal queda desactivada hasta que vuelvas a elegir su carpeta. Las copias ya guardadas siguen en su carpeta.",
   "The wallet's keys could not be checked yet — try again in a minute": "Aún no se pudieron comprobar las claves del monedero: inténtelo de nuevo en un minuto",
@@ -262,6 +266,7 @@
   "The identity is busy: wait for the current operation to end": "La identidad está ocupada: espere a que termine la operación en curso",
   "the network is still syncing": "la red aún se está sincronizando",
   "tick that you checked the amount and where it goes": "marca que has comprobado el importe y adónde va",
+  "{} (last known) · could not update": "{} (último conocido) · no se pudo actualizar",
   "{} app sign-in|{} app sign-ins": {
     "one": "{} inicio de sesión en app",
     "many": "{} inicios de sesión en apps",
@@ -272,6 +277,7 @@
     "many": "{} nombres de contacto",
     "other": "{} nombres de contacto"
   },
+  "{} credits": "Créditos de {}",
   "{} duffs per kB — twice the normal": "{} duffs por kB — el doble de la normal",
   "{} hidden request|{} hidden requests": {
     "one": "{} solicitud oculta",
@@ -299,6 +305,8 @@
   "{} · testnet": "{} · testnet",
   "{} · the payment is completed and cannot be undone": "{} · el pago está completado y no se puede deshacer",
   "{} · {} duffs per kB": "{} · {} duffs por kB",
+  "{} › at least {}": "{} › al menos {}",
+  "{} › ≈ {}": "{} › ≈ {}",
   "· This identity has one already": "· Esta identidad ya tiene una",
   "≈ {} in credits": "≈ {} en créditos",
   "checked {}": "comprobado {}",
@@ -2265,7 +2273,6 @@
   "Claim": "Cobrar",
   "Claim the distribution · {}": "Cobrar la distribución · {}",
   "Claimed: the amount is in the balance and in History.": "Cobrado: el importe está en el saldo y en el Historial.",
-  "Credits of {}": "Créditos de {}",
   "Distribution": "Distribución",
   "From {} — {} each": "Desde {}: {} cada uno",
   "How much to buy": "Cuánto comprar",
@@ -2283,7 +2290,6 @@
   "The token's supply limit is reached.": "Se alcanzó el límite de emisión del token.",
   "Tokens are not on this network": "Los tokens no están en esta red",
   "Your balance of this token is frozen.": "Tu saldo de este token está congelado.",
-  "after ≈ {}": "después ≈ {}",
   "at least {}": "al menos {}",
   "becomes known after the claim": "se sabrá después del cobro",
   "on a schedule": "según calendario",
@@ -2429,7 +2435,6 @@
   "Claim another name": "Solicitar otro nombre",
   "Claim another ›": "Solicitar otro ›",
   "Contenders": "Aspirantes",
-  "Credits {}": "Créditos {}",
   "Fund": "Aportación",
   "Fund for the vote": "Aportación a la votación",
   "Hide from the list": "Ocultar de la lista",
@@ -2492,7 +2497,6 @@
     "other": "{} aspirantes"
   },
   "{} left": "quedan {}",
-  "{} now, ≈ {} after": "{} ahora, ≈ {} después",
   "{} vote|{} votes": {
     "many": "{} votos",
     "one": "{} voto",
@@ -2669,7 +2673,6 @@
   "Create a token": "Crear un token",
   "Creating tokens comes in the next version": "La creación de tokens llega en la próxima versión",
   "Credits after": "Créditos después",
-  "Credits left": "Créditos restantes",
   "Credits {}: {}": "Créditos {}: {}",
   "Dash Platform's rules refuse this collection.": "Las reglas de Dash Platform rechazan esta colección.",
   "For creators": "Para creadores",

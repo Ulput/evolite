@@ -404,10 +404,6 @@ pub(super) fn page(
     let planned = form.planned().cloned();
     let plan = planned.as_ref().and_then(|p| p.as_ref().ok()).cloned();
     let check = plan.as_ref().and_then(|p| p.picture.clone());
-    let credits = wallet
-        .balances
-        .credits_read
-        .then_some(wallet.balances.credits);
     // Why «Check» waits.
     let why: Option<String> = if form.file.is_none() {
         Some(String::new())
@@ -451,7 +447,7 @@ pub(super) fn page(
             ui,
             a,
             &who,
-            credits,
+            crate::components::Credits::of(&wallet),
             plan.as_ref(),
             counting,
             form.mint().unwrap_or(0),
@@ -923,7 +919,7 @@ fn summary(
     ui: &mut Ui,
     a: &mut Assets,
     who: &str,
-    credits: Option<Duffs>,
+    credits: crate::components::Credits,
     plan: Option<&SeriesPlan>,
     counting: bool,
     mint: u32,
@@ -959,11 +955,17 @@ fn summary(
         );
         crate::components::divider(ui, &p);
         kv_row_fit(ui, &p, tr!("Total"), &about(total), value.clone());
-        let after = match (credits, total) {
-            (Some(c), Some(t)) => Some(c - t),
-            _ => None,
-        };
-        kv_row_fit(ui, &p, tr!("Credits after"), &about(after), value.clone());
+        // FEAT-0057 П3 (R-3.1): the one line «Credits: now › after» for the whole series.
+        crate::components::credits_after(
+            ui,
+            a,
+            &crate::i18n::own(who),
+            credits,
+            total.map_or(
+                crate::components::Charge::Calculating,
+                crate::components::Charge::About,
+            ),
+        );
         super::super::tokens::para(
             ui,
             &format!(

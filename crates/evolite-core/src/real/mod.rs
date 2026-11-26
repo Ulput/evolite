@@ -622,6 +622,8 @@ struct Real {
     /// Every identity's credits were read from Platform in this run (BUG-115): what the store
     /// kept from before is checked.
     credits_checked: Arc<AtomicBool>,
+    /// FEAT-0057 П3: the last read of the shown identity's credits failed ([`snapshot::note_credits_read`]).
+    credits_failed: Arc<AtomicBool>,
     /// "Check the phrase" asked and not answered yet: the questions and their right words.
     /// FEAT-0041 R-6: with the saved BIP-39 passphrase when there is one, to compare.
     phrase_check: Option<(

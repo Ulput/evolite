@@ -834,6 +834,8 @@ impl Real {
         // A new search: the credits are checked again, all of them (BUG-115).
         let checked = self.credits_checked.clone();
         checked.store(false, Ordering::Relaxed);
+        let failed = self.credits_failed.clone();
+        super::super::snapshot::forget_credits_failure(&failed);
         found.store(false, Ordering::Relaxed);
         complete.store(false, Ordering::Relaxed);
         set_search(&search, IdentitySearch::Searching);
@@ -845,11 +847,12 @@ impl Real {
             // identities the store has (now), or the search finding the first one.
             let balances_started = Arc::new(AtomicBool::new(false));
             let start_balances = {
-                let (chain, live, stale, checked, refresh, budgets, works) = (
+                let (chain, live, stale, checked, failed, refresh, budgets, works) = (
                     chain.clone(),
                     live.clone(),
                     stale.clone(),
                     checked.clone(),
+                    failed.clone(),
                     refresh.clone(),
                     budgets.clone(),
                     works.clone(),
@@ -862,7 +865,7 @@ impl Real {
                             id,
                             live.clone(),
                             stale.clone(),
-                            checked.clone(),
+                            (checked.clone(), failed.clone()),
                             refresh.clone(),
                             budgets.clone(),
                             works.clone(),
@@ -1094,6 +1097,8 @@ impl Real {
                 // The contacts, NFTs and names of the other identity come next, and
                 // its credits as Platform has them now.
                 self.contacts.clear();
+                // FEAT-0057 П3: the other identity's credits' failure is not this one's.
+                super::super::snapshot::forget_credits_failure(&self.credits_failed);
                 self.balances_stale.notify_one();
             }
         }
