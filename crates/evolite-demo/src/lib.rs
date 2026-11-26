@@ -578,7 +578,8 @@ impl Mock {
             Command::PlanSeries { target, kind } => {
                 use evolite_api::series::{SeriesKind, SeriesPlan};
                 let (count, per_write) = match &kind {
-                    SeriesKind::Mint { count } => (*count, 87_000),
+                    // BUG-259: the real core's `per_write::MINT` (the model has instances).
+                    SeriesKind::Mint { count } => (*count, 52_000),
                     SeriesKind::Price { count, .. } => (*count, 5_400),
                     SeriesKind::Reprice { .. } => (0, 5_400),
                     SeriesKind::Gift { count, .. }
@@ -651,8 +652,14 @@ impl Mock {
                 Event::ModelPlanned {
                     result: Ok(SeriesPlan {
                         serials: (1..=mint).collect(),
-                        per_write: 87_000,
-                        total: fee + 87_000 * mint as Duffs,
+                        // BUG-259: the first copy of a new model costs more (`MINT_FIRST`).
+                        per_write: 52_000,
+                        total: fee
+                            + if mint > 0 {
+                                87_000 + 52_000 * (mint as Duffs - 1)
+                            } else {
+                                0
+                            },
                         credits,
                         model: refusal.is_none().then(|| ModelWrite {
                             stored,

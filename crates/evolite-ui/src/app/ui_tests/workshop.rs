@@ -117,6 +117,13 @@ fn a_collection_is_checked_signed_and_opened() {
     assert!(has_words(&kit, "≈ 0.1950"), "{:?}", painted_texts(&kit));
     button(&kit, "Check").click();
     wait_for(&mut kit, "W3", |kit| has_text(kit, "Check the collection"));
+    // BUG-259 r1: the «About» document's estimate has its margin — «at most».
+    assert!(
+        has_words(&kit, "at most ≈ 0.1950"),
+        "{:?}",
+        painted_texts(&kit)
+    );
+    assert!(has_words(&kit, " › at least "), "the credits after");
     assert!(has_text(
         &kit,
         "Once signed, the collection cannot be changed or deleted. The registration is not refunded."
@@ -434,6 +441,41 @@ fn the_model_page_fits_at_1024_and_800() {
             .collect();
         assert!(wide.is_empty(), "@{w}: {wide:?}");
     }
+}
+
+/// BUG-259: «How many» starts empty (its hint «1»), so «2» typed is 2, not «12»; the button
+/// says the number typed at once, before the plan of it comes — not «issue 0» until Tab.
+#[test]
+fn how_many_takes_what_is_typed_at_once() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    wait_for(&mut kit, "W7", |kit| has_text(kit, "You have"));
+    wait_for(&mut kit, "the numbers", |kit| {
+        !button(kit, "Issue more").accesskit_node().is_disabled()
+    });
+    button(&kit, "Issue more").click();
+    wait_for(&mut kit, "the window", |kit| {
+        kit.query_by_role_and_label(Role::TextInput, "How many")
+            .is_some()
+    });
+    let field = |kit: &Kit| {
+        kit.get_by_role_and_label(Role::TextInput, "How many")
+            .accesskit_node()
+            .value()
+            .unwrap_or_default()
+    };
+    assert_eq!(field(&kit), "", "empty, its hint «1»");
+    kit.get_by_role_and_label(Role::TextInput, "How many")
+        .click();
+    kit.run_steps(1);
+    kit.get_by_role_and_label(Role::TextInput, "How many")
+        .type_text("2");
+    // The frame the field takes it, and the next that paints the button with it.
+    kit.run_steps(2);
+    assert_eq!(field(&kit), "2", "not «12»");
+    assert!(
+        kit.query_by_label("Sign and issue 2").is_some(),
+        "the number typed, with the field still in focus"
+    );
 }
 
 /// UC-8, W8: «Give…» — how many of the free copies, to whom; the core's plan; the summary
@@ -900,8 +942,9 @@ fn copies_put_up_for_sale_show_in_prices() {
     );
     assert!(has_words(&kit, "1.5000 DASH in credits"));
     assert!(has_words(&kit, "× ≈ 0.0000"), "one record's fee");
-    // FEAT-0057 П3: the one line «Credits: now › ≈ after» in place of W9's own row.
-    assert!(has_words(&kit, " › ≈ "), "the credits now and after");
+    // FEAT-0057 П3: the one line «Credits: now › after» in place of W9's own row.
+    // BUG-259: the estimate with its margin — «at least» after it.
+    assert!(has_words(&kit, " › at least "), "the credits now and after");
     assert!(
         has_words(&kit, "here no. 1–2, 4"),
         "the free ones from the lowest"

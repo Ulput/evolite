@@ -2987,5 +2987,7 @@
   "Hide details": "Sembunyikan detail",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Tidak ada yang dibelanjakan. Coba lagi; jika terjadi lagi, «Detail» menunjukkan jawaban Platform.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Satu salinan dapat Anda hadiahkan atau jual di halaman model di «Bengkel».",
-  "This is not a Dash address or @name": "Ini bukan alamat Dash maupun @nama"
+  "This is not a Dash address or @name": "Ini bukan alamat Dash maupun @nama",
+  "Model “{}” created": "Model “{}” dibuat",
+  "at most ≈ {}": "paling banyak ≈ {}"
 }

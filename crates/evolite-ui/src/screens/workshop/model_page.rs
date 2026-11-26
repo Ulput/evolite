@@ -69,7 +69,8 @@ impl SeriesForm {
         Self {
             action,
             target,
-            how_many: "1".into(),
+            // BUG-259: empty, its hint «1» — a «1» typed into ahead of the cursor made «12».
+            how_many: String::new(),
             to: String::new(),
             price: String::new(),
             which: None,
@@ -138,6 +139,17 @@ impl SeriesForm {
         form.resume = Some((series.id, left, series.per_write));
         form.resume_gives = matches!(series.kind, SeriesKind::Gift { .. });
         form
+    }
+
+    /// The number typed in «How many», 0 while there is none.
+    fn typed_count(&self) -> u32 {
+        // A count shown: none typed is none to sign.
+        self.how_many
+            .trim()
+            .parse()
+            .ok()
+            .filter(|n| *n > 0)
+            .unwrap_or(0)
     }
 
     /// The series the form makes now; `None` while «How many», «To» or the price is not filled.
@@ -1527,7 +1539,9 @@ fn series_window(
             )
         }
         (_, Some(Err(e)), _) => (0, None, None, Some(crate::text::error_text(e))),
-        _ => (0, None, None, Some(String::new())),
+        // BUG-259: the plan of what is typed not here yet — the button says the number typed,
+        // not «0» until the field loses focus.
+        _ => (form.typed_count(), None, None, Some(String::new())),
     };
     if let Some(op) = &op {
         // FEAT-0004 FR-7: the large spend's tick from the start, in the summary.
@@ -1557,7 +1571,8 @@ fn series_window(
                     ui,
                     &p,
                     &format!("{records_words} × ≈ {}", crate::format::amount(per_write)),
-                    &format!("≈ {}", crate::format::amount(total)),
+                    // BUG-259: the margin's estimate — «at most».
+                    &super::at_most(Some(total), false),
                     value.clone(),
                 );
                 if form.action == Action::Unprice {
@@ -1576,7 +1591,7 @@ fn series_window(
                     a,
                     &who,
                     crate::components::Credits::of(&wallet),
-                    crate::components::Charge::About(total),
+                    crate::components::Charge::AtMost(total),
                 );
             }
             if form.action == Action::Give {

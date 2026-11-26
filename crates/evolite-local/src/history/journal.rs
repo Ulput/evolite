@@ -378,6 +378,8 @@ pub enum Kind {
         #[serde(default)]
         sending: bool,
     },
+    /// BUG-259: a model written — «Model “{name}” created», keyed `model:{id}`.
+    ModelCreated { name: String },
 }
 
 /// What an issuer action did ([`Kind::TokenIssuer`]).
@@ -412,7 +414,7 @@ impl Kind {
             | Kind::TokenIssuer { token, .. }
             | Kind::NotDone { token } => token.clone(),
             Kind::ContactsResent { .. } => "contacts".into(),
-            Kind::CollectionCreated { name, .. } => name.clone(),
+            Kind::CollectionCreated { name, .. } | Kind::ModelCreated { name } => name.clone(),
             Kind::NftSeries { model, .. } => model.clone().unwrap_or_else(|| "series".into()),
         }
     }
@@ -1111,6 +1113,7 @@ pub fn activity(entry: &Entry) -> Activity {
         (Some(Kind::CollectionCreated { name, .. }), _) => {
             ActivityKind::CollectionCreated { name: name.clone() }
         }
+        (Some(Kind::ModelCreated { name }), _) => ActivityKind::ModelCreated { name: name.clone() },
         (
             Some(Kind::NftSeries {
                 series,

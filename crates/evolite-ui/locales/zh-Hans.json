@@ -2987,5 +2987,7 @@
   "Hide details": "隐藏详情",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "未花费任何东西。请重试；如果再次发生，「详情」会显示 Platform 的回答。",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "单个副本可在「工坊」中该模型的页面上赠送或出售。",
-  "This is not a Dash address or @name": "这不是 Dash 地址，也不是 @名称"
+  "This is not a Dash address or @name": "这不是 Dash 地址，也不是 @名称",
+  "Model “{}” created": "已创建模型“{}”",
+  "at most ≈ {}": "最多 ≈ {}"
 }

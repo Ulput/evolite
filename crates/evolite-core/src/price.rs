@@ -312,9 +312,13 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
         ),
         Spend::ApproveApp { .. } => of("approve_app", app_cost, covers(seen.credits, 0, app_cost)),
         // FEAT-0038 module V1: its fee depends on the draft and is counted fresh by the
-        // registration itself, which refuses below its total before signing (`CheckContract`
-        // shows it); nothing is promised here.
-        Spend::RegisterContract { .. } => of("register_contract", 0, true),
+        // registration itself, which refuses above the total its check showed. BUG-259: that
+        // total is what is declared (the journal had «declared:0»).
+        Spend::RegisterContract { fee_max, .. } => of(
+            "register_contract",
+            *fee_max,
+            covers(seen.credits, 0, *fee_max),
+        ),
         // FEAT-0038: a series' fee is checked fresh before the password (`PlanSeries`) and
         // again when it starts; BUG-307: what is declared is the window's estimate of all its
         // writes (`fee_max`: one write's × the records), not 0.
@@ -739,6 +743,22 @@ pub(crate) mod tests {
             fee_max: 145_000,
         };
         assert_eq!(declared(&more, &seen(1_000_000), 0).declared, 145_000);
+        // BUG-259: a collection's registration declares the total its check showed.
+        let register = Spend::RegisterContract {
+            identity: "me".into(),
+            draft: evolite_api::contracts::ContractDraft::NftCollection {
+                description: None,
+                keywords: vec!["nft".into()],
+                main_contract: None,
+            },
+            fee_max: 2_500_000,
+        };
+        let d = declared(&register, &seen(3_000_000), 0);
+        assert_eq!(
+            (d.what, d.declared, d.enough),
+            ("register_contract", 2_500_000, true)
+        );
+        assert!(!declared(&register, &seen(2_500_000 - 1), 0).enough);
     }
 
     #[test]

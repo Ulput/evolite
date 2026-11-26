@@ -157,6 +157,8 @@ async fn plan_of(
         to = Some(found);
     }
     let failed = |e: String| CoreError::Failed(e);
+    // BUG-259: the model has no instance on the network yet — its first costs more.
+    let mut first = false;
     let items: Vec<(u32, Option<Identifier>)> = match kind {
         SeriesKind::Mint { count } => {
             let supply = chain
@@ -168,6 +170,7 @@ async fn plan_of(
                 .nft_max_serial(contract, model)
                 .await
                 .map_err(failed)?;
+            first = top.is_none();
             match plan::next_serials(issued, top, *count, supply) {
                 Ok(serials) => serials.into_iter().map(|s| (s, None)).collect(),
                 Err(left) => return Ok(refused(SeriesRefusal::PastSupply { left })),
@@ -211,12 +214,18 @@ async fn plan_of(
             taken.into_iter().map(|i| (i.serial, Some(i.id))).collect()
         }
     };
-    let one = per_write_of(kind);
+    let total = match kind {
+        SeriesKind::Mint { .. } => per_write::mint_total(first, items.len() as u64),
+        _ => per_write_of(kind).saturating_mul(items.len() as u64),
+    };
+    // «N records × ≈ one»: the mean when the first one costs more.
+    let one = total
+        .div_ceil(items.len().max(1) as u64)
+        .max(per_write_of(kind));
     let credits = chain
         .identity_credits(wallet, &owner, true)
         .await
         .ok_or(CoreError::Failed("the credits were not read".into()))?;
-    let total = one.saturating_mul(items.len() as u64);
     let refusal = (credits < total).then(|| SeriesRefusal::NotEnoughCredits {
         have: Duffs::try_from(credits / 1_000).unwrap_or(Duffs::MAX),
         need: duffs(total),
@@ -428,7 +437,9 @@ async fn plan_model_of(
         return no(SeriesRefusal::NoKey, check);
     }
     let image_fee = per_write::image(packed.stored());
-    let total = image_fee.saturating_add(per_write::MINT.saturating_mul(mint as u64));
+    // BUG-259: a new model's first instance is the contract's first of it.
+    let mints = per_write::mint_total(true, u64::from(mint));
+    let total = image_fee.saturating_add(mints);
     let credits = chain
         .identity_credits(wallet, &owner, true)
         .await
@@ -440,7 +451,7 @@ async fn plan_model_of(
     Ok((
         SeriesPlan {
             serials: (1..=mint).collect(),
-            per_write: duffs(per_write::MINT),
+            per_write: duffs(mints.div_ceil(u64::from(mint).max(1)).max(per_write::MINT)),
             total: duffs(total),
             credits: Duffs::try_from(credits / 1_000).unwrap_or(Duffs::MAX),
             refusal,
@@ -633,6 +644,9 @@ impl Real {
                             .map_err(|_| CoreError::BadAddress)?;
                         let contract_id = Identifier::from_string(&contract, Encoding::Base58)
                             .map_err(|_| CoreError::BadAddress)?;
+                        // BUG-259: the model's own History line, by the credits around its write.
+                        let before = chain.identity_credits(&wallet, &owner, true).await;
+                        let estimate = per_write::image(packed.stored());
                         // The model first: its instances refer to it. A lost answer here leaves
                         // no series; the model, if it landed, shows in the collection, where
                         // «Issue more» issues its instances.
@@ -655,6 +669,14 @@ impl Real {
                                     CoreError::Unclear
                                 }
                             })?;
+                        let after = chain.identity_credits(&wallet, &owner, true).await;
+                        journal.add(model_line(
+                            &model.name,
+                            &model_id.to_string(Encoding::Base58),
+                            &identity,
+                            (before, after),
+                            estimate,
+                        ));
                         let target = SeriesTarget {
                             identity,
                             contract,
@@ -851,6 +873,30 @@ pub(in crate::real) fn settle_run(
     }
 }
 
+/// BUG-259: the History line of a model written — «Model “{name}” created», keyed by its
+/// document: what its write took by the credits read `before` and `after` it (BUG-303's rule:
+/// the whole duffs each shows), else `estimate` (credits) marked not known — never 0.
+pub(in crate::real) fn model_line(
+    name: &str,
+    model: &str,
+    identity: &str,
+    (before, after): (Option<u64>, Option<u64>),
+    estimate: u64,
+) -> evolite_local::journal::Entry {
+    let shown = evolite_chain::identity::credits_as_duffs;
+    let (spent, known) = match (before, after) {
+        (Some(b), Some(a)) => (shown(b).saturating_sub(shown(a)).max(0), true),
+        _ => (shown(estimate), false),
+    };
+    let kind = evolite_local::journal::Kind::ModelCreated {
+        name: name.to_owned(),
+    };
+    let mut entry = evolite_local::journal::entry_of(kind, now(), spent, Some(identity.to_owned()));
+    entry.key = Some(format!("model:{model}"));
+    entry.cost_known = known;
+    entry
+}
+
 /// The screens' state of a write, from the disk's.
 #[allow(dead_code)]
 pub(in crate::real) fn item_state(state: State) -> ItemState {
@@ -866,6 +912,37 @@ pub(in crate::real) fn item_state(state: State) -> ItemState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-259: a model written has its own History line — what its write took by the credits
+    /// read around it (BUG-303's rule), else its estimate marked not known; keyed by the model.
+    #[test]
+    fn a_model_written_is_one_line_with_what_it_took() {
+        let line = model_line(
+            "QA64 model",
+            "M1",
+            "me",
+            (Some(5_000_999_000), Some(3_500_000_000)),
+            9,
+        );
+        assert_eq!(line.key.as_deref(), Some("model:M1"));
+        assert_eq!((line.spent, line.cost_known), (5_000_999 - 3_500_000, true));
+        assert!(matches!(
+            &line.kind,
+            Some(evolite_local::journal::Kind::ModelCreated { name }) if name == "QA64 model"
+        ));
+        let unread = model_line(
+            "QA64 model",
+            "M1",
+            "me",
+            (Some(5_000_000_000), None),
+            148_570_000,
+        );
+        assert_eq!(
+            (unread.spent, unread.cost_known),
+            (148_570, false),
+            "the estimate, not 0"
+        );
+    }
 
     /// BUG-307 r1 (BUG-303's rule): 5 000 999 credits before, 2 400 000 after — the screen
     /// shows 5 000 and 2 400 duffs, so the line says 2 600, not the 2 601 of the difference

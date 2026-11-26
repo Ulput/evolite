@@ -82,13 +82,30 @@ pub fn next_serials(
 /// What one write of a series is estimated at, in credits: the probe's measure on testnet
 /// (2026-11-19) and a third on top (AC-T-M4), never below what the network takes.
 pub mod per_write {
-    // Not below the probe's measures and a third (checked when it builds).
-    const _: () = assert!(MINT >= 65_053_000 * 4 / 3);
+    // Not below the probe's measures and a third (checked when it builds). BUG-259 (the
+    // architect): the margin stays — the windows say «at most» — but the first instance of a
+    // contract (its document type's trees made) is its own; when the network's fact is again
+    // more than a tenth below a measure, the measure is updated, not the margin.
+    const _: () = assert!(MINT >= 38_869_000 * 4 / 3);
+    const _: () = assert!(MINT_FIRST >= 65_053_000 * 4 / 3);
+    const _: () = assert!(MINT_FIRST > MINT);
     const _: () = assert!(PRICE >= 3_981_000 * 4 / 3);
     const _: () = assert!(TRANSFER >= 108_447_000 * 4 / 3);
 
-    /// An instance: 0.00038869 (the first in a contract 0.00065053, its trees made).
-    pub const MINT: u64 = 87_000_000;
+    /// An instance: 0.00038869.
+    pub const MINT: u64 = 52_000_000;
+    /// The first instance in a contract: 0.00065053, its trees made.
+    pub const MINT_FIRST: u64 = 87_000_000;
+
+    /// `count` instances issued, the first of them the contract's first when `first` (no
+    /// instance on the network yet, `nft_max_serial` = `None`).
+    pub const fn mint_total(first: bool, count: u64) -> u64 {
+        if first && count > 0 {
+            MINT_FIRST + MINT * (count - 1)
+        } else {
+            MINT * count
+        }
+    }
     /// A price, or a price over a price: 0.00003981.
     pub const PRICE: u64 = 5_400_000;
     /// A transfer, to another (a gift) or to oneself (off sale): 0.00108447.
@@ -177,5 +194,15 @@ mod tests {
         assert_eq!(next_serials(None, Some(9), 1, 20), Ok(vec![10]));
         assert_eq!(next_serials(Some(8), None, 3, 10), Err(2));
         assert_eq!(next_serials(Some(10), None, 1, 10), Err(0));
+    }
+
+    /// BUG-259 (the architect): a model with no instance yet — issuing 3 is the contract's first
+    /// and two more; 3 more after them are three of the usual.
+    #[test]
+    fn the_first_instance_of_a_contract_costs_its_own() {
+        use super::per_write::{MINT, MINT_FIRST, mint_total};
+        assert_eq!(mint_total(true, 3), MINT_FIRST + 2 * MINT);
+        assert_eq!(mint_total(false, 3), 3 * MINT);
+        assert_eq!(mint_total(true, 0), 0, "none issued, none paid");
     }
 }

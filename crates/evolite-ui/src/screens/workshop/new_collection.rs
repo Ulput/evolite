@@ -475,7 +475,16 @@ fn summary(
     let p = a.p;
     let width = ui.available_width();
     let value = crate::theme::mono(13.0, Weight::Medium);
-    let about = |d: Option<Duffs>| super::estimate(d, counting);
+    // BUG-259 r1: the «About» document's estimate carries its margin (MINT_FIRST) — then the
+    // total is «at most»; the registration alone is the network's own count, «≈».
+    let padded = fee.is_some_and(|f| f.about > 0);
+    let about = |d: Option<Duffs>| {
+        if padded {
+            super::at_most(d, counting)
+        } else {
+            super::estimate(d, counting)
+        }
+    };
     crate::components::card(&p, egui::Margin::same(24)).show(ui, |ui| {
         ui.set_width(crate::components::inner(width, 24));
         ui.spacing_mut().item_spacing.y = 10.0;
@@ -491,6 +500,7 @@ fn summary(
             &crate::i18n::own(who),
             credits,
             match total {
+                Some(t) if !counting && padded => crate::components::Charge::AtMost(t),
                 Some(t) if !counting => crate::components::Charge::About(t),
                 _ => crate::components::Charge::Calculating,
             },

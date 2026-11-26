@@ -3032,5 +3032,7 @@
   "Hide details": "Ayrıntıları gizle",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Hiçbir şey harcanmadı. Tekrar deneyin; yine olursa «Ayrıntılar» Platform'un yanıtını gösterir.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Bir kopyayı «Atölye»deki modelin sayfasında hediye edebilir veya satışa koyabilirsiniz.",
-  "This is not a Dash address or @name": "Bu bir Dash adresi ya da @ad değil"
+  "This is not a Dash address or @name": "Bu bir Dash adresi ya da @ad değil",
+  "Model “{}” created": "“{}” modeli oluşturuldu",
+  "at most ≈ {}": "en fazla ≈ {}"
 }

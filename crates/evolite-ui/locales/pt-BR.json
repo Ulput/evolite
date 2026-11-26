@@ -3073,5 +3073,7 @@
   "Hide details": "Ocultar detalhes",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Nada foi gasto. Tente de novo; se acontecer outra vez, «Detalhes» mostra o que o Platform respondeu.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Você pode presentear ou pôr à venda uma cópia na página do modelo na «Oficina».",
-  "This is not a Dash address or @name": "Isto não é um endereço Dash nem um @nome"
+  "This is not a Dash address or @name": "Isto não é um endereço Dash nem um @nome",
+  "Model “{}” created": "Modelo “{}” criado",
+  "at most ≈ {}": "no máximo ≈ {}"
 }

@@ -930,9 +930,11 @@ fn summary(
     let p = a.p;
     let width = ui.available_width();
     let value = crate::theme::mono(13.0, Weight::Medium);
-    let about = |d: Option<Duffs>| super::estimate(d, counting);
+    // BUG-259: the estimates carry their margin — «at most».
+    let about = |d: Option<Duffs>| super::at_most(d, counting);
     let model_fee = plan.and_then(|p| p.model.as_ref()).map(|m| m.fee);
-    let copies = plan.map(|p| p.per_write.saturating_mul(mint as Duffs));
+    // The copies: what the total holds besides the model (the first copy costs more).
+    let copies = plan.and_then(|p| Some(p.total.saturating_sub(p.model.as_ref()?.fee)));
     let total = plan.filter(|p| p.model.is_some()).map(|p| p.total);
     crate::components::card(&p, egui::Margin::same(24)).show(ui, |ui| {
         ui.set_width(crate::components::inner(width, 24));
@@ -963,7 +965,7 @@ fn summary(
             credits,
             total.map_or(
                 crate::components::Charge::Calculating,
-                crate::components::Charge::About,
+                crate::components::Charge::AtMost,
             ),
         );
         super::super::tokens::para(

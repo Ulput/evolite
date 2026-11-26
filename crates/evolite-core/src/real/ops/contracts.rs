@@ -52,7 +52,7 @@ pub(in crate::real) fn fee_of(fee: &Fee) -> ContractFee {
 fn fee_for(fee: &Fee, draft: &ContractDraft) -> ContractFee {
     let mut shown = fee_of(fee);
     if main_of(draft).is_some() {
-        shown.about = duffs(evolite_chain::nft_series::plan::per_write::MINT);
+        shown.about = duffs(evolite_chain::nft_series::plan::per_write::MINT_FIRST);
     }
     shown
 }
@@ -782,7 +782,7 @@ mod tests {
         let with = fee_for(&fee, &draft(Some("c")));
         assert_eq!(
             with.about,
-            evolite_chain::nft_series::plan::per_write::MINT.div_ceil(1_000) as Duffs
+            evolite_chain::nft_series::plan::per_write::MINT_FIRST.div_ceil(1_000) as Duffs
         );
         assert_eq!(with.total(), without.total() + with.about);
         assert_eq!(with.registration(), without.registration());

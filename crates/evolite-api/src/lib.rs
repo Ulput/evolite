@@ -188,6 +188,12 @@ pub enum ActivityKind {
     CollectionCreated {
         name: String,
     },
+    /// BUG-259: a model («image» document) written in a collection («Создана модель «{name}»»);
+    /// the amount is what its write took, read from the credits around it (else its estimate,
+    /// marked not known). Its copies issued are the series' own line.
+    ModelCreated {
+        name: String,
+    },
     /// FEAT-0038 R-15, BUG-307: a «Workshop» series, one line for all of it («Подарено {n}
     /// «{model}» · @{name}», «Выставлено на продажу {n} «{model}» по {price}»…): `done` of `total`
     /// written, `refused` refused; the amount is what the writes done took (its cost not known:

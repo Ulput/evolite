@@ -843,6 +843,10 @@ pub fn activity_title(a: &Activity) -> String {
             format!(tr!("Token transfer to {}"), to.to_string())
         }
         // FEAT-0038 R-15: «Создана коллекция «{}»».
+        // BUG-259: the model written, its copies the series' line.
+        ActivityKind::ModelCreated { name } => {
+            format!(tr!("Model “{}” created"), crate::i18n::own(name))
+        }
         ActivityKind::CollectionCreated { name } => {
             format!(tr!("Collection “{}” created"), crate::i18n::own(name))
         }
@@ -1203,7 +1207,9 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::PoolReceived
         | ActivityKind::NftSold { .. }
         | ActivityKind::NftReceived { .. } => "receive",
-        ActivityKind::CollectionCreated { .. } | ActivityKind::NftSeries { .. } => "nft",
+        ActivityKind::CollectionCreated { .. }
+        | ActivityKind::ModelCreated { .. }
+        | ActivityKind::NftSeries { .. } => "nft",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",

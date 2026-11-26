@@ -769,6 +769,15 @@ pub(super) fn estimate(sum: Option<evolite_api::Duffs>, counting: bool) -> Strin
     }
 }
 
+/// BUG-259 (the architect): an estimate with its margin — «at most ≈ 0.1941 DASH»; while it is
+/// counted, «Calculating…»; «—» with nothing asked.
+pub(super) fn at_most(sum: Option<evolite_api::Duffs>, counting: bool) -> String {
+    match sum {
+        Some(d) => format!(tr!("at most ≈ {}"), crate::format::amount(d)),
+        None => estimate(None, counting),
+    }
+}
+
 use evolite_api::retry::Retry;
 
 /// W7 r1 Must (TEAM.md §8d-4, -5): whether the page's read of `key` goes now, by the shared rule
