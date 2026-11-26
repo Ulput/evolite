@@ -3033,5 +3033,14 @@
     "one": "{} exemplaire à {}",
     "many": "{} d’exemplaires à {}",
     "other": "{} exemplaires à {}"
-  }
+  },
+  "Name or id": "Nom ou id",
+  "No identities for «{}»": "Aucune identité pour « {} »",
+  "Searching for your identities…": "Recherche de vos identités…",
+  "Wallet identities · {}": "Identités du portefeuille · {}",
+  "needs a DashPay key": "clé DashPay manquante",
+  "needs a sign-in key": "clé de connexion manquante",
+  "no keys of this wallet": "aucune clé de ce portefeuille",
+  "ready": "prête",
+  "{} more · scroll or search": "{} de plus · faites défiler ou cherchez"
 }

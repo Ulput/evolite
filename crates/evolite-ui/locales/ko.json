@@ -2951,5 +2951,14 @@
   "Received an NFT · from {}": "NFT 받음 · {}에게서",
   "{} copy at {}|{} copies at {}": {
     "other": "사본 {}개 · {}"
-  }
+  },
+  "Name or id": "이름 또는 id",
+  "No identities for «{}»": "«{}»에 해당하는 아이덴티티 없음",
+  "Searching for your identities…": "아이덴티티를 찾는 중…",
+  "Wallet identities · {}": "지갑의 아이덴티티 · {}",
+  "needs a DashPay key": "DashPay 키 필요",
+  "needs a sign-in key": "로그인 키 필요",
+  "no keys of this wallet": "이 지갑의 키 없음",
+  "ready": "준비됨",
+  "{} more · scroll or search": "{}개 더 · 스크롤하거나 검색"
 }

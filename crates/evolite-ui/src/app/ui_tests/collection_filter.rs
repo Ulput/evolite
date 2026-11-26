@@ -67,8 +67,14 @@ fn all_shows_every_identitys_nfts_and_a_chip_only_its_own() {
     let (_turn, mut kit) = demo_app("collection-identities-long", "en");
     wait_for(&mut kit, "every NFT", |kit| shows_only(kit, None));
     assert!(kit.state().collection.only.is_none());
-    kit.get_by_label(SECOND).click();
-    kit.run_steps(2);
+    // FEAT-0057 П1: ten identities — the list.
+    wait_for(
+        &mut kit,
+        "the list's button",
+        super::identity_picker::all_pills,
+    );
+    super::identity_picker::open_list(&mut kit);
+    super::identity_picker::click_row(&mut kit, SECOND);
     let id = nfts(&kit)
         .iter()
         .find(|n| n.owner == SECOND)
@@ -78,7 +84,8 @@ fn all_shows_every_identitys_nfts_and_a_chip_only_its_own() {
     wait_for(&mut kit, "the second identity's only", |kit| {
         shows_only(kit, Some(&id))
     });
-    kit.get_by_label("All").click();
+    super::identity_picker::open_list(&mut kit);
+    kit.get_by_role_and_label(Role::Button, "All").click();
     kit.run_steps(2);
     wait_for(&mut kit, "every NFT again", |kit| shows_only(kit, None));
 }

@@ -3171,5 +3171,14 @@
     "few": "{} نسخ بسعر {}",
     "many": "{} نسخةً بسعر {}",
     "other": "{} نسخة بسعر {}"
-  }
+  },
+  "Name or id": "الاسم أو المعرّف",
+  "No identities for «{}»": "لا هويات تطابق «{}»",
+  "Searching for your identities…": "جارٍ البحث عن هوياتك…",
+  "Wallet identities · {}": "هويات المحفظة · {}",
+  "needs a DashPay key": "يلزم مفتاح DashPay",
+  "needs a sign-in key": "يلزم مفتاح تسجيل الدخول",
+  "no keys of this wallet": "لا مفاتيح لهذه المحفظة",
+  "ready": "جاهزة",
+  "{} more · scroll or search": "{} أخرى · مرّر أو ابحث"
 }

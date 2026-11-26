@@ -2951,5 +2951,14 @@
   "Received an NFT · from {}": "NFT を受け取りました · {} から",
   "{} copy at {}|{} copies at {}": {
     "other": "{} 個のコピー · {}"
-  }
+  },
+  "Name or id": "名前または ID",
+  "No identities for «{}»": "「{}」に一致するアイデンティティはありません",
+  "Searching for your identities…": "アイデンティティを検索中…",
+  "Wallet identities · {}": "ウォレットのアイデンティティ · {}",
+  "needs a DashPay key": "DashPay の鍵が必要",
+  "needs a sign-in key": "サインインの鍵が必要",
+  "no keys of this wallet": "このウォレットの鍵なし",
+  "ready": "準備完了",
+  "{} more · scroll or search": "あと {} 件 · スクロールまたは検索"
 }

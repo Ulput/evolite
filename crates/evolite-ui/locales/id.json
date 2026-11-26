@@ -2951,5 +2951,14 @@
   "Received an NFT · from {}": "NFT diterima · dari {}",
   "{} copy at {}|{} copies at {}": {
     "other": "{} salinan seharga {}"
-  }
+  },
+  "Name or id": "Nama atau id",
+  "No identities for «{}»": "Tidak ada identitas untuk «{}»",
+  "Searching for your identities…": "Mencari identitas Anda…",
+  "Wallet identities · {}": "Identitas dompet · {}",
+  "needs a DashPay key": "perlu kunci DashPay",
+  "needs a sign-in key": "perlu kunci masuk",
+  "no keys of this wallet": "tidak ada kunci dompet ini",
+  "ready": "siap",
+  "{} more · scroll or search": "{} lagi · gulir atau cari"
 }

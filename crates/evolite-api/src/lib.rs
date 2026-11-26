@@ -1065,7 +1065,7 @@ pub struct PhraseQuiz {
 }
 
 /// One of the wallet's identities, to choose which one the wallet acts as.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Default)]
 pub struct IdentityChoice {
     /// Base58.
     pub id: String,
@@ -1073,6 +1073,26 @@ pub struct IdentityChoice {
     pub name: Option<String>,
     /// Its slot in the phrase (DIP-13 identity index).
     pub slot: u32,
+    /// FEAT-0057 П1 (А-1): its credits as the store has them, `None` while not read — «—»,
+    /// never a 0.
+    pub credits: Option<Duffs>,
+    /// FEAT-0057 П1 (R-1.2): what its keys let this wallet do — `None` while not known (the
+    /// wallet's keys not open, or its keys not read): «checking…», never «ready» nor «needs».
+    pub ready: Option<IdentityReady>,
+}
+
+/// FEAT-0057 П1 (А-1, R-1.2): an identity's keys as this wallet sees them — the same rule as
+/// BUG-286/298's «ready for other wallets» ([`key_plan::ready`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct IdentityReady {
+    /// An acting AUTHENTICATION key of this wallet: it can write at all.
+    pub ours: bool,
+    /// An acting sign-in key (AUTH HIGH, unbound) of this wallet (BUG-298).
+    pub sign_in: bool,
+    /// An acting DECRYPTION key: other wallets see its contacts (BUG-286).
+    pub dashpay: bool,
+    /// Its main key (MASTER) is this wallet's: its keys are changed here.
+    pub master_ours: bool,
 }
 
 /// Where the search for the phrase's identities on Platform stands.
@@ -2706,6 +2726,10 @@ pub enum Command {
     ReadIdentityKeys {
         identity: String,
     },
+    /// FEAT-0057 П1 (А-1): the identity list is open — every identity's credits are read from
+    /// Platform at the next round, not more often than once a minute. No answer: the snapshot
+    /// has them.
+    ReadAllCredits,
     /// «Check» of a «Workshop» series (FEAT-0038 R-7, R-10): the serials it takes, its fee and
     /// why it cannot go, read fresh. `Event::SeriesPlanned`.
     PlanSeries {

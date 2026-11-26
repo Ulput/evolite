@@ -566,11 +566,13 @@ mod tests {
                 id: registered.clone(),
                 name: Some("alice".into()),
                 slot: 0,
+                ..Default::default()
             },
             IdentityChoice {
                 id: "Bob1111111111111111111111111111111111111111".into(),
                 name: None,
                 slot: 1,
+                ..Default::default()
             },
         ];
         let name = |paid, tracked| lock_line(txid, paid, tracked, false, false, &mine).0;
@@ -610,11 +612,13 @@ mod tests {
                 id: registered_by(made).unwrap(),
                 name: Some("alice".into()),
                 slot: 0,
+                ..Default::default()
             },
             IdentityChoice {
                 id: "Bob1111111111111111111111111111111111111111".into(),
                 name: Some("bob".into()),
                 slot: 3,
+                ..Default::default()
             },
         ];
         let topup = "22".repeat(32);
@@ -884,11 +888,13 @@ mod tests {
                 id: "Alice111111111111111111111111111111111111111".into(),
                 name: Some("alice".into()),
                 slot: 0,
+                ..Default::default()
             },
             IdentityChoice {
                 id: "Bob1111111111111111111111111111111111111111".into(),
                 name: Some("bob".into()),
                 slot: 2,
+                ..Default::default()
             },
         ];
         let line =

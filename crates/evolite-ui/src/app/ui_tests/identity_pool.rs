@@ -108,27 +108,34 @@ fn pool_cards_stand_on_one_grid() {
 }
 
 /// №14: with many identities «Work as» wraps, and the second row of pills begins under the
-/// first pill, not under «Work as».
+/// first pill, not under «Work as». FEAT-0057 П1: chips up to four — four long names.
 #[test]
 fn work_as_wraps_under_the_first_pill() {
     let (_turn, mut kit) = demo_app("identity", "en");
     with_wallet(&mut kit, |w| {
         w.identities.truncate(1);
-        for slot in 1..8 {
+        for slot in 1..4 {
             w.identities.push(IdentityChoice {
                 id: format!("{slot}Kx2LabQ7pWmR9sTzV4nB8cYd1Je3HuF6gNqA2oX7wE"),
-                name: Some(format!("evolite-probe-11556721{slot}")),
+                name: Some(format!("evolite-probe-11556721{slot}-with-a-longer-name")),
                 slot,
+                ..Default::default()
             });
         }
     });
     let label = words(&kit, "Work as").rect();
-    let pills: Vec<egui::Rect> = (1..8)
-        .map(|slot| button(&kit, &format!("@evolite-probe-11556721{slot}")).rect())
+    let pills: Vec<egui::Rect> = (1..4)
+        .map(|slot| {
+            button(
+                &kit,
+                &format!("@evolite-probe-11556721{slot}-with-a-longer-name"),
+            )
+            .rect()
+        })
         .collect();
     let first = button(&kit, &shown_name(&kit)).rect();
     let wrapped: Vec<_> = pills.iter().filter(|r| r.top() > first.bottom()).collect();
-    assert!(!wrapped.is_empty(), "eight pills wrap at 1024 px");
+    assert!(!wrapped.is_empty(), "four long pills wrap at 1024 px");
     let row_start = wrapped.iter().map(|r| r.left()).fold(f32::MAX, f32::min);
     eprintln!("«Work as» {label:?}, the first pill {first:?}, the second row from {row_start}");
     close(row_start, first.left(), "the second row's start");

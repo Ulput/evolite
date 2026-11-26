@@ -254,6 +254,7 @@ mod tests {
             id: format!("id-{name}"),
             name: Some(name.into()),
             slot: 0,
+            ..Default::default()
         }
     }
 

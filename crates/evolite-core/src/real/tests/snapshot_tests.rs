@@ -327,6 +327,7 @@ fn a_lock_takes_its_amount_from_the_status_it_has_just_got() {
         id: "HFZ".into(),
         name: Some("werner".into()),
         slot: 0,
+        ..Default::default()
     }];
     let card = |act: &Activity| act.detail.as_deref().cloned().unwrap_or_default();
 

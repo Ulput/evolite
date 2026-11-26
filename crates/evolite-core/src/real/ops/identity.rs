@@ -835,6 +835,7 @@ impl Real {
         let checked = self.credits_checked.clone();
         checked.store(false, Ordering::Relaxed);
         let failed = self.credits_failed.clone();
+        let all_asked = self.credits_all_asked.clone();
         super::super::snapshot::forget_credits_failure(&failed);
         found.store(false, Ordering::Relaxed);
         complete.store(false, Ordering::Relaxed);
@@ -847,12 +848,13 @@ impl Real {
             // identities the store has (now), or the search finding the first one.
             let balances_started = Arc::new(AtomicBool::new(false));
             let start_balances = {
-                let (chain, live, stale, checked, failed, refresh, budgets, works) = (
+                let (chain, live, stale, checked, failed, all_asked, refresh, budgets, works) = (
                     chain.clone(),
                     live.clone(),
                     stale.clone(),
                     checked.clone(),
                     failed.clone(),
+                    all_asked.clone(),
                     refresh.clone(),
                     budgets.clone(),
                     works.clone(),
@@ -865,7 +867,7 @@ impl Real {
                             id,
                             live.clone(),
                             stale.clone(),
-                            (checked.clone(), failed.clone()),
+                            (checked.clone(), failed.clone(), all_asked.clone()),
                             refresh.clone(),
                             budgets.clone(),
                             works.clone(),

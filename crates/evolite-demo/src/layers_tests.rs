@@ -54,6 +54,7 @@ fn the_snapshot_settles_its_history_and_its_pool_with_what_is_its_own() {
         id: ID.into(),
         name: Some("kestrel7".into()),
         slot: 0,
+        ..Default::default()
     }];
     wallet.platform_address = "tdash1mine".into();
     // Made as a lock to the Platform address; its identity is filled in afterwards.

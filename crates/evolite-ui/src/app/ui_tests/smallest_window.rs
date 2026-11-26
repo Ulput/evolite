@@ -800,9 +800,13 @@ fn long_identities_at_every_width(lang: &str) {
         for size in super::identity_picker::SIZES {
             let (_turn, mut kit) = demo_app(preset, lang);
             kit.set_size(size);
-            if preset != "collection-identities-long" {
-                wait_for(&mut kit, "10 identities", super::identity_picker::all_pills);
+            wait_for(&mut kit, "10 identities", super::identity_picker::all_pills);
+            quiet(&mut kit, |_| {});
+            for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
+                wrong.push(format!("{preset} @{size:?}: {w}"));
             }
+            // FEAT-0057 П1 (A1.6): the list open too.
+            super::identity_picker::open_list(&mut kit);
             quiet(&mut kit, |_| {});
             for w in text_trouble(&kit).into_iter().chain(too_wide(&kit)) {
                 wrong.push(format!("{preset} @{size:?}: {w}"));

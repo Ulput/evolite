@@ -771,6 +771,14 @@ impl Real {
                 result: self.trust_issuer(&issuer),
                 ask: None,
             },
+            // FEAT-0057 П1 (А-1): every identity's credits at the next round.
+            Command::ReadAllCredits => {
+                // r1 (Must): woken only when that round reads them all — once a minute.
+                if self.credits_all_asked.ask() {
+                    self.balances_stale.notify_one();
+                }
+                return (None, false);
+            }
             Command::ReadIdentityKeys { identity } => match self.read_identity_keys(identity) {
                 Ok(()) => return (None, false),
                 Err(e) => Event::Done {

@@ -32,6 +32,15 @@ pub fn identity_picker(
     aside: Option<&str>,
 ) -> Picked {
     let shown = wallet.identity.as_ref().map(|i| i.id.as_str());
+    // FEAT-0057 П1 (R-1.1): from five identities, a button and a list with search.
+    if wallet.identities.len() >= super::LIST_FROM {
+        let p = super::identity_list::identity_list(ui, a, wallet, label, shown, None, new, aside);
+        return Picked {
+            chosen: p.chosen,
+            new_one: p.new_one,
+            all: false,
+        };
+    }
     picker_row(ui, a, &wallet.identities, label, shown, None, new, aside)
 }
 
@@ -46,16 +55,35 @@ pub fn identity_filter(
     label: &str,
     only: Option<&str>,
 ) -> Option<Option<String>> {
-    let picked = picker_row(
-        ui,
-        a,
-        &wallet.identities,
-        label,
-        only,
-        Some(only.is_none()),
-        None,
-        None,
-    );
+    // FEAT-0057 П1 (R-1.1): from five identities the list, «All» its first row.
+    let picked = if wallet.identities.len() >= super::LIST_FROM {
+        let p = super::identity_list::identity_list(
+            ui,
+            a,
+            wallet,
+            label,
+            only,
+            Some(only.is_none()),
+            None,
+            None,
+        );
+        Picked {
+            chosen: p.chosen,
+            new_one: false,
+            all: p.all,
+        }
+    } else {
+        picker_row(
+            ui,
+            a,
+            &wallet.identities,
+            label,
+            only,
+            Some(only.is_none()),
+            None,
+            None,
+        )
+    };
     if picked.all {
         Some(None)
     } else {
@@ -172,6 +200,7 @@ mod tests {
             id: "8rd3Ux7pQfAbCdEfGhJkLmNoPqRsTuVwXyZkV2mJ38R".into(),
             name: Some("werner555".into()),
             slot: 0,
+            ..Default::default()
         };
         assert_eq!(identity_full_name(&named), "@werner555");
         let bare = IdentityChoice {

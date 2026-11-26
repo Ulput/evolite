@@ -2995,5 +2995,14 @@
   "{} copy at {}|{} copies at {}": {
     "one": "{} प्रति · {} पर",
     "other": "{} प्रतियाँ · {} पर"
-  }
+  },
+  "Name or id": "नाम या आईडी",
+  "No identities for «{}»": "«{}» के लिए कोई पहचान नहीं",
+  "Searching for your identities…": "आपकी पहचानें खोजी जा रही हैं…",
+  "Wallet identities · {}": "वॉलेट की पहचानें · {}",
+  "needs a DashPay key": "DashPay कुंजी चाहिए",
+  "needs a sign-in key": "साइन-इन कुंजी चाहिए",
+  "no keys of this wallet": "इस वॉलेट की कोई कुंजी नहीं",
+  "ready": "तैयार",
+  "{} more · scroll or search": "{} और · स्क्रॉल करें या खोजें"
 }

@@ -21,6 +21,14 @@ pub const TIP: u32 = 1_284_112;
 /// identity (FEAT-0055) has something to tell apart.
 pub const LAB_IDENTITY: &str = "5Kx2LabQ7pWmR9sTzV4nB8cYd1Je3HuF6gNqA2oX7wE";
 
+/// FEAT-0057 П1: the demo's identities' keys as this wallet sees them — all of evolite's own.
+pub(crate) const READY: IdentityReady = IdentityReady {
+    ours: true,
+    sign_in: true,
+    dashpay: true,
+    master_ours: true,
+};
+
 /// The demo's Platform or private address on the network the app runs on (BUG-211): `rest` after
 /// that network's prefix, so that a mainnet demo has `dash1…` addresses of its own.
 pub fn platform(rest: &str) -> String {
@@ -1229,11 +1237,16 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 id: PEOPLE[0].id.into(),
                 name: Some("satoshi".into()),
                 slot: 0,
+                // FEAT-0057 П1: the demo's identities ready, with their credits.
+                credits: Some(120_000_000),
+                ready: Some(READY),
             },
             IdentityChoice {
                 id: LAB_IDENTITY.into(),
                 name: Some("satoshi-lab".into()),
                 slot: 1,
+                credits: Some(15_000_000),
+                ready: Some(READY),
             },
         ],
         nfts: vec![

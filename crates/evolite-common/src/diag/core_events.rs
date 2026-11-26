@@ -55,6 +55,7 @@ pub fn command_name(command: &Command) -> &'static str {
         Command::RemoveCollection { .. } => "remove_collection",
         Command::TrustIssuer { .. } => "trust_issuer",
         Command::ReadIdentityKeys { .. } => "read_identity_keys",
+        Command::ReadAllCredits => "read_all_credits",
         Command::ChooseIdentity { .. } => "choose_identity",
         Command::CheckContract { .. } => "check_contract",
         Command::PlanSeries { .. } => "plan_series",

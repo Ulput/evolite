@@ -3046,5 +3046,14 @@
     "one": "{} экземпляр по {}",
     "few": "{} экземпляра по {}",
     "many": "{} экземпляров по {}"
-  }
+  },
+  "Name or id": "Имя или id",
+  "No identities for «{}»": "Нет личностей по «{}»",
+  "Searching for your identities…": "Ищем ваши личности…",
+  "Wallet identities · {}": "Личности кошелька · {}",
+  "needs a DashPay key": "нужен ключ DashPay",
+  "needs a sign-in key": "нужен ключ входа",
+  "no keys of this wallet": "нет ключей этого кошелька",
+  "ready": "готова",
+  "{} more · scroll or search": "ещё {} · листайте или ищите"
 }

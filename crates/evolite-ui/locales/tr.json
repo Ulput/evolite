@@ -2995,5 +2995,14 @@
   "{} copy at {}|{} copies at {}": {
     "one": "{} kopya · {} fiyatla",
     "other": "{} kopya · {} fiyatla"
-  }
+  },
+  "Name or id": "Ad veya id",
+  "No identities for «{}»": "«{}» için kimlik yok",
+  "Searching for your identities…": "Kimlikleriniz aranıyor…",
+  "Wallet identities · {}": "Cüzdanın kimlikleri · {}",
+  "needs a DashPay key": "DashPay anahtarı gerekli",
+  "needs a sign-in key": "giriş anahtarı gerekli",
+  "no keys of this wallet": "bu cüzdanın anahtarı yok",
+  "ready": "hazır",
+  "{} more · scroll or search": "{} tane daha · kaydırın veya arayın"
 }

@@ -3035,5 +3035,14 @@
     "one": "{} cópia por {}",
     "many": "{} de cópias por {}",
     "other": "{} cópias por {}"
-  }
+  },
+  "Name or id": "Nome ou id",
+  "No identities for «{}»": "Nenhuma identidade para «{}»",
+  "Searching for your identities…": "Buscando suas identidades…",
+  "Wallet identities · {}": "Identidades da carteira · {}",
+  "needs a DashPay key": "falta a chave do DashPay",
+  "needs a sign-in key": "falta a chave de login",
+  "no keys of this wallet": "sem chaves desta carteira",
+  "ready": "pronta",
+  "{} more · scroll or search": "mais {} · role ou busque"
 }

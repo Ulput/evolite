@@ -2995,5 +2995,14 @@
   "{} copy at {}|{} copies at {}": {
     "one": "{} Exemplar für {}",
     "other": "{} Exemplare für {}"
-  }
+  },
+  "Name or id": "Name oder ID",
+  "No identities for «{}»": "Keine Identitäten für «{}»",
+  "Searching for your identities…": "Ihre Identitäten werden gesucht…",
+  "Wallet identities · {}": "Identitäten der Wallet · {}",
+  "needs a DashPay key": "DashPay-Schlüssel fehlt",
+  "needs a sign-in key": "Anmeldeschlüssel fehlt",
+  "no keys of this wallet": "keine Schlüssel dieser Wallet",
+  "ready": "bereit",
+  "{} more · scroll or search": "{} weitere · blättern oder suchen"
 }

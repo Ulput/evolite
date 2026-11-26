@@ -2132,6 +2132,15 @@ impl eframe::App for App {
             }
             self.identity.open_contest(&identity, &label);
         }
+        // FEAT-0057 П1 (А-1): the identity list is open — every identity's credits (the core
+        // reads them at most once a minute).
+        if ui
+            .ctx()
+            .data_mut(|d| d.remove_temp::<bool>(crate::components::read_all_asked_id()))
+            .is_some()
+        {
+            cx.send(evolite_api::Command::ReadAllCredits);
+        }
         // FEAT-0057 П3: «Top up» from the line «Credits: now › after» in any window that writes.
         if ui
             .ctx()

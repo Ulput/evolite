@@ -19,7 +19,9 @@ pub(crate) const LONG_IDENTITIES: [&str; 4] = [
 ];
 
 /// 10 identities with long names, `first` (the shown one) first with its id, the last without a
-/// name: werner555's wallet (BUG-265).
+/// name: werner555's wallet (BUG-265). FEAT-0057 П1 (A1.3): one in each state of R-1.2 —
+/// №1 no keys of this wallet, №2 no sign-in key, №3 no DashPay key, №9 no name — and №5
+/// «checking…» (its keys and credits not read yet); the rest ready.
 pub(crate) fn long_identities(
     first: &evolite_api::IdentityChoice,
 ) -> Vec<evolite_api::IdentityChoice> {
@@ -27,11 +29,32 @@ pub(crate) fn long_identities(
         name: Some("werner555-the-first-identity-with-a-very-long-name".into()),
         ..first.clone()
     }];
+    let ready = evolite_api::IdentityReady {
+        ours: true,
+        sign_in: true,
+        dashpay: true,
+        master_ours: true,
+    };
     for i in 1..10u32 {
+        let state = match i {
+            1 => Some(evolite_api::IdentityReady::default()),
+            2 => Some(evolite_api::IdentityReady {
+                sign_in: false,
+                ..ready
+            }),
+            3 => Some(evolite_api::IdentityReady {
+                dashpay: false,
+                ..ready
+            }),
+            5 => None,
+            _ => Some(ready),
+        };
         all.push(evolite_api::IdentityChoice {
             id: format!("{i}Hk2Wm4nPq8rSt3uVw5xYz6aBc9dEf2gHj7kLm1n9QwP"),
             name: (i != 9).then(|| format!("werner555-identity-number-{i}-with-a-long-name")),
             slot: i,
+            credits: (i != 5).then(|| i64::from(i) * 2_500_000),
+            ready: state,
         });
     }
     all

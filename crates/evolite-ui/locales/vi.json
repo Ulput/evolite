@@ -2951,5 +2951,14 @@
   "Received an NFT · from {}": "Đã nhận NFT · từ {}",
   "{} copy at {}|{} copies at {}": {
     "other": "{} bản giá {}"
-  }
+  },
+  "Name or id": "Tên hoặc id",
+  "No identities for «{}»": "Không có danh tính nào cho «{}»",
+  "Searching for your identities…": "Đang tìm danh tính của bạn…",
+  "Wallet identities · {}": "Danh tính của ví · {}",
+  "needs a DashPay key": "cần khóa DashPay",
+  "needs a sign-in key": "cần khóa đăng nhập",
+  "no keys of this wallet": "không có khóa của ví này",
+  "ready": "sẵn sàng",
+  "{} more · scroll or search": "còn {} · cuộn hoặc tìm"
 }

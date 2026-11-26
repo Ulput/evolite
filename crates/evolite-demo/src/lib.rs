@@ -467,6 +467,8 @@ impl Mock {
             },
             // The demo identity is always found.
             Command::FindIdentities => return changed,
+            // FEAT-0057 П1: the demo's credits are as Platform has them.
+            Command::ReadAllCredits => return changed,
             // FEAT-0054: an id of 43–44 base58 characters is kept, as the real core keeps a
             // contract of the evolite standard; DEMO_NOT_STANDARD is a contract that is not one.
             Command::AddCollection { id } => {
@@ -1936,12 +1938,14 @@ impl Mock {
             profile: None,
             slot,
         });
+        let credits = exit - wallet.fees.pool_identity_create;
         wallet.identities.push(IdentityChoice {
             id,
             name: label,
             slot,
+            credits: Some(credits),
+            ready: Some(crate::demo::READY),
         });
-        let credits = exit - wallet.fees.pool_identity_create;
         wallet.balances.shielded -= exit;
         wallet.balances.credits = credits;
         wallet.balances.all_credits += credits;
@@ -2005,6 +2009,8 @@ impl Mock {
             id: id.clone(),
             name: label.clone(),
             slot,
+            credits: Some(top_up),
+            ready: Some(crate::demo::READY),
         });
         wallet.balances.core -= lock;
         wallet.balances.credits = top_up;

@@ -11,6 +11,7 @@ mod dialog;
 mod fade;
 mod field;
 mod full_id;
+mod identity_list;
 mod identity_picker;
 pub mod name_suggest;
 mod notice;
@@ -33,6 +34,9 @@ pub use dialog::*;
 pub use fade::*;
 pub use field::*;
 pub use full_id::*;
+#[cfg(all(test, demo_core, feature = "dev-tools"))]
+pub(crate) use identity_list::ASKED as LIST_ASKED;
+pub use identity_list::{LIST_FROM, read_all_asked_id};
 pub use identity_picker::*;
 pub use notice::*;
 pub use page::*;

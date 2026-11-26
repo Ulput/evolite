@@ -182,6 +182,7 @@ impl Real {
             identity_links: Default::default(),
             credits_checked: Arc::new(AtomicBool::new(false)),
             credits_failed: Arc::new(AtomicBool::new(false)),
+            credits_all_asked: Default::default(),
             phrase_check: None,
             stored_history: Vec::new(),
             mixed_rounds_said: Default::default(),

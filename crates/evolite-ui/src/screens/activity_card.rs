@@ -2308,6 +2308,7 @@ mod card_tests {
             id: "me".into(),
             name: None,
             slot: 0,
+            ..Default::default()
         };
         let mut act = withdrawal(None);
         act.detail = Some(Box::new(Detail {

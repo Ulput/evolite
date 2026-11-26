@@ -959,11 +959,20 @@ impl Real {
             .collect();
         let mut identities: Vec<_> = mine
             .iter()
-            .map(|m| IdentityChoice {
-                id: m.identity.id().to_string(Encoding::Base58),
-                name: self.identity_of(m).name().map(str::to_owned),
-                // default-ok: never none here: `mine` has the identities with a slot only
-                slot: m.identity_index.unwrap_or_default(),
+            .map(|m| {
+                // FEAT-0057 П1 (А-1): each identity's credits and what its keys let this wallet
+                // do, from what platform-wallet keeps — no new reads (whose keys: derived once a
+                // revision, АРХ-1).
+                let mut api = self.identity_of(m);
+                self.fill_key_owners(&mut api, m);
+                IdentityChoice {
+                    id: m.identity.id().to_string(Encoding::Base58),
+                    name: api.name().map(str::to_owned),
+                    // default-ok: never none here: `mine` has the identities with a slot only
+                    slot: m.identity_index.unwrap_or_default(),
+                    credits: Some(identity::credits_as_duffs(m.identity.balance())),
+                    ready: evolite_api::key_plan::ready(&api.keys),
+                }
             })
             .collect();
         identities.sort_by_key(|c| c.slot);
@@ -2014,7 +2023,7 @@ pub(super) async fn keep_balances_fresh(
     id: WalletId,
     live: impl Fn() -> bool,
     stale: Arc<tokio::sync::Notify>,
-    (checked, failed): (Arc<AtomicBool>, Arc<AtomicBool>),
+    (checked, failed, all_credits): (Arc<AtomicBool>, Arc<AtomicBool>, Arc<AllCredits>),
     refresh: impl Fn(),
     budgets: ops::app_connect2::AppBudgets,
     works: Arc<super::works::Works>,
@@ -2025,8 +2034,13 @@ pub(super) async fn keep_balances_fresh(
     let mut seen = (None, budgets.journal.count());
     let mut budgets_at: Option<std::time::Instant> = None;
     while live() {
-        let all = round.is_multiple_of(BALANCES_ALL_EVERY);
-        round = round.wrapping_add(1);
+        // FEAT-0057 П1 r1: a round woken by the list's ask is not one of the rounds counted to
+        // [`BALANCES_ALL_EVERY`] — else asking would read all of them every few wakes.
+        let due = round.is_multiple_of(BALANCES_ALL_EVERY);
+        let (all, asked) = all_credits.round(due);
+        if !asked || due {
+            round = round.wrapping_add(1);
+        }
         if let Some(wallet) = chain.wallet(&id).await {
             // The read, not the wait for the next one (BUG-137).
             let working = works.start(PlatformWork::Credits);
@@ -2076,6 +2090,47 @@ pub(super) fn note_credits_read(failed: &AtomicBool, result: &Result<chain::Bala
 /// this one's.
 pub(super) fn forget_credits_failure(failed: &AtomicBool) {
     failed.store(false, Ordering::Relaxed);
+}
+
+/// FEAT-0057 П1 (А-1): whether the identity list's ask reads every identity in this round —
+/// asked, and the last round of all of them is a minute old or there was none.
+fn reads_all_now(asked: bool, since_all: Option<Duration>) -> bool {
+    asked && since_all.is_none_or(|d| d >= BALANCES_EVERY)
+}
+
+/// FEAT-0057 П1 (А-1, r1 Must): the identity list's ask for every identity's credits, and when
+/// they were all read last. An ask is kept; it wakes the balance round only when that round
+/// would read them all — once a minute at most, however often the list asks.
+#[derive(Default)]
+pub(super) struct AllCredits {
+    asked: AtomicBool,
+    at: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+impl AllCredits {
+    fn since(&self) -> Option<Duration> {
+        self.at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|at| at.elapsed())
+    }
+
+    /// The list asks ([`Command::ReadAllCredits`]): kept; true when the round is to be woken now.
+    pub(super) fn ask(&self) -> bool {
+        self.asked.store(true, Ordering::Relaxed);
+        reads_all_now(true, self.since())
+    }
+
+    /// At a round, `due` by the round's count: whether it reads them all, and whether an ask was
+    /// taken (that round is not counted). Notes when all were read.
+    pub(super) fn round(&self, due: bool) -> (bool, bool) {
+        let asked = self.asked.swap(false, Ordering::Relaxed);
+        let all = due || reads_all_now(asked, self.since());
+        if all {
+            *self.at.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+        }
+        (all, asked)
+    }
 }
 
 /// How often the connected apps' budgets are read while the wallet is open (BUG-147).
@@ -2148,6 +2203,35 @@ mod budgets_due_tests {
             failed.load(Ordering::Relaxed),
             "the shown one alone, no answer"
         );
+    }
+
+    /// FEAT-0057 П1 r1 (Must): two asks within a minute — one read of all, and the second does
+    /// not wake the round. Mutant «wake on every ask» is red.
+    #[test]
+    fn two_asks_within_a_minute_read_all_once() {
+        let all = AllCredits::default();
+        assert!(all.ask(), "the first ask wakes the round");
+        assert_eq!(all.round(false), (true, true), "it reads them all");
+        assert!(!all.ask(), "the second, within a minute, does not wake it");
+        assert_eq!(all.round(false), (false, true), "nor read them all");
+        assert_eq!(
+            all.round(true),
+            (true, false),
+            "the counted round still does"
+        );
+    }
+
+    /// FEAT-0057 П1 (А-1): the open list reads every identity's credits, not more often than
+    /// once a minute; not asked, nothing more than the usual rounds.
+    #[test]
+    fn the_open_list_reads_all_credits_at_most_once_a_minute() {
+        assert!(reads_all_now(true, None), "none yet");
+        assert!(reads_all_now(true, Some(Duration::from_secs(61))));
+        assert!(
+            !reads_all_now(true, Some(Duration::from_secs(10))),
+            "a minute"
+        );
+        assert!(!reads_all_now(false, None), "not asked");
     }
 
     /// BUG-147 AC-T2: credits down with no journal line read the budgets at once; down with a

@@ -3083,5 +3083,14 @@
     "few": "{} екземпляри по {}",
     "many": "{} екземплярів по {}",
     "other": "{} екземпляра по {}"
-  }
+  },
+  "Name or id": "Ім'я або id",
+  "No identities for «{}»": "Немає ідентичностей за «{}»",
+  "Searching for your identities…": "Шукаємо ваші ідентичності…",
+  "Wallet identities · {}": "Ідентичності гаманця · {}",
+  "needs a DashPay key": "потрібен ключ DashPay",
+  "needs a sign-in key": "потрібен ключ входу",
+  "no keys of this wallet": "немає ключів цього гаманця",
+  "ready": "готова",
+  "{} more · scroll or search": "ще {} · гортайте або шукайте"
 }

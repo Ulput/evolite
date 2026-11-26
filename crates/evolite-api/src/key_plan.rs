@@ -231,6 +231,26 @@ pub fn missing_for_other_wallets(keys: &[IdentityKey]) -> Vec<KeyRequest> {
         .collect()
 }
 
+/// FEAT-0057 П1 (R-1.2): what `keys` let this wallet do, by the same rule as
+/// [`missing_for_other_wallets`] — `None` while whose a key is is not known (no second parse of
+/// the keys: «not known» is not «missing», BUG-243).
+pub fn ready(keys: &[IdentityKey]) -> Option<crate::IdentityReady> {
+    if keys.iter().any(|k| k.owner == KeyOwner::Unknown) {
+        return None;
+    }
+    let ours = |k: &&IdentityKey| k.owner == KeyOwner::This;
+    let missing = missing_for_other_wallets(keys);
+    Some(crate::IdentityReady {
+        ours: active(keys).filter(ours).any(|k| {
+            matches!(k.purpose, KeyPurpose::Identity | KeyPurpose::Documents)
+                || k.level == KeyLevel::Master
+        }),
+        sign_in: !missing.contains(&KeyRequest::SignIn),
+        dashpay: !missing.contains(&KeyRequest::DashPayDecryption),
+        master_ours: active(keys).filter(ours).any(is_master),
+    })
+}
+
 /// BUG-298: whether `plan` disables the last acting sign-in key of this wallet and adds none:
 /// said before the password, with «Replace with a new one» (not refused: the person decides).
 pub fn disables_last_sign_in(keys: &[IdentityKey], plan: &KeyPlan) -> bool {
@@ -486,6 +506,32 @@ mod tests {
             plan(&keys, &[KeyRequest::SignIn], &[]).unwrap().add.len(),
             1
         );
+    }
+
+    /// FEAT-0057 П1 (R-1.2): the picker's state by the same rule as BUG-286/298 — evolite's own
+    /// six ready; an import without DECRYPTION needs DashPay; without the sign-in key needs it;
+    /// another wallet's keys only — none ours; whose a key is not known — not known.
+    #[test]
+    fn readiness_follows_what_other_wallets_need() {
+        let full = ready(&evolite()).expect("owners known");
+        assert!(full.ours && full.sign_in && full.dashpay && full.master_ours);
+        let imported = ready(&imported()).expect("owners known");
+        assert!(imported.sign_in && !imported.dashpay);
+        let mut keys = evolite();
+        keys[1].disabled_at = Some(1);
+        assert!(!ready(&keys).expect("known").sign_in);
+        let others: Vec<IdentityKey> = evolite()
+            .into_iter()
+            .map(|mut k| {
+                k.owner = KeyOwner::Other;
+                k
+            })
+            .collect();
+        let others = ready(&others).expect("known");
+        assert!(!others.ours && !others.sign_in && !others.master_ours);
+        let mut unknown = evolite();
+        unknown[2].owner = KeyOwner::Unknown;
+        assert_eq!(ready(&unknown), None, "not known is not missing");
     }
 
     /// BUG-286, BUG-298: what other wallets need, in one update.
