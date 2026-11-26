@@ -93,6 +93,9 @@ struct Mock {
     /// its answer later.
     spend_ask: u64,
     shield_ask: u64,
+    /// What the staged proof is (BUG-317): its progress's name and its answer's — a shield,
+    /// or a top-up from the pool, as the real core reports them.
+    shield_what: (&'static str, DoneWhat),
     /// When the staged "Find my tokens" started (FEAT-0019).
     tokens_started: Option<Instant>,
     next_request: u64,
@@ -1455,8 +1458,19 @@ impl Mock {
             Spend::Shield { .. } => {
                 self.shield_started = Some(Instant::now());
                 self.shield_ask = self.spend_ask;
+                self.shield_what = ("shield", DoneWhat::Shield);
                 return Event::Progress {
                     what: "shield",
+                    fraction: 0.0,
+                };
+            }
+            // BUG-317: staged as the real core does it — the pool's progress, then its answer.
+            Spend::TopUpFromPool { .. } => {
+                self.shield_started = Some(Instant::now());
+                self.shield_ask = self.spend_ask;
+                self.shield_what = ("pool-top-up", DoneWhat::PoolTopUp);
+                return Event::Progress {
+                    what: "pool-top-up",
                     fraction: 0.0,
                 };
             }
@@ -1469,9 +1483,6 @@ impl Mock {
             | Spend::TopUpFromMixed { .. }
             | Spend::ShieldFromMixed { .. } => {
                 tr!("This is the mockup's example: there are no fully mixed coins")
-            }
-            Spend::TopUpFromPool { .. } => {
-                tr!("This is the mockup's example: there is nothing to top up with")
             }
             // As the real core: the keys disabled, the record kept until "Remove from the list".
             // FEAT-0020 AC-T8: the real core's plan on the example identity, with its refusals.
@@ -2331,13 +2342,13 @@ impl Mock {
             if fraction >= 1.0 {
                 self.shield_started = None;
                 let _ = out.send(Event::Done {
-                    what: DoneWhat::Shield,
+                    what: self.shield_what.1,
                     result: Err(CoreError::NotAvailable(NO_WALLET.into())),
                     ask: Some(self.shield_ask),
                 });
             } else {
                 let _ = out.send(Event::Progress {
-                    what: "shield",
+                    what: self.shield_what.0,
                     fraction,
                 });
             }
@@ -2400,6 +2411,7 @@ pub fn run(
         shield_started: None,
         spend_ask: 0,
         shield_ask: 0,
+        shield_what: ("shield", DoneWhat::Shield),
         tokens_started: None,
         next_request: 0,
         asked_v2: None,
@@ -2469,6 +2481,7 @@ mod tests {
             shield_started: None,
             spend_ask: 0,
             shield_ask: 0,
+            shield_what: ("shield", DoneWhat::Shield),
             tokens_started: None,
             next_request: 0,
             asked_v2: None,

@@ -65,6 +65,8 @@ impl CreateIdentityForm {
             return false;
         }
         self.step = None;
+        // BUG-317's class: answered, the pool's timer ends too — a refusal is not left at 95 %.
+        self.pool.progress = None;
         // A wrong password is said under its field, in the review it was typed in: nothing
         // was locked.
         let Some(((), result)) = self.flow.take_result() else {
@@ -99,12 +101,19 @@ impl CreateIdentityForm {
 
     /// The core's progress: `fraction` is the step it is on out of four.
     pub fn on_progress(&mut self, fraction: f32) {
+        // BUG-317's class: only while this form's creation is awaited.
+        if !self.flow.waiting() {
+            return;
+        }
         self.step = Some(((fraction * 4.0).round() as usize).clamp(1, 4));
     }
 
     /// FEAT-0048: the core's progress of a creation from the pool — a timer to 0.95 while the
     /// proof is built and sent, never real progress (the lead): what the steps say, not a bar.
     pub fn on_pool_progress(&mut self, fraction: f32) {
+        if !self.flow.waiting() {
+            return;
+        }
         self.pool.progress = Some(fraction);
     }
 

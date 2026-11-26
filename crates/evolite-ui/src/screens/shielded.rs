@@ -152,6 +152,22 @@ impl PoolState {
 /// The answer to `move_`, if the last answer is to it.
 impl PoolState {
     /// The core's answer to a move, taken only by the flow that asked it (`ask`).
+    /// The core's progress of a pool move: the pool's own only while its flow awaits it
+    /// (BUG-317) — never a bar over a window that sent nothing.
+    pub fn on_progress(&mut self, fraction: f32) {
+        if self.flow.waiting() {
+            self.progress = Some(fraction);
+        }
+    }
+
+    /// No move of the pool's awaited: no progress (BUG-317).
+    pub fn settle_progress(&mut self) {
+        if !self.flow.waiting() {
+            self.progress = None;
+            self.continuing = false;
+        }
+    }
+
     pub fn on_done(&mut self, ask: Option<u64>, done: PoolMove, result: &Result<(), CoreError>) {
         if !self.flow.on_done(ask, result) {
             return;
@@ -172,7 +188,11 @@ impl crate::screen_state::ScreenState for PoolState {
     fn forget(&mut self, why: crate::screen_state::Why) {
         match why {
             crate::screen_state::Why::WalletSwitch => *self = Self::default(),
-            _ => self.flow.forget(),
+            _ => {
+                self.flow.forget();
+                // BUG-317's class: nothing awaited, no progress shown.
+                self.settle_progress();
+            }
         }
     }
 }

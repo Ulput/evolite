@@ -70,6 +70,7 @@ mod phrase_words;
 mod plain_statuses;
 mod pool_levels;
 mod pool_moves;
+mod pool_progress;
 mod qr;
 mod resend;
 mod scrolling;

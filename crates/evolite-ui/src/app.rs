@@ -1123,12 +1123,14 @@ impl App {
                         self.contacts.on_resent(*ask, result);
                     }
                 }
-                // "Hide" and "Unshield" share the pool's progress: one move at a time.
+                // "Hide" and "Unshield" share the pool's progress: one move at a time. BUG-317:
+                // only the pool's own move, awaited by its flow — a top-up from the pool sent
+                // from «Top up the identity» is that window's, and its answer is taken there.
                 Event::Progress {
                     what: "shield" | "unshield" | "pool-top-up" | "shield-refund"
                         | "shield-from-mixed",
                     fraction,
-                } => self.pool.progress = Some(*fraction),
+                } => self.pool.on_progress(*fraction),
                 Event::Done {
                     what: what @ (DoneWhat::Shield | DoneWhat::Unshield | DoneWhat::PoolTopUp),
                     result,
@@ -1139,6 +1141,9 @@ impl App {
                         let done = screens::shielded::PoolMove::of(*what);
                         self.pool.on_done(*ask, done, result);
                     }
+                    // BUG-317: a move ended, whoever took its answer — no progress left behind
+                    // that nothing will end.
+                    self.pool.settle_progress();
                 }
                 // FEAT-0021 R-11: a vote's result, even with the window in the background.
                 Event::NameContestEnded {
