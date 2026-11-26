@@ -571,6 +571,20 @@ pub(crate) mod tests {
             send(Source::Credits, "@bob"),
             send(Source::Credits, "yAddress"),
             send(Source::Pool, "@bob"),
+            // BUG-329: a payment to several too.
+            Spend::SendMany {
+                id: 1,
+                recipients: vec![evolite_api::SendTo {
+                    to: "yAddress".into(),
+                    amount: 100,
+                    all: false,
+                }],
+                note: None,
+                rate: None,
+                coins: None,
+                fee_rate: None,
+                fee_shown: None,
+            },
             Spend::SendMixed {
                 id: 1,
                 to: "yAddress".into(),

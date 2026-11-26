@@ -2986,5 +2986,6 @@
   "Could not read the identity's keys for contract {} from Platform.": "コントラクト {} 用のアイデンティティの鍵を Platform から読み取れませんでした。",
   "Hide details": "詳細を隠す",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "何も使われていません。再試行してください。再び起きる場合は「詳細」に Platform の応答が表示されます。",
-  "You can give or put up for sale one copy on the model's page in the Workshop.": "1 部ずつなら「ワークショップ」のモデルのページで贈ったり販売に出したりできます。"
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "1 部ずつなら「ワークショップ」のモデルのページで贈ったり販売に出したりできます。",
+  "This is not a Dash address or @name": "Dash アドレスでも @名前 でもありません"
 }

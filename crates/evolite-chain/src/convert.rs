@@ -646,8 +646,16 @@ pub fn activity(record: &TransactionRecord, seen: Timestamp, instant_verified: b
     // Paid out: the payee's address; received — from someone else or from one of our own
     // addresses (BUG-33) — our own address it came to: "Receive" lists them.
     let address = match &mut kind {
+        // BUG-329: a payment to several of our own addresses moved what came to each of them;
+        // the line names the first.
         ActivityKind::SelfTransfer { moved } => received.map(|(address, value)| {
-            *moved = value as Duffs;
+            let to_ours: u64 = record
+                .output_details
+                .iter()
+                .filter(|o| o.role == OutputRole::Received)
+                .map(|o| o.value)
+                .sum();
+            *moved = to_ours.max(value) as Duffs;
             address
         }),
         _ if record.direction == TransactionDirection::Incoming => {
@@ -4583,6 +4591,15 @@ mod kind_tests {
             "not the change address"
         );
         assert_eq!((line.amount, line.fee), (-226, Some(226)));
+        // BUG-329: a payment to two of our own addresses moved what came to both — the change
+        // not among it; the line still names the first. Mutant: the first one's alone → red.
+        let second = address(9);
+        record
+            .output_details
+            .insert(1, detail(2, OutputRole::Received, &second, 100_000));
+        let line = activity(&record, 0, true);
+        assert_eq!(line.kind, ActivityKind::SelfTransfer { moved: 200_000 });
+        assert_eq!(line.address, Some(ours.to_string()));
     }
 
     /// BUG-85, werner555's transfer of «All» to its own address: a contact's coin (0,0515) that

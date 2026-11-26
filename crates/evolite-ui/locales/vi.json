@@ -2986,5 +2986,6 @@
   "Could not read the identity's keys for contract {} from Platform.": "Không đọc được khóa của danh tính cho hợp đồng {} từ Platform.",
   "Hide details": "Ẩn chi tiết",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Chưa chi gì. Hãy thử lại; nếu lại xảy ra, «Chi tiết» cho thấy Platform đã trả lời gì.",
-  "You can give or put up for sale one copy on the model's page in the Workshop.": "Bạn có thể tặng hoặc rao bán một bản trên trang của mẫu trong «Xưởng»."
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Bạn có thể tặng hoặc rao bán một bản trên trang của mẫu trong «Xưởng».",
+  "This is not a Dash address or @name": "Đây không phải địa chỉ Dash hay @tên"
 }

@@ -151,7 +151,10 @@ impl PriceWatch {
         };
         let declared = price::declared(op, seen, app_cost);
         let answer = match op {
-            Spend::Send { id, .. } | Spend::SendMixed { id, .. } => Answer::Sent(*id),
+            // BUG-329: a payment to several is answered as a payment (`Event::Sent`), by its id.
+            Spend::Send { id, .. } | Spend::SendMany { id, .. } | Spend::SendMixed { id, .. } => {
+                Answer::Sent(*id)
+            }
             other => Answer::Done(other.what()),
         };
         if watch.waiting.len() >= MOST_WAITING {
@@ -433,6 +436,57 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(cost_in_history(&[other], line, 10), None);
+    }
+
+    /// BUG-329: a payment to several leaves its price record when it is sent — its own fee the
+    /// actual price, «send_many» what it was. Mutant: waited for as `Done` → no record, red.
+    #[test]
+    fn a_payment_to_several_leaves_its_price_record() {
+        let (watch, dir) = watch();
+        seen_by(&watch, 10_000);
+        let op = Spend::SendMany {
+            id: 4,
+            recipients: vec![
+                evolite_api::SendTo {
+                    to: "yA".into(),
+                    amount: 100,
+                    all: false,
+                },
+                evolite_api::SendTo {
+                    to: "yB".into(),
+                    amount: 100,
+                    all: false,
+                },
+            ],
+            note: None,
+            rate: None,
+            coins: None,
+            fee_rate: None,
+            fee_shown: None,
+        };
+        watch.begin(&op, 1);
+        let record = watch.ended(&Event::Sent {
+            id: 4,
+            result: Ok(SentPayment {
+                txid: "tx".into(),
+                amount: 200,
+                fee: 260,
+                relayed: true,
+            }),
+        });
+        assert!(
+            matches!(
+                record,
+                Some(Record::Price {
+                    actual: Some(260),
+                    what: "send_many",
+                    ..
+                })
+            ),
+            "{record:?}"
+        );
+        assert!(watch.lock().waiting.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

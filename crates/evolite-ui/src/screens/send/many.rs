@@ -114,9 +114,27 @@ impl SendForm {
     }
 }
 
-/// UC-3: the rows of a pasted list — `address or @name, amount`, split by a comma, a semicolon
-/// or a tab — and the lines that are not one, by their number.
-pub(super) fn parse_list(text: &str) -> (Vec<Row>, Vec<String>) {
+/// A line of a pasted list split into the recipient and the amount. BUG-328 (a): a semicolon or
+/// a tab, when the line has one, is the separator, so an amount may have a decimal comma
+/// («yA1; 0,001»); else the first comma — an address or an @name has none («yA1, 0,001»).
+fn split_line(line: &str) -> Vec<&str> {
+    let parts: Vec<&str> = if line.contains([';', '\t']) {
+        line.split([';', '\t']).collect()
+    } else {
+        line.splitn(2, ',').collect()
+    };
+    parts
+        .into_iter()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// UC-3: the rows of a pasted list — `address or @name, amount`, split by a semicolon, a tab or
+/// a comma ([`split_line`]) — and the lines that are not one, by their number: an amount that
+/// does not read, or a recipient that is none ([`recipient_problem`], BUG-328 (b)). An amount
+/// goes into its row as the interface writes it (BUG-328 (c)).
+pub(super) fn parse_list(text: &str, check: &Recipients) -> (Vec<Row>, Vec<String>) {
     let mut rows = Vec::new();
     let mut errors = Vec::new();
     for (n, line) in text.lines().enumerate() {
@@ -124,22 +142,21 @@ pub(super) fn parse_list(text: &str) -> (Vec<Row>, Vec<String>) {
         if line.is_empty() {
             continue;
         }
-        let parts: Vec<&str> = line
-            .split([',', ';', '\t'])
-            .map(str::trim)
-            .filter(|p| !p.is_empty())
-            .collect();
-        let problem = match parts.as_slice() {
-            [to, amount] => match crate::format::parse_amount(amount) {
-                Some(d) if d > 0 => {
+        let problem = match split_line(line).as_slice() {
+            [to, amount] => match (
+                recipient_problem(to, check),
+                crate::format::parse_amount(amount),
+            ) {
+                (Some(why), _) => Some(why),
+                (None, Some(d)) if d > 0 => {
                     rows.push(Row {
                         to: (*to).to_owned(),
-                        amount: (*amount).to_owned(),
+                        amount: crate::format::input_text(d),
                         all: false,
                     });
                     None
                 }
-                _ => Some(tr!("Enter an amount, e.g. 0.25").to_owned()),
+                (None, _) => Some(amount_problem(amount)),
             },
             _ => Some(tr!("One per line: an address or @name, then the amount").to_owned()),
         };
@@ -150,16 +167,31 @@ pub(super) fn parse_list(text: &str) -> (Vec<Row>, Vec<String>) {
     (rows, errors)
 }
 
+/// Why amount `text` of a row or a pasted line does not read: the amount field's own reason
+/// ([`crate::format::amount_hint`], BUG-161 — «1,500» asked which, too many digits), the
+/// general line only when it has none (BUG-328 r1).
+fn amount_problem(text: &str) -> String {
+    crate::format::amount_hint(text).unwrap_or_else(|| tr!("Enter an amount, e.g. 0.25").to_owned())
+}
+
+/// What the recipients of a payment to several are checked by.
+pub(super) struct Recipients {
+    pub(super) has_identity: bool,
+    /// The demo core's addresses are made up: only their checksum is not asked of them.
+    pub(super) demo: bool,
+}
+
 /// The problem of recipient `to` in a payment to several, before the core is asked: one it can
-/// never pay (R-1).
-fn recipient_problem(to: &str, has_identity: bool) -> Option<String> {
+/// never pay (R-1) — a Platform address, an address of the other network, or (BUG-328 (b)) no
+/// Core address at all.
+fn recipient_problem(to: &str, check: &Recipients) -> Option<String> {
     let to = to.trim();
     if to.is_empty() {
         return None;
     }
     let network = crate::context::network();
     if to.starts_with('@') {
-        return (!has_identity).then(|| tr!("Paying by @name takes an identity").to_owned());
+        return (!check.has_identity).then(|| tr!("Paying by @name takes an identity").to_owned());
     }
     if evolite_api::address::is_platform(to, network) {
         return Some(
@@ -167,7 +199,29 @@ fn recipient_problem(to: &str, has_identity: bool) -> Option<String> {
                 .to_owned(),
         );
     }
-    super::form::wrong_network_line(to, network)
+    if let Some(why) = super::form::wrong_network_line(to, network) {
+        return Some(why);
+    }
+    let name = |network| match network {
+        evolite_api::Network::Testnet => "Testnet",
+        evolite_api::Network::Mainnet => "Mainnet",
+    };
+    match super::core_address::check(to, network) {
+        super::core_address::CoreAddress::Here => None,
+        super::core_address::CoreAddress::Other(found) => Some(format!(
+            tr!("This is a {found} address — it doesn't work on {here}."),
+            found = name(found),
+            here = name(network)
+        )),
+        super::core_address::CoreAddress::Checksum if check.demo => None,
+        super::core_address::CoreAddress::Checksum => Some(
+            tr!("This is not a Dash address: a typo or an extra character — the checksum does not match")
+                .to_owned(),
+        ),
+        super::core_address::CoreAddress::Not => {
+            Some(tr!("This is not a Dash address or @name").to_owned())
+        }
+    }
 }
 
 /// The fee of all the outputs at the form's rate, and what the source holds for them: the
@@ -180,7 +234,10 @@ pub(super) fn view(cx: &Ctx, form: &SendForm, source: &SourceView) -> Option<Man
     let fees = super::fee::rated(&cx.wallet().fees, rate);
     let extra = evolite_api::extra_outputs_fee(n.saturating_sub(1));
     let extra = rate.map_or(extra, |r| evolite_api::fee_choice::at_rate(extra, r));
-    let has_identity = cx.wallet().identity.is_some();
+    let check = Recipients {
+        has_identity: cx.wallet().identity.is_some(),
+        demo: cx.snap.demo,
+    };
     let all_at = many.rows.iter().position(|r| r.all);
     let fixed: Vec<Option<Duffs>> = many
         .rows
@@ -254,11 +311,9 @@ pub(super) fn view(cx: &Ctx, form: &SendForm, source: &SourceView) -> Option<Man
         .iter()
         .zip(&amounts)
         .map(|(r, amount)| {
-            recipient_problem(&r.to, has_identity).or_else(|| match amount {
+            recipient_problem(&r.to, &check).or_else(|| match amount {
                 None if r.all => Some(tr!("Too little for a payment").to_owned()),
-                None if !r.amount.trim().is_empty() => {
-                    Some(tr!("Enter an amount, e.g. 0.25").to_owned())
-                }
+                None if !r.amount.trim().is_empty() => Some(amount_problem(&r.amount)),
                 Some(d) if *d < evolite_api::coin_plan::DUST => {
                     Some(tr!("Too little for a payment").to_owned())
                 }
@@ -442,7 +497,7 @@ pub(super) fn privacy_line(ui: &mut Ui, p: &crate::theme::Palette, form: &SendFo
 
 /// «Paste a list» (UC-3): what parses becomes rows, after the ones there; a line that does not
 /// is said by its number; more than the limit is cut there and said.
-pub(super) fn paste_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
+pub(super) fn paste_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm, demo: bool) {
     let Some(many) = form.many.as_mut() else {
         return;
     };
@@ -487,7 +542,12 @@ pub(super) fn paste_dialog(ui: &mut Ui, a: &mut Assets, form: &mut SendForm) {
         },
     );
     if parse {
-        let (rows, mut errors) = parse_list(text);
+        let check = Recipients {
+            // An @name's own check comes with the rows: the list takes it as it is.
+            has_identity: true,
+            demo,
+        };
+        let (rows, mut errors) = parse_list(text, &check);
         // The empty rows give way to the list.
         many.rows
             .retain(|r| !r.to.trim().is_empty() || !r.amount.trim().is_empty());
@@ -842,20 +902,96 @@ fn sign_and_send_many(
 mod tests {
     use super::*;
 
+    /// Two real testnet addresses (BUG-328's screenshots).
+    const QA_A: &str = "yMEwQ1PLRtUprLAKxJgYnWsGRmcSAtBdr7";
+    const QA_B: &str = "yR5ADQsL4Jrj2rBukKpg5ZhoaGwFmHCJhM";
+
+    fn real() -> Recipients {
+        Recipients {
+            has_identity: true,
+            demo: false,
+        }
+    }
+
     /// UC-3 (A4): five lines, one wrong — four rows, and the wrong one said by its number;
     /// a comma, a semicolon or a tab between. Mutant: every line taken → red.
     #[test]
     fn a_pasted_list_gives_its_rows_and_says_each_wrong_line() {
-        let (rows, errors) =
-            parse_list("yA1, 0.1\n@carol; 0.2\nyB2\t0.3\nyC3, lots\n\nyD4, 0.05\n");
+        let (rows, errors) = parse_list(
+            &format!("{QA_A}, 0.1\n@carol; 0.2\n{QA_B}\t0.3\n{QA_A}, lots\n\n{QA_B}, 0.05\n"),
+            &real(),
+        );
         assert_eq!(
             rows.iter().map(|r| r.to.as_str()).collect::<Vec<_>>(),
-            vec!["yA1", "@carol", "yB2", "yD4"]
+            vec![QA_A, "@carol", QA_B, QA_B]
         );
         assert_eq!(errors.len(), 1, "{errors:?}");
         assert!(errors[0].starts_with("Line 4: "), "{errors:?}");
-        let (_, errors) = parse_list("just one thing");
+        let (_, errors) = parse_list("just one thing", &real());
         assert!(errors[0].contains("One per line"), "{errors:?}");
+    }
+
+    /// BUG-328 (a): a decimal comma with «;», with a tab, and after the first comma; (b) a line
+    /// whose recipient is no address is said by its number and not taken — in the demo too,
+    /// where only a made-up address's checksum is let pass; (c) the amounts as the interface
+    /// writes them. Mutants: the comma split everywhere → (a) red; no recipient check → (b) red.
+    #[test]
+    fn a_decimal_comma_reads_and_a_line_without_an_address_is_said() {
+        let (rows, errors) = parse_list(
+            &format!("{QA_A}; 0,001\n{QA_B}\t0,002\n{QA_A}, 0,003\nnot-an-address, 0.001\n"),
+            &real(),
+        );
+        let amounts: Vec<Option<Duffs>> = rows
+            .iter()
+            .map(|r| crate::format::parse_amount(&r.amount))
+            .collect();
+        assert_eq!(amounts, [Some(100_000), Some(200_000), Some(300_000)]);
+        assert_eq!(errors.len(), 1, "{errors:?}");
+        assert!(
+            errors[0].starts_with("Line 4: ") && errors[0].contains("not a Dash address"),
+            "{errors:?}"
+        );
+        // (c): what the interface writes, not what was pasted.
+        assert!(
+            rows.iter().all(|r| r.amount
+                == crate::format::input_text(crate::format::parse_amount(&r.amount).unwrap())),
+            "{rows:?}"
+        );
+        // A typo in a real address: its checksum; in the demo, let pass.
+        let typo = QA_A.replacen('W', "X", 1);
+        let (rows, errors) = parse_list(&format!("{typo}; 0.1"), &real());
+        assert!(
+            rows.is_empty() && errors[0].contains("checksum"),
+            "{errors:?}"
+        );
+        let demo = Recipients {
+            has_identity: true,
+            demo: true,
+        };
+        let (rows, _) = parse_list(&format!("{typo}; 0.1\nnot-an-address; 0.1"), &demo);
+        assert_eq!(rows.len(), 1, "the made-up one, not the words");
+    }
+
+    /// BUG-328 r1 Should: an amount a line has but that does not read says why, as the amount
+    /// field does — in English «1,500» is asked which, not «e.g. 0.25»; the general line only
+    /// when there is no reason. Mutant: always the general line → red.
+    #[test]
+    fn a_pasted_amount_that_does_not_read_says_why() {
+        crate::i18n::set(crate::i18n::Lang::En);
+        let (rows, errors) = parse_list(&format!("{QA_A}, 1,500\n{QA_B}; 0.000000001"), &real());
+        assert!(rows.is_empty(), "{rows:?}");
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert_eq!(
+            errors[0],
+            format!("Line 1: {}", crate::format::amount_hint("1,500").unwrap())
+        );
+        assert!(errors[0].contains("Unclear"), "{errors:?}");
+        assert!(errors[1].contains("Too many digits"), "{errors:?}");
+        assert!(
+            errors.iter().all(|e| !e.contains("e.g. 0.25")),
+            "{errors:?}"
+        );
+        crate::i18n::set(crate::i18n::Lang::Ru);
     }
 
     /// UC-1, UC-2: «+ Recipient» takes what was typed as the first row; «×» down to one gives

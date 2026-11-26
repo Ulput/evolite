@@ -3083,5 +3083,6 @@
   "Could not read the identity's keys for contract {} from Platform.": "Не удалось прочитать ключи личности для контракта {} с Platform.",
   "Hide details": "Скрыть подробности",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Ничего не потрачено. Попробуйте снова; если повторится, в «Подробнее» — что ответила Platform.",
-  "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарить или выставить на продажу один экземпляр можно на странице модели в «Мастерской»."
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарить или выставить на продажу один экземпляр можно на странице модели в «Мастерской».",
+  "This is not a Dash address or @name": "Это не адрес Dash и не @имя"
 }

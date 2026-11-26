@@ -5,6 +5,7 @@
 
 mod coins;
 mod confirm;
+mod core_address;
 mod currency;
 mod fee;
 mod form;
@@ -750,7 +751,7 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         if form.confirming {
             many::confirm(ui, a, cx, form, mv, ask_password);
         }
-        many::paste_dialog(ui, a, form);
+        many::paste_dialog(ui, a, form, cx.snap.demo);
     } else if form.confirming
         && let Some(amount) = view.amount.or(signed)
     {

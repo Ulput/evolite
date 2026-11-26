@@ -1997,6 +1997,7 @@
   "This is an address of another network ({})",
   "This is an address of this wallet: the money stays yours, only the fee goes.",
   "This is an app link: open it on the “Apps” screen",
+  "This is not a Dash address or @name",
   "This is not a Dash address or an app link",
   "This is not a Dash address: a typo or an extra character — the checksum does not match",
   "This is not a Dash app request",

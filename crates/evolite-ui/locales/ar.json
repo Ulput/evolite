@@ -3211,5 +3211,6 @@
   "Could not read the identity's keys for contract {} from Platform.": "تعذّرت قراءة مفاتيح الهوية للعقد {} من Platform.",
   "Hide details": "إخفاء التفاصيل",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform.",
-  "You can give or put up for sale one copy on the model's page in the Workshop.": "يمكنك إهداء نسخة واحدة أو عرضها للبيع من صفحة النموذج في «الورشة»."
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "يمكنك إهداء نسخة واحدة أو عرضها للبيع من صفحة النموذج في «الورشة».",
+  "This is not a Dash address or @name": "هذا ليس عنوان Dash ولا ‎@اسمًا"
 }

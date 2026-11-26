@@ -3070,5 +3070,6 @@
   "Could not read the identity's keys for contract {} from Platform.": "Impossible de lire sur Platform les clés de l’identité pour le contrat {}.",
   "Hide details": "Masquer les détails",
   "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Rien n’a été dépensé. Réessayez ; si cela se reproduit, « Détails » montre ce que Platform a répondu.",
-  "You can give or put up for sale one copy on the model's page in the Workshop.": "Vous pouvez offrir ou mettre en vente un exemplaire sur la page du modèle dans l’« Atelier »."
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Vous pouvez offrir ou mettre en vente un exemplaire sur la page du modèle dans l’« Atelier ».",
+  "This is not a Dash address or @name": "Ce n’est ni une adresse Dash ni un @nom"
 }
