@@ -454,7 +454,10 @@ mod tests {
 
     /// Other files allowed to build one — `(file, why)`. Empty: every paid window goes
     /// through [`SpendFlow`].
-    const SPEND_BUILT_ELSEWHERE: &[(&str, &str)] = &[];
+    const SPEND_BUILT_ELSEWHERE: &[(&str, &str)] = &[(
+        "app/dev.rs",
+        "dev-tools presets only (W9 workshop-sell/reprice/unprice): signs the demo sale as a person would, to show its plate; not in a release build",
+    )];
 
     /// TECH-spend-flow review r1, Should: a window that builds its `Command::Spend` itself
     /// goes around [`SpendFlow`] (a second press sends twice, another's answer is taken). Read

@@ -1034,8 +1034,8 @@ mod tests {
             ("evolite-ui/src/format.rs", 2, "the one rule itself"),
             (
                 "evolite-ui/src/screens/workshop/model_page.rs",
-                1,
-                "how many copies a series takes (W8), digits only, not an amount",
+                2,
+                "how many copies a series takes (W8) and a sale puts up (W9), digits only, not an amount",
             ),
             (
                 "evolite-ui/src/screens/workshop/new_model.rs",
