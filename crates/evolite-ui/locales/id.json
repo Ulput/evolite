@@ -2942,5 +2942,8 @@
   "“{}” · for sale {}": "“{}” · dijual {}",
   "“{}” · free {}": "“{}” · bebas {}",
   "“{}” · {} at {} · {}": "“{}” · {} seharga {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Harga hanya bisa dihapus dengan memberikan salinan ke diri sendiri, jadi biayanya sama dengan hadiah."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Harga hanya bisa dihapus dengan memberikan salinan ke diri sendiri, jadi biayanya sama dengan hadiah.",
+  "Received “{}” no. {} · from {}": "Diterima “{}” no. {} · dari {}",
+  "Received “{}” · from {}": "Diterima “{}” · dari {}",
+  "Received an NFT · from {}": "NFT diterima · dari {}"
 }

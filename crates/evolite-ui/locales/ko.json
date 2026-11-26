@@ -2942,5 +2942,8 @@
   "“{}” · for sale {}": "“{}” · 판매 중 {}",
   "“{}” · free {}": "“{}” · 비어 있음 {}",
   "“{}” · {} at {} · {}": "“{}” · {} · {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "가격은 사본을 자신에게 전송해야만 해제할 수 있어 수수료가 선물과 같습니다."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "가격은 사본을 자신에게 전송해야만 해제할 수 있어 수수료가 선물과 같습니다.",
+  "Received “{}” no. {} · from {}": "“{}” {}번 받음 · {}에게서",
+  "Received “{}” · from {}": "“{}” 받음 · {}에게서",
+  "Received an NFT · from {}": "NFT 받음 · {}에게서"
 }

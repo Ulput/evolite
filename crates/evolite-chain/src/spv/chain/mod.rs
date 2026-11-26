@@ -141,6 +141,9 @@ pub struct Chain {
         crate::platform::workshop_read::model_cache::ModelCache<Arc<Vec<dpp::document::Document>>>,
     /// FEAT-0054 r2: at most [`NFT_READS`] identities' NFT lists read at once.
     pub(crate) nft_reads: tokio::sync::Semaphore,
+    /// BUG-321 r2: the passes in a row each gift's contract was not read, for this run
+    /// (`workshop_read::search::of_the_standard`).
+    pub(crate) nft_not_read: Mutex<std::collections::HashMap<String, u8>>,
     /// Platform reads past [`Self::ready`]: the ones that would go to the network (BUG-78).
     #[cfg(any(test, feature = "test-support"))]
     pub proof_reads: std::sync::atomic::AtomicUsize,
@@ -227,6 +230,7 @@ impl Default for Chain {
             workshop_pictures: Mutex::new(Vec::new()),
             nft_models: Default::default(),
             nft_reads: tokio::sync::Semaphore::new(NFT_READS),
+            nft_not_read: Mutex::new(std::collections::HashMap::new()),
             #[cfg(any(test, feature = "test-support"))]
             proof_reads: Default::default(),
             #[cfg(any(test, feature = "test-support"))]

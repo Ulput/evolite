@@ -92,6 +92,7 @@ pub fn kind_of(a: &Activity) -> u8 {
         | CreditTransfer { .. }
         | KeysChanged { .. }
         | NftSold { .. }
+        | NftReceived { .. }
         | NftSeries { .. }
         | CollectionCreated { .. } => kind::IDENTITY,
         NameRegistered { .. }

@@ -826,6 +826,32 @@ pub fn activity_title(a: &Activity) -> String {
                 (None, _) => format!(tr!("Sold an NFT · {buyer}"), buyer = buyer),
             }
         }
+        // BUG-321: a gift got, from its `transfer`.
+        ActivityKind::NftReceived {
+            model,
+            serial,
+            from,
+        } => {
+            let from = if from.starts_with('@') {
+                crate::i18n::own(from)
+            } else {
+                whole(from)
+            };
+            match (model, serial) {
+                (Some(model), Some(serial)) => format!(
+                    tr!("Received “{model}” no. {serial} · from {from}"),
+                    model = crate::i18n::own(model),
+                    serial = serial,
+                    from = from
+                ),
+                (Some(model), None) => format!(
+                    tr!("Received “{model}” · from {from}"),
+                    model = crate::i18n::own(model),
+                    from = from
+                ),
+                (None, _) => format!(tr!("Received an NFT · from {from}"), from = from),
+            }
+        }
         // FEAT-0019 T-1 (the analyst's strings).
         ActivityKind::TokenReceived {
             token,
@@ -1124,7 +1150,8 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         ActivityKind::Received { .. }
         | ActivityKind::PlatformReceived
         | ActivityKind::PoolReceived
-        | ActivityKind::NftSold { .. } => "receive",
+        | ActivityKind::NftSold { .. }
+        | ActivityKind::NftReceived { .. } => "receive",
         ActivityKind::CollectionCreated { .. } | ActivityKind::NftSeries { .. } => "nft",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
         ActivityKind::TopUp { .. } => "top-up",

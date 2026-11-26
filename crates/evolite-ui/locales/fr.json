@@ -3022,5 +3022,8 @@
   "“{}” · for sale {}": "« {} » · en vente {}",
   "“{}” · free {}": "« {} » · libres {}",
   "“{}” · {} at {} · {}": "« {} » · {} à {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Le prix ne peut être retiré qu’en vous transférant l’exemplaire, donc les frais sont les mêmes que pour un don."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Le prix ne peut être retiré qu’en vous transférant l’exemplaire, donc les frais sont les mêmes que pour un don.",
+  "Received “{}” no. {} · from {}": "« {} » n° {} reçu · de {}",
+  "Received “{}” · from {}": "« {} » reçu · de {}",
+  "Received an NFT · from {}": "NFT reçu · de {}"
 }

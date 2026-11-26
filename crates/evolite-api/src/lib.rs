@@ -205,6 +205,14 @@ pub enum ActivityKind {
         serial: Option<u32>,
         buyer: String,
     },
+    /// BUG-321: an NFT given to the identity («Получено «{model}» № {n} · от @{name}»), from
+    /// DocumentHistory's `transfer` to it; nothing came in or went out (0). `model`/`serial` are
+    /// `None` when the instance cannot be read; `from`: `@name` when known, else the id.
+    NftReceived {
+        model: Option<String>,
+        serial: Option<u32>,
+        from: String,
+    },
     /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document in TokenHistory, read with
     /// a proof. `from`: the sender's id (or `@name` when known); `amount` in words, as in
     /// `TokenSent`. No fee: nothing left this wallet.

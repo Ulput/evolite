@@ -616,12 +616,21 @@ impl Chain {
     /// with proofs from DocumentHistory after `found`'s cursor, at most [`MAX_PAGES`] pages of
     /// each kind a pass; `found` with what is new. The contracts are candidates: which are of
     /// the standard is [`Self::standard_nfts`]'s to tell.
+    /// BUG-321: and from the same `transfer`s to it, the gifts of collections of the standard it
+    /// got (not one it made to itself), each with its model, number and giver — its History
+    /// lines, no read of its own.
     pub async fn find_received(
         &self,
         identity: &str,
         found: &super::search::Found,
-    ) -> Result<super::search::Found, String> {
-        use super::search::{Kind, contract_of, query};
+    ) -> Result<
+        (
+            super::search::Found,
+            Vec<evolite_api::workshop::ReceivedNft>,
+        ),
+        String,
+    > {
+        use super::search::{Kind, contract_of, query, received_of};
         self.ready()?;
         let _turn = self.nft_reads.acquire().await.map_err(|e| e.to_string())?;
         let sdk = self.sdk().await?;
@@ -631,12 +640,54 @@ impl Chain {
             .contract;
         let identity = id_of(identity)?;
         let mut found = found.clone();
+        let mut gifts = Vec::new();
         for kind in [Kind::Received, Kind::Bought] {
             let q = query(history.clone(), kind, identity, found.since(kind))?;
             let page = pages(&sdk, q, None, usize::MAX, MAX_PAGES, |_| true).await?;
             found.add(kind, page.docs.iter().filter_map(contract_of));
+            if kind == Kind::Received {
+                gifts.extend(page.docs.iter().filter_map(|d| received_of(d, identity)));
+            }
         }
-        Ok(found)
+        // BUG-321 r1: a contract not read now fails the pass (the cursor stays).
+        let mut verdicts = BTreeMap::new();
+        for contract in gifts
+            .iter()
+            .map(|g| g.contract.clone())
+            .collect::<BTreeSet<_>>()
+        {
+            let verdict = self.fits_profile(&contract).await;
+            verdicts.insert(contract, verdict);
+        }
+        // r2: one not read three passes in a row is no NFT's until a restart, said once.
+        let (gifts, given_up) = {
+            let mut not_read = self.nft_not_read.lock().unwrap_or_else(|e| e.into_inner());
+            super::search::of_the_standard(
+                gifts,
+                |c| verdicts.get(c).copied().flatten(),
+                &mut not_read,
+            )?
+        };
+        for _ in given_up {
+            crate::diag::platform_failed("nft_contract_given_up", "NotRead");
+        }
+        let mut out = Vec::with_capacity(gifts.len());
+        for g in gifts {
+            let (_, model, serial) = self.sold_instance(&g.contract, &g.instance).await;
+            let name = match id_of(&g.from) {
+                Ok(f) => self.name_of(f).await.ok().flatten(),
+                Err(_) => None,
+            };
+            out.push(evolite_api::workshop::ReceivedNft {
+                transfer: g.id,
+                contract: g.contract,
+                model,
+                serial,
+                from: name.map_or(g.from, |n| format!("@{n}")),
+                at: (g.at_ms / 1000) as i64,
+            });
+        }
+        Ok((found, out))
     }
 
     /// FEAT-0054: whether contract `id` (base58) is an NFT collection of the evolite standard,

@@ -3035,5 +3035,8 @@
   "“{}” · for sale {}": "«{}» · продаются {}",
   "“{}” · free {}": "«{}» · свободных {}",
   "“{}” · {} at {} · {}": "«{}» · {} по {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Снять цену можно только передачей экземпляра себе, поэтому плата как у подарка."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Снять цену можно только передачей экземпляра себе, поэтому плата как у подарка.",
+  "Received “{}” no. {} · from {}": "Получен «{}» № {} · от {}",
+  "Received “{}” · from {}": "Получен «{}» · от {}",
+  "Received an NFT · from {}": "Получен NFT · от {}"
 }

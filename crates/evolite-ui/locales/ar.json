@@ -3157,5 +3157,8 @@
   "“{}” · for sale {}": "«{}» · للبيع {}",
   "“{}” · free {}": "«{}» · حرة {}",
   "“{}” · {} at {} · {}": "«{}» · {} بسعر {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "لا يمكن إلغاء السعر إلا بنقل النسخة إلى نفسك، لذا الرسوم مثل رسوم الإهداء."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "لا يمكن إلغاء السعر إلا بنقل النسخة إلى نفسك، لذا الرسوم مثل رسوم الإهداء.",
+  "Received “{}” no. {} · from {}": "استُلم «{}» رقم {} · من {}",
+  "Received “{}” · from {}": "استُلم «{}» · من {}",
+  "Received an NFT · from {}": "استُلم NFT · من {}"
 }

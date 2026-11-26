@@ -2942,5 +2942,8 @@
   "“{}” · for sale {}": "“{}” · đang bán {}",
   "“{}” · free {}": "“{}” · trống {}",
   "“{}” · {} at {} · {}": "“{}” · {} giá {} · {}",
-  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Chỉ có thể gỡ giá bằng cách chuyển bản cho chính mình, nên phí giống như khi tặng."
+  "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Chỉ có thể gỡ giá bằng cách chuyển bản cho chính mình, nên phí giống như khi tặng.",
+  "Received “{}” no. {} · from {}": "Đã nhận “{}” số {} · từ {}",
+  "Received “{}” · from {}": "Đã nhận “{}” · từ {}",
+  "Received an NFT · from {}": "Đã nhận NFT · từ {}"
 }

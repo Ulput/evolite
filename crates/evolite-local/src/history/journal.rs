@@ -294,6 +294,16 @@ pub enum Kind {
         serial: Option<u32>,
         buyer: String,
     },
+    /// BUG-321: an NFT given to the identity, from DocumentHistory's `transfer` to it (`key`
+    /// `nftrecv:<transfer id>`): one line however often it is read, on every copy (read from the
+    /// network). Nothing spent. `from`: `@name` when known, else the giver's id.
+    NftReceived {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        serial: Option<u32>,
+        from: String,
+    },
     /// A token received (FEAT-0019 T-1, UC-5б): its `transfer` document, read with a proof
     /// (`key` `tokx:<id>`). `from`: the sender. Nothing was spent.
     TokenReceived {
@@ -395,6 +405,7 @@ impl Kind {
             Kind::KeysChanged { .. } => "keys".into(),
             Kind::TokenReceived { from, .. } => from.clone(),
             Kind::NftSold { buyer, .. } => buyer.clone(),
+            Kind::NftReceived { from, .. } => from.clone(),
             Kind::TokenBalance { token, .. }
             | Kind::TokenClaimed { token, .. }
             | Kind::TokenBought { token, .. }
@@ -1034,6 +1045,18 @@ pub fn activity(entry: &Entry) -> Activity {
             model: model.clone(),
             serial: *serial,
             buyer: buyer.clone(),
+        },
+        (
+            Some(Kind::NftReceived {
+                model,
+                serial,
+                from,
+            }),
+            _,
+        ) => ActivityKind::NftReceived {
+            model: model.clone(),
+            serial: *serial,
+            from: from.clone(),
         },
         (
             Some(Kind::TokenReceived {

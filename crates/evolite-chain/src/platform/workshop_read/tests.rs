@@ -410,6 +410,101 @@ fn transfer(by: u32, contract: u32, kind: &str, instance: u32, to: u32, at: u64)
     })
 }
 
+/// BUG-321: a transfer to the identity from another is a gift it got; one it made to itself
+/// (a take-off) is not, nor one to another.
+#[test]
+fn only_a_transfer_from_another_is_received() {
+    use super::search::received_of;
+    let me = id(2);
+    let got = received_of(&transfer(1, 500, "nft", 7, 2, 10), me).expect("a gift");
+    assert_eq!(got.from, id(1).to_string(Encoding::Base58));
+    assert_eq!(got.instance, id(7).to_string(Encoding::Base58));
+    assert_eq!(got.at_ms, 10);
+    assert_eq!(
+        received_of(&transfer(2, 500, "nft", 8, 2, 11), me),
+        None,
+        "to oneself"
+    );
+    assert_eq!(
+        received_of(&transfer(1, 500, "nft", 9, 3, 12), me),
+        None,
+        "to another"
+    );
+}
+
+/// BUG-321 r1: a gift whose collection was not read fails the pass — the cursor stays — and
+/// the next pass, the collection read, has it once; another contract's transfer is not one.
+#[test]
+fn a_gift_of_a_collection_not_read_is_read_again() {
+    use super::search::{Found, Kind, of_the_standard, received_of};
+    let me = id(2);
+    let docs = [
+        transfer(1, 500, "nft", 7, 2, 10),
+        transfer(1, 501, "nft", 8, 2, 11),
+    ];
+    let gifts = || {
+        docs.iter()
+            .filter_map(|d| received_of(d, me))
+            .collect::<Vec<_>>()
+    };
+    let nft = id(500).to_string(Encoding::Base58);
+    let before = Found::default();
+    let mut not_read = std::collections::HashMap::new();
+    // A pass: the gifts kept, then (only then) the cursor moved — as the core does it.
+    let mut pass = |fits: &dyn Fn(&str) -> Option<bool>| {
+        let (kept, _) = of_the_standard(gifts(), fits, &mut not_read)?;
+        let mut found = before.clone();
+        found.add(
+            Kind::Received,
+            docs.iter().filter_map(super::search::contract_of),
+        );
+        Ok::<_, String>((kept, found))
+    };
+    assert!(
+        pass(&|c| (c == nft).then_some(true)).is_err(),
+        "501 not read"
+    );
+    let (kept, found) = pass(&|c| Some(c == nft)).expect("read");
+    assert_eq!(kept.len(), 1, "the gift of 500, once");
+    assert_eq!(kept[0].contract, nft);
+    assert_eq!(found.since(Kind::Received), 11);
+}
+
+/// BUG-321 r2 (the architect's Should): a contract not read three passes in a row is taken as
+/// no NFT's — the pass goes on with the others' gifts, the contract named once; read again, its
+/// count starts over.
+#[test]
+fn a_contract_never_read_does_not_hold_the_search() {
+    use super::search::{NOT_READ_PASSES, of_the_standard, received_of};
+    let me = id(2);
+    let docs = [
+        transfer(1, 500, "nft", 7, 2, 10),
+        transfer(1, 501, "nft", 8, 2, 11),
+    ];
+    let gifts = || {
+        docs.iter()
+            .filter_map(|d| received_of(d, me))
+            .collect::<Vec<_>>()
+    };
+    let (nft, never) = (
+        id(500).to_string(Encoding::Base58),
+        id(501).to_string(Encoding::Base58),
+    );
+    let fits = |c: &str| (c == nft).then_some(true);
+    let mut not_read = std::collections::HashMap::new();
+    for _ in 1..NOT_READ_PASSES {
+        assert!(of_the_standard(gifts(), fits, &mut not_read).is_err());
+    }
+    let (kept, given_up) = of_the_standard(gifts(), fits, &mut not_read).expect("goes on");
+    assert_eq!(kept.len(), 1, "the other's gift");
+    assert_eq!(given_up, vec![never.clone()], "named once");
+    let (_, again) = of_the_standard(gifts(), fits, &mut not_read).expect("still on");
+    assert!(again.is_empty(), "not named again");
+    // Read once: its count starts over.
+    let _ = of_the_standard(gifts(), |_| Some(true), &mut not_read);
+    assert!(of_the_standard(gifts(), fits, &mut not_read).is_err());
+}
+
 /// W7 «Given» (the architect's test): a gift counts; «take off sale» — a transfer to oneself —
 /// does not, nor a holder's resale, nor another collection's or another type's transfer.
 #[test]

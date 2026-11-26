@@ -162,6 +162,20 @@ pub struct Instance {
     pub price: Option<Duffs>,
 }
 
+/// BUG-321: an NFT given to the identity, from DocumentHistory's `transfer` to it — its line
+/// «Получено «{model}» № {n} · от @{name}», keyed by `transfer`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReceivedNft {
+    pub transfer: String,
+    pub contract: String,
+    /// The model's name and the number; `None` when the instance cannot be read.
+    pub model: Option<String>,
+    pub serial: Option<u32>,
+    /// The giver: `@name` when it has one, else its id.
+    pub from: String,
+    pub at: Timestamp,
+}
+
 /// A sale, from DocumentHistory's `purchase`: a History line «Продан «{model}» № {n} ·
 /// @{name}», keyed by `purchase` (AC-T-W4); the amount is `price`.
 #[derive(Clone, Debug, PartialEq, Eq)]

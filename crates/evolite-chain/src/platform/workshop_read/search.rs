@@ -73,6 +73,91 @@ pub fn query(
     Ok(query)
 }
 
+/// BUG-321: a `transfer` to `identity` as a gift it got — its document, contract, instance,
+/// giver (base58) and time (ms). `None` for one it made to itself («Take off sale» is a
+/// transfer to oneself: never «Received») or one to another.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Received {
+    pub id: String,
+    pub contract: String,
+    pub instance: String,
+    pub from: String,
+    pub at_ms: u64,
+}
+
+/// See [`Received`].
+pub fn received_of(doc: &Document, identity: Identifier) -> Option<Received> {
+    if doc.owner_id() == identity {
+        return None;
+    }
+    let props = doc.properties();
+    let id = |k: &str| props.get(k).and_then(|v| v.to_identifier().ok());
+    if id("toIdentityId")? != identity {
+        return None;
+    }
+    let b58 = |i: Identifier| i.to_string(Encoding::Base58);
+    Some(Received {
+        id: b58(doc.id()),
+        contract: b58(id("dataContractId")?),
+        instance: b58(id("documentId")?),
+        from: b58(doc.owner_id()),
+        // default-ok: a history document without `$createdAt` is only the oldest
+        at_ms: doc.created_at().unwrap_or(0),
+    })
+}
+
+/// BUG-321 r2 Should (the architect): passes in a row a contract may be not read before it is
+/// taken as no NFT's until a restart — one never read would hold the identity's whole search
+/// (and the Collection) for good.
+pub const NOT_READ_PASSES: u8 = 3;
+
+/// What a pass keeps of the gifts ([`of_the_standard`]): those of collections of the standard,
+/// and the contracts given up on in it.
+pub type Kept = (Vec<Received>, Vec<String>);
+
+/// BUG-321 r1: of `gifts`, those of collections of the standard, by `fits` (a contract's
+/// verdict, `None` when it was not read now). One not read fails the whole pass: the cursor
+/// stays and the gift is read again — skipped, the cursor would move past it and its line
+/// would never come (the key keeps it one line when it does). r2: `not_read` counts the passes
+/// in a row each contract was not read (in memory); at [`NOT_READ_PASSES`] it is taken as no
+/// NFT's — its gifts left, the pass goes on — and named once in what is returned.
+pub fn of_the_standard(
+    gifts: Vec<Received>,
+    fits: impl Fn(&str) -> Option<bool>,
+    not_read: &mut std::collections::HashMap<String, u8>,
+) -> Result<Kept, String> {
+    let mut kept = Vec::with_capacity(gifts.len());
+    let mut unread = BTreeSet::new();
+    for g in gifts {
+        match fits(&g.contract) {
+            Some(verdict) => {
+                not_read.remove(&g.contract);
+                if verdict {
+                    kept.push(g);
+                }
+                // Another contract's transfer (any type that keeps its history) is not an NFT's.
+            }
+            None => {
+                unread.insert(g.contract);
+            }
+        }
+    }
+    let (mut given_up, mut waiting) = (Vec::new(), None);
+    for contract in unread {
+        let passes = not_read.entry(contract.clone()).or_insert(0);
+        *passes = passes.saturating_add(1);
+        if *passes == NOT_READ_PASSES {
+            given_up.push(contract);
+        } else if *passes < NOT_READ_PASSES {
+            waiting.get_or_insert(contract);
+        }
+    }
+    match waiting {
+        Some(contract) => Err(format!("contract {contract} not read")),
+        None => Ok((kept, given_up)),
+    }
+}
+
 /// A history document's contract (base58) and time (ms), when it has them. The whole history
 /// of a contract's documents: which type is the instance is the profile's, when it is read.
 pub fn contract_of(doc: &Document) -> Option<(String, u64)> {

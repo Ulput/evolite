@@ -235,9 +235,70 @@ fn sale_entry(sale: &Sale, identity: &str) -> journal::Entry {
     entry
 }
 
+/// BUG-321: an NFT given to `identity` as History's line «Получено «…» № … · от @…», keyed by
+/// its `transfer`: one line however often and on whichever copy it is read; nothing spent.
+pub(in crate::real) fn received_entry(
+    got: &evolite_api::workshop::ReceivedNft,
+    identity: &str,
+) -> journal::Entry {
+    let kind = journal::Kind::NftReceived {
+        model: got.model.clone(),
+        serial: got.serial,
+        from: got.from.clone(),
+    };
+    let mut entry = journal::entry_of(kind, got.at, 0, Some(identity.to_owned()));
+    entry.key = Some(format!("nftrecv:{}", got.transfer));
+    entry.source = journal::Source::Network;
+    entry
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// BUG-321: a gift got is one History line «Получено» — read again, and after a restart,
+    /// still one; it costs nothing.
+    #[test]
+    fn a_gift_got_is_one_line_however_often_it_is_read() {
+        let dir = std::env::temp_dir().join(format!("evolite-got-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let journal = journal::Journal::new(dir.join("platform-history.json"));
+        let got = evolite_api::workshop::ReceivedNft {
+            transfer: "t1".into(),
+            contract: "c".into(),
+            model: Some("QA64 model".into()),
+            serial: Some(3),
+            from: "@kestrel7".into(),
+            at: 1,
+        };
+        for _ in 0..2 {
+            journal
+                .merge_network(vec![received_entry(&got, "me")])
+                .unwrap();
+        }
+        let restarted = journal::Journal::new(dir.join("platform-history.json"));
+        restarted
+            .merge_network(vec![received_entry(&got, "me")])
+            .unwrap();
+        let lines: Vec<_> = restarted
+            .entries()
+            .iter()
+            .map(journal::activity)
+            .filter(|a| matches!(a.kind, evolite_api::ActivityKind::NftReceived { .. }))
+            .collect();
+        assert_eq!(lines.len(), 1, "one line");
+        assert_eq!(lines[0].amount, 0, "nothing spent");
+        assert_eq!(
+            lines[0].kind,
+            evolite_api::ActivityKind::NftReceived {
+                model: Some("QA64 model".into()),
+                serial: Some(3),
+                from: "@kestrel7".into(),
+            }
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn sale(purchase: &str, model: &str) -> Sale {
         Sale {

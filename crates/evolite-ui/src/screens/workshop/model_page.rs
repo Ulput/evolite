@@ -576,6 +576,7 @@ struct Numbers {
 fn about_model(act: &evolite_api::Activity, name: &str) -> bool {
     match &act.kind {
         evolite_api::ActivityKind::NftSold { model: Some(m), .. }
+        | evolite_api::ActivityKind::NftReceived { model: Some(m), .. }
         | evolite_api::ActivityKind::NftSeries { model: Some(m), .. } => m == name,
         _ => false,
     }

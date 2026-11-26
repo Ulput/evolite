@@ -94,6 +94,7 @@ impl Real {
             let mut chosen = chosen.clone();
             let owner = owner.clone();
             let search = self.nft_search.clone();
+            let journal = self.journal.clone();
             tokio::spawn(async move {
                 // TECH-read-deadlines (audit Д9): the limit on a task of its own, not on a
                 // `poll` a stuck proof would block (`names::read_within`).
@@ -105,7 +106,17 @@ impl Real {
                         let before =
                             // default-ok: no cursor yet: the search starts from the oldest (a fresh copy)
                             search.read(|all| all.get(&owner).cloned().unwrap_or_default());
-                        let found = chain.find_received(&owner, &before).await?;
+                        let (found, gifts) = chain.find_received(&owner, &before).await?;
+                        // BUG-321: the gifts it got, History's lines — kept before the cursor
+                        // moves past them, or a line not kept would not be read again.
+                        if !gifts.is_empty() {
+                            journal.merge_network(
+                                gifts
+                                    .iter()
+                                    .map(|g| super::workshop::received_entry(g, &owner))
+                                    .collect(),
+                            )?;
+                        }
                         if found != before {
                             let _ = search.update(|all| {
                                 all.insert(owner.clone(), found.clone());
