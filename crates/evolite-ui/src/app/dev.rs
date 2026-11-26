@@ -1754,6 +1754,12 @@ impl App {
             "workshop-model-page",
             "workshop-give",
             "workshop-issue",
+            "workshop-sell",
+            "workshop-reprice",
+            "workshop-unprice",
+            "workshop-sale-done",
+            "workshop-model-page-actions",
+            "workshop-sale-done-actions",
             "workshop-model-review",
         ];
         if workshop.into_iter().any(preset) {
@@ -1788,8 +1794,22 @@ impl App {
                 self.core.send(command);
             }
         }
-        // W7: the demo's example model; W8 «Give» or «Issue more» open over it.
-        if preset("workshop-model-page") || preset("workshop-give") || preset("workshop-issue") {
+        // W7: the demo's example model; W8 «Give» or «Issue more», W9 «Put up for sale» (S2),
+        // «Change the price» of the copies at 1 DASH (S4) or «Take off sale» of them (S5) open
+        // over it; `workshop-sale-done`: three put up at 0.5 DASH, its plate in (S3).
+        let price_window =
+            preset("workshop-sell") || preset("workshop-reprice") || preset("workshop-unprice");
+        // W9 (the designer, 2026-11-25): S1 and S3 at 800 scrolled to the actions and «Prices».
+        let actions = preset("workshop-model-page-actions") || preset("workshop-sale-done-actions");
+        let sale_done = preset("workshop-sale-done") || preset("workshop-sale-done-actions");
+        self.workshop.scroll_to_actions = actions;
+        if preset("workshop-model-page")
+            || actions
+            || preset("workshop-give")
+            || preset("workshop-issue")
+            || price_window
+            || sale_done
+        {
             self.workshop.page = screens::workshop::Page::Model {
                 contract: "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
                 model: "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".into(),
@@ -1808,16 +1828,42 @@ impl App {
                 .and_then(|w| w.identity.as_ref())
                 .map(|i| i.id.clone())
                 .unwrap_or_default();
-            self.workshop.series = action.map(|action| {
-                screens::workshop::SeriesForm::preset(
-                    action,
-                    evolite_api::series::SeriesTarget {
-                        identity,
-                        contract: "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
-                        model: "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".into(),
+            let target = evolite_api::series::SeriesTarget {
+                identity,
+                contract: "FzKL9288ZzoQcXKWvXc6kRwbNciboLpJnX4egZo9iz9P".into(),
+                model: "7Yowk46VwwHqmD5yZyyygggh937aP6h2UW7aQWBdWpM5".into(),
+            };
+            let price_action = if preset("workshop-sell") {
+                Some(screens::workshop::SeriesAction::Sell)
+            } else if preset("workshop-reprice") {
+                Some(screens::workshop::SeriesAction::Reprice { from: 100_000_000 })
+            } else if preset("workshop-unprice") {
+                Some(screens::workshop::SeriesAction::Unprice)
+            } else {
+                None
+            };
+            if sale_done {
+                // Signed as a person signs it: the demo core writes it and shows its plate.
+                self.core.send(Command::Spend {
+                    op: evolite_api::Spend::NftBatch {
+                        target: target.clone(),
+                        kind: evolite_api::series::SeriesKind::Price {
+                            count: 3,
+                            price: 50_000_000_000,
+                        },
+                        fee_max: 3 * 5_400,
                     },
-                )
-            });
+                    password: Some(evolite_api::Password::new("demo".into())),
+                    ask: 0,
+                    large_confirmed: true,
+                });
+            }
+            self.workshop.series = action
+                .map(|action| screens::workshop::SeriesForm::preset(action, target.clone()))
+                .or_else(|| {
+                    price_action
+                        .map(|action| screens::workshop::SeriesForm::preset_price(action, target))
+                });
         }
         // W5's «Check the model» open (BUG-249: its summary in the sweeps).
         if preset("workshop-model-review") {

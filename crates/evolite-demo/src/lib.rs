@@ -118,6 +118,8 @@ struct Mock {
     collections_made: Vec<(String, String)>,
     /// BUG-314: the Workshop's sales were asked: «Sold» and the sale's History line from then on.
     sales_read: bool,
+    /// W9: the example model's copies and their prices; a price series changes them.
+    shelf: Vec<evolite_api::workshop::Instance>,
     /// BUG-266: the check of a collection named [`workshop::SYNC_PENDING`] said «not synced»
     /// once — as a sync that ends after the form was opened.
     not_synced_said: bool,
@@ -576,10 +578,23 @@ impl Mock {
                 let (count, per_write) = match &kind {
                     SeriesKind::Mint { count } => (*count, 87_000),
                     SeriesKind::Price { count, .. } => (*count, 5_400),
-                    SeriesKind::Reprice { .. } => (3, 5_400),
+                    SeriesKind::Reprice { .. } => (0, 5_400),
                     SeriesKind::Gift { count, .. }
                     | SeriesKind::Unprice { count, .. }
                     | SeriesKind::Delete { count } => (*count, 145_000),
+                };
+                // W9: a price series on the shelf's own serials, as the real core picks them.
+                let picked = matches!(
+                    kind,
+                    SeriesKind::Price { .. }
+                        | SeriesKind::Reprice { .. }
+                        | SeriesKind::Unprice { .. }
+                )
+                .then(|| workshop::pick(&self.shelf, &kind));
+                let (serials, refusal) = match picked {
+                    Some(Ok(serials)) => (serials, None),
+                    Some(Err(why)) => (Vec::new(), Some(why)),
+                    None => ((1..=count).collect(), None),
                 };
                 let credits = self
                     .snapshot
@@ -590,11 +605,11 @@ impl Mock {
                     target,
                     kind,
                     result: Ok(SeriesPlan {
-                        serials: (1..=count).collect(),
+                        total: per_write * serials.len() as Duffs,
+                        serials,
                         per_write,
-                        total: per_write * count as Duffs,
                         credits,
-                        refusal: None,
+                        refusal,
                         model: None,
                         picture: None,
                     }),
@@ -667,7 +682,14 @@ impl Mock {
                     }),
                 }
             }
-            Command::StopSeries { .. } | Command::CloseSeries { .. } => return changed,
+            Command::StopSeries { .. } => return changed,
+            // W9: the plate of a finished series goes.
+            Command::CloseSeries { id } => {
+                if let Some(wallet) = self.snapshot.wallet.as_mut() {
+                    wallet.series.retain(|s| s.id != id);
+                }
+                return true;
+            }
             // The demo has one identity behind both choices: it takes the chosen id.
             Command::ChooseIdentity { id } => {
                 let Some(wallet) = &mut self.snapshot.wallet else {
@@ -779,6 +801,16 @@ impl Mock {
                         });
                         Event::Done {
                             what: DoneWhat::Contract,
+                            result: Ok(()),
+                            ask: None,
+                        }
+                    }
+                    // W9: a price series is written at once, every copy; its plate shows it
+                    // done, as the real core's when all the writes are in.
+                    Ok(()) if self.price_series(&op) => {
+                        changed = true;
+                        Event::Done {
+                            what: DoneWhat::Series,
                             result: Ok(()),
                             ask: None,
                         }
@@ -1150,7 +1182,7 @@ impl Mock {
                 let read = if since {
                     evolite_api::workshop::WorkshopRead::Sales(Vec::new())
                 } else {
-                    workshop::read(&ask, &self.collections_made, self.sales_read)
+                    workshop::read(&ask, &self.collections_made, self.sales_read, &self.shelf)
                 };
                 let _ = out.send(Event::Workshop {
                     result: Ok(read),
@@ -1427,6 +1459,67 @@ impl Mock {
 
     /// A spend past the gate: the demo has no wallet behind it, so each says so plainly (the
     /// staged proof for "Hide in the pool" first).
+    /// W9 in the demo: a price series (sale, change of price, take-off) on the shelf, all its
+    /// writes in at once; `false` for anything else.
+    fn price_series(&mut self, op: &Spend) -> bool {
+        use evolite_api::series::{SeriesKind, SeriesState};
+        let Spend::NftBatch { target, kind, .. } = op else {
+            return false;
+        };
+        if !matches!(
+            kind,
+            SeriesKind::Price { .. } | SeriesKind::Reprice { .. } | SeriesKind::Unprice { .. }
+        ) {
+            return false;
+        }
+        let Ok(serials) = workshop::pick(&self.shelf, kind) else {
+            return false;
+        };
+        workshop::apply(&mut self.shelf, kind, &serials);
+        // As the real core estimates a write (`plan::per_write`): a price ≈ 0,000054; a
+        // take-off is a transfer to oneself, as a gift ≈ 0,00145 (Platform takes a price off no
+        // other way).
+        let per_write: Duffs = match kind {
+            SeriesKind::Unprice { .. } => workshop::GIFT_FEE,
+            _ => 5_400,
+        };
+        let Some(wallet) = self.snapshot.wallet.as_mut() else {
+            return false;
+        };
+        let total = serials.len() as u32;
+        wallet.balances.credits -= per_write * total as Duffs;
+        let id = wallet.series.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+        // BUG-307: its one History line — «Taken off sale N», never a gift.
+        let duffs = |credits: u64| Duffs::try_from(credits / 1_000).unwrap_or(Duffs::MAX);
+        let act = match kind {
+            SeriesKind::Price { price, .. } => evolite_api::series::SeriesAct::Price {
+                price: duffs(*price),
+            },
+            SeriesKind::Reprice { price, .. } => evolite_api::series::SeriesAct::Reprice {
+                price: duffs(*price),
+            },
+            _ => evolite_api::series::SeriesAct::Unprice,
+        };
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        wallet.activity.insert(
+            0,
+            demo::series_line(line, id, act, total, per_write * total as Duffs),
+        );
+        wallet.series.push(SeriesState {
+            id,
+            target: target.clone(),
+            kind: kind.clone(),
+            total,
+            done: total,
+            refused: 0,
+            unclear: 0,
+            running: false,
+            stopping: false,
+            per_write,
+        });
+        true
+    }
+
     fn spend(&mut self, op: Spend) -> Event {
         let bad_amount = match &op {
             Spend::Shield { amount, .. }
@@ -2558,6 +2651,7 @@ pub fn run(
         made: Vec::new(),
         collections_made: Vec::new(),
         sales_read: false,
+        shelf: workshop::instances(),
         not_synced_said: false,
     };
     let send_snapshot = |mock: &Mock| {
@@ -2628,6 +2722,7 @@ mod tests {
             made: Vec::new(),
             collections_made: Vec::new(),
             sales_read: false,
+            shelf: workshop::instances(),
             not_synced_said: false,
         };
         (m, tx, rx)

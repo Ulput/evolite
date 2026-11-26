@@ -819,3 +819,303 @@ fn a_gift_series_is_one_line_in_history_and_recent() {
         has_words(kit, "Given 1 “Winter tram”")
     });
 }
+
+/// Types `text` into the field named `label` in place of what it holds.
+fn retype(kit: &mut Kit, label: &str, text: &str) {
+    kit.get_by_role_and_label(Role::TextInput, label).click();
+    kit.run_steps(2);
+    for _ in 0..12 {
+        kit.key_press(egui::Key::Backspace);
+    }
+    kit.get_by_role_and_label(Role::TextInput, label)
+        .type_text(text);
+    kit.run_steps(2);
+}
+
+/// The password typed and the window's main button pressed.
+fn sign(kit: &mut Kit, label: &str) {
+    kit.get_by_role(Role::PasswordInput).click();
+    kit.run_steps(2);
+    kit.get_by_role(Role::PasswordInput).type_text("demo");
+    kit.run_steps(2);
+    wait_for(kit, "the button", |kit| {
+        !button(kit, label).accesskit_node().is_disabled()
+    });
+    button(kit, label).click();
+}
+
+/// The model page with its numbers and its «Prices» read.
+fn model_page_read(kit: &mut Kit) {
+    wait_for(kit, "W7", |kit| has_text(kit, "You have"));
+    wait_for(kit, "the prices", |kit| {
+        has_words(kit, "4 copies · no. 3, 6, 9, 12")
+            && !button(kit, "Put up for sale…")
+                .accesskit_node()
+                .is_disabled()
+    });
+}
+
+/// W9 S1: «Put up for sale…» is the first and the main action, «Give…» and «Issue more» after
+/// it; no «Take off sale…» of its own — «Prices» has «Change the price» and «Take off 4».
+#[test]
+fn the_sale_comes_first_and_prices_have_their_actions() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    let at = |label: &str| button(&kit, label).rect().left();
+    assert!(at("Put up for sale…") < at("Give…"));
+    assert!(at("Give…") < at("Issue more"));
+    assert!(kit.query_all_by_label("Take off sale…").next().is_none());
+    assert!(
+        !button(&kit, "Change the price")
+            .accesskit_node()
+            .is_disabled()
+    );
+    assert!(!button(&kit, "Take off 4").accesskit_node().is_disabled());
+}
+
+/// UC-7, W9 S2–S3: three free copies put up at 0.5 DASH — the plan's free numbers from the
+/// lowest, the fee per record and in all, the credits now and after; one password; the plate
+/// «Put up for sale 3 of 3» with what a buyer sees and nothing to sign again; «Prices» read
+/// again has the new row beside the old (read back from the core, not kept by the window).
+#[test]
+fn copies_put_up_for_sale_show_in_prices() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    button(&kit, "Put up for sale…").click();
+    wait_for(&mut kit, "S2", |kit| has_text(kit, "Put up for sale"));
+    assert!(has_words(&kit, "“Winter tram” · free 8"));
+    assert!(
+        button(&kit, "Sign and put up 0")
+            .accesskit_node()
+            .is_disabled(),
+        "no price: nothing asked"
+    );
+    retype(&mut kit, "How many", "3");
+    retype(&mut kit, "Price per copy", "0.5");
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "3 records"));
+    assert!(
+        has_words(&kit, "3 at 0.5000 DASH"),
+        "{:?}",
+        painted_texts(&kit)
+    );
+    assert!(has_words(&kit, "1.5000 DASH in credits"));
+    assert!(has_words(&kit, "× ≈ 0.0000"), "one record's fee");
+    assert!(has_words(&kit, "now, ≈"), "the credits now and after");
+    assert!(
+        has_words(&kit, "here no. 1–2, 4"),
+        "the free ones from the lowest"
+    );
+    assert!(has_words(&kit, "Anyone can buy them"));
+    sign(&mut kit, "Sign and put up 3");
+    wait_for(&mut kit, "S3", |kit| {
+        has_text(kit, "Put up for sale 3 of 3")
+    });
+    assert!(has_words(
+        &kit,
+        "They can be bought at 0.5000 DASH per copy."
+    ));
+    assert!(
+        kit.query_all_by_label("Continue").next().is_none(),
+        "nothing to sign again"
+    );
+    wait_for(&mut kit, "«Prices» read again", |kit| {
+        has_words(kit, "3 copies · no. 1–2, 4") && has_words(kit, "4 copies · no. 3, 6, 9, 12")
+    });
+    assert!(has_words(&kit, "not for sale 5 · for sale 7"));
+    kit.query_all_by_role_and_label(Role::Button, "Close")
+        .next()
+        .expect("«Close»")
+        .click();
+    wait_for(&mut kit, "the plate gone", |kit| {
+        !has_text(kit, "Put up for sale 3 of 3")
+    });
+}
+
+/// UC-7, AC-A11, W9 S4: «Change the price» of the 1 DASH row — the same price holds the button
+/// with «The same price»; a new one shows now, after and all bought; signed, the same four
+/// copies have the new price.
+#[test]
+fn a_price_is_changed_on_the_same_copies() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    button(&kit, "Change the price").click();
+    wait_for(&mut kit, "S4", |kit| {
+        has_words(kit, "4 copies at 1.0000 DASH · no. 3, 6, 9, 12")
+    });
+    retype(&mut kit, "New price per copy", "1");
+    kit.run_steps(4);
+    assert!(has_text(&kit, "The same price"));
+    assert!(
+        button(&kit, "Sign and change 0")
+            .accesskit_node()
+            .is_disabled()
+    );
+    retype(&mut kit, "New price per copy", "0.7");
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    assert!(!has_text(&kit, "The same price"));
+    assert!(has_words(&kit, "1.0000 DASH per copy"), "now");
+    assert!(has_words(&kit, "0.7000 DASH per copy"), "will be");
+    assert!(has_words(&kit, "2.8000 DASH in credits"));
+    assert!(has_words(&kit, "The price changes on the same 4 copies"));
+    sign(&mut kit, "Sign and change 4");
+    wait_for(&mut kit, "the plate", |kit| {
+        has_text(kit, "Price changed: 4 of 4")
+    });
+    assert!(has_words(&kit, "bought at 0.7000 DASH per copy"));
+    wait_for(&mut kit, "«Prices» read again", |kit| {
+        has_words(kit, "4 copies · no. 3, 6, 9, 12") && has_text(kit, "0.7000 DASH")
+    });
+    assert!(
+        !has_text(&kit, "1.0000 DASH"),
+        "no copy is left at the old price"
+    );
+}
+
+/// UC-9, AC-A7, W9 S5: «Take off 4» opens on its price with all four; two taken off go from
+/// the highest numbers, and «Prices» keeps the other two.
+#[test]
+fn copies_are_taken_off_from_the_highest_numbers() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    button(&kit, "Take off 4").click();
+    wait_for(&mut kit, "S5", |kit| {
+        has_words(kit, "“Winter tram” · for sale 4")
+    });
+    assert!(has_text(&kit, "at 1.0000 DASH · 4") && has_text(&kit, "all 4"));
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    retype(&mut kit, "How many", "2");
+    wait_for(&mut kit, "the plan of two", |kit| {
+        has_words(kit, "2 records")
+    });
+    assert!(has_words(&kit, "from the highest numbers"));
+    sign(&mut kit, "Sign and take off 2");
+    wait_for(&mut kit, "the plate", |kit| {
+        has_text(kit, "Taken off sale 2 of 2")
+    });
+    wait_for(&mut kit, "«Prices» read again", |kit| {
+        has_words(kit, "2 copies · no. 3, 6")
+    });
+}
+
+/// AC-A8: while a series of this identity runs, the sale and the actions of «Prices» wait.
+#[test]
+fn a_running_series_holds_the_price_actions() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    show_wallet_edited(
+        &mut kit,
+        4,
+        "a running series",
+        |w| {
+            w.series.push(evolite_api::series::SeriesState {
+                id: 9,
+                target: evolite_api::series::SeriesTarget {
+                    identity: w.identity.as_ref().unwrap().id.clone(),
+                    contract: DEMO_CONTRACT.into(),
+                    model: DEMO_MODEL.into(),
+                },
+                kind: evolite_api::series::SeriesKind::Mint { count: 10 },
+                total: 10,
+                done: 3,
+                refused: 0,
+                unclear: 0,
+                running: true,
+                stopping: false,
+                per_write: 87_000,
+            })
+        },
+        |kit| has_text(kit, "Issued 3 of 10"),
+    );
+    for label in ["Put up for sale…", "Change the price", "Take off 4"] {
+        assert!(
+            button(&kit, label).accesskit_node().is_disabled(),
+            "{label}"
+        );
+    }
+}
+
+/// W9 S5: a window opened before the copies for sale are read keeps the price it was opened for
+/// and its count — not «all» with 0 (the S5 screenshot of 2026-11-25: «Sign and take off 0», no
+/// fee, no credits after).
+#[test]
+fn a_take_off_opened_before_the_copies_are_read_keeps_its_price() {
+    let (_turn, mut kit) = demo_app("workshop-unprice", "en");
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "2 records"));
+    settle(&mut kit);
+    assert!(
+        kit.query_by_role_and_label(Role::Button, "Sign and take off 2")
+            .is_some(),
+        "{:?}",
+        painted_texts(&kit)
+    );
+}
+
+/// W9 S5 (the designer, 2026-11-25): taking copies off sale is a transfer to oneself, never a
+/// gift — History and «Recent» say «Taken off sale 4 “Winter tram”», the gift's line stays the
+/// one gift, «Given» does not grow, and the copies keep their numbers; the window says why it
+/// costs as a gift.
+#[test]
+fn a_take_off_is_not_a_gift() {
+    let (_turn, mut kit) = demo_app("workshop-model-page", "en");
+    model_page_read(&mut kit);
+    let gifts = |kit: &Kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .map_or(0, |w| {
+                w.activity
+                    .iter()
+                    .filter(|a| {
+                        matches!(
+                            &a.kind,
+                            evolite_api::ActivityKind::NftSeries {
+                                act: evolite_api::series::SeriesAct::Gift { .. },
+                                ..
+                            }
+                        )
+                    })
+                    .count()
+            })
+    };
+    assert_eq!(gifts(&kit), 1);
+    button(&kit, "Take off 4").click();
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    assert!(has_words(
+        &kit,
+        "A price can only be removed by passing the item to yourself"
+    ));
+    sign(&mut kit, "Sign and take off 4");
+    wait_for(&mut kit, "the plate", |kit| {
+        has_text(kit, "Taken off sale 4 of 4")
+    });
+    wait_for(&mut kit, "its line in «Recent»", |kit| {
+        has_words(kit, "Taken off sale 4 “Winter tram”")
+    });
+    assert_eq!(gifts(&kit), 1, "no new gift");
+    assert!(!has_words(&kit, "Given 4"), "{:?}", painted_texts(&kit));
+    wait_for(&mut kit, "the gifts", |kit| has_words(kit, ", @alice"));
+    wait_for(&mut kit, "your numbers", |kit| has_words(kit, "no. 1–12"));
+}
+
+/// W9 r1 (the architect): «Put up for sale» with its copies not read does not say «free 0»
+/// — the model's name alone until they are, then «free 8».
+#[test]
+fn a_sale_window_opened_before_the_copies_are_read_says_no_zero() {
+    let (_turn, mut kit) = demo_app("workshop-sell", "en");
+    wait_for(&mut kit, "the free ones", |kit| {
+        has_words(kit, "“Winter tram” · free 8")
+    });
+    // The frame drawn with the counts not read (asked again in it).
+    kit.state_mut().workshop.forget_counts();
+    kit.step();
+    assert!(!has_words(&kit, "· free 0"), "«free 0» before the read");
+    assert!(
+        has_words(&kit, "“Winter tram”"),
+        "{:?}",
+        painted_texts(&kit)
+    );
+    wait_for(&mut kit, "read again", |kit| {
+        has_words(kit, "“Winter tram” · free 8")
+    });
+}

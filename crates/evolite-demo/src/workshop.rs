@@ -1,6 +1,7 @@
 //! The Workshop's example reading (FEAT-0038 item 2): one collection with one model, a few
 //! instances (some for sale) and one sale. Fixed; nothing is asked of a network.
 
+use evolite_api::series::{Credits, SeriesKind, SeriesRefusal};
 use evolite_api::workshop::{
     Collection, Count, Given, Instance, Instances, Model, ModelCounts, Sale, WorkshopAsk,
     WorkshopRead,
@@ -22,8 +23,9 @@ pub(crate) const PRICE: evolite_api::Duffs = 100_000_000;
 /// What the gift of no. 13 took: one transfer, as the demo's plan of a gift estimates it.
 pub(crate) const GIFT_FEE: evolite_api::Duffs = 145_000;
 
-/// The example's instances: numbers 1–12, every third for sale at 1 DASH.
-fn instances() -> Vec<Instance> {
+/// The example's instances: numbers 1–12, every third for sale at 1 DASH in credits. The demo
+/// core keeps them as its shelf: a price series changes them (W9).
+pub fn instances() -> Vec<Instance> {
     (1..=12)
         .map(|n| Instance {
             id: format!("demo-instance-{n}"),
@@ -86,9 +88,98 @@ pub fn main_contract(id: &str) -> Result<String, evolite_api::contracts::Contrac
     }
 }
 
-/// The example's reading; `sales_read`: `Sales` was asked (BUG-314) — before it «Sold» is not
-/// known, as the real core's count of sales is the sales it read.
-pub fn read(ask: &WorkshopAsk, made: &[(String, String)], sales_read: bool) -> WorkshopRead {
+/// The serials a price series takes from `shelf` and why it cannot go, as the real core picks
+/// them (FEAT-0038 AC-A7): a sale the free ones from the lowest number, a change of price the
+/// whole group at its price, a take-off from the highest numbers at that price (or any).
+pub fn pick(shelf: &[Instance], kind: &SeriesKind) -> Result<Vec<u32>, SeriesRefusal> {
+    let mut serials: Vec<u32> = match kind {
+        SeriesKind::Price { price: 0, .. } | SeriesKind::Reprice { price: 0, .. } => {
+            return Err(SeriesRefusal::ZeroPrice);
+        }
+        SeriesKind::Price { .. } => shelf
+            .iter()
+            .filter(|i| i.price.is_none())
+            .map(|i| i.serial)
+            .collect(),
+        SeriesKind::Reprice { from, .. } => shelf
+            .iter()
+            .filter(|i| i.price.and_then(credits) == Some(*from))
+            .map(|i| i.serial)
+            .collect(),
+        SeriesKind::Unprice { price, .. } => shelf
+            .iter()
+            .filter(|i| {
+                i.price
+                    .is_some_and(|d| price.is_none_or(|p| credits(d) == Some(p)))
+            })
+            .map(|i| i.serial)
+            .collect(),
+        _ => return Ok(Vec::new()),
+    };
+    serials.sort_unstable();
+    let count = match kind {
+        SeriesKind::Price { count, .. } => *count as usize,
+        SeriesKind::Unprice { count, .. } => {
+            serials.reverse();
+            *count as usize
+        }
+        _ => serials.len(),
+    };
+    if serials.is_empty() {
+        return Err(match kind {
+            SeriesKind::Price { .. } => SeriesRefusal::NotEnoughInstances { have: 0 },
+            _ => SeriesRefusal::NoneAtPrice,
+        });
+    }
+    if serials.len() < count {
+        return Err(SeriesRefusal::NotEnoughInstances {
+            have: serials.len() as u32,
+        });
+    }
+    serials.truncate(count);
+    Ok(serials)
+}
+
+/// A price series written on `serials` of `shelf`.
+pub fn apply(shelf: &mut [Instance], kind: &SeriesKind, serials: &[u32]) {
+    let price = match kind {
+        SeriesKind::Price { price, .. } | SeriesKind::Reprice { price, .. } => Some(duffs(*price)),
+        SeriesKind::Unprice { .. } => None,
+        _ => return,
+    };
+    for i in shelf.iter_mut().filter(|i| serials.contains(&i.serial)) {
+        i.price = price;
+    }
+}
+
+/// Platform's `$price` is in credits: 1 duff = 1 000 credits.
+/// As the window's `credits_of`: `None` for a price that is not one, never 0 (W9 r1).
+fn credits(duffs: evolite_api::Duffs) -> Option<Credits> {
+    Credits::try_from(duffs).ok()?.checked_mul(1_000)
+}
+
+fn duffs(credits: Credits) -> evolite_api::Duffs {
+    evolite_api::Duffs::try_from(credits / 1_000).unwrap_or(evolite_api::Duffs::MAX)
+}
+
+/// R-14 «ЦЕНЫ» of `shelf`: each price and how many are at it, cheapest first.
+fn prices_of(shelf: &[Instance]) -> Vec<(evolite_api::Duffs, u32)> {
+    let mut by: std::collections::BTreeMap<evolite_api::Duffs, u32> = Default::default();
+    for p in shelf.iter().filter_map(|i| i.price) {
+        *by.entry(p).or_default() += 1;
+    }
+    by.into_iter().collect()
+}
+
+/// The example's reading of `shelf` (its copies and prices, which a price series changes —
+/// W9); `sales_read`: `Sales` was asked (BUG-314) — before it «Sold» is not known, as the real
+/// core's count of sales is the sales it read.
+pub fn read(
+    ask: &WorkshopAsk,
+    made: &[(String, String)],
+    sales_read: bool,
+    shelf: &[Instance],
+) -> WorkshopRead {
     match ask {
         WorkshopAsk::Collections => WorkshopRead::Collections(
             std::iter::once(Collection {
@@ -117,7 +208,7 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)], sales_read: bool) -> W
             .collect(),
         ),
         WorkshopAsk::Counts { contract, model } => {
-            let all = instances();
+            let all = shelf;
             WorkshopRead::Counts(ModelCounts {
                 contract: contract.clone(),
                 model: model.clone(),
@@ -127,7 +218,7 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)], sales_read: bool) -> W
                     documents: all.len() as u64,
                     complete: true,
                 }),
-                prices: vec![(PRICE, 4)],
+                prices: prices_of(all),
                 sold: sales_read.then_some(1),
                 // BUG-276: the one sale of the demo's History, at its price.
                 sold_for: sales_read.then_some(PRICE),
@@ -144,9 +235,10 @@ pub fn read(ask: &WorkshopAsk, made: &[(String, String)], sales_read: bool) -> W
             contract: contract.clone(),
             model: model.clone(),
             for_sale: *for_sale,
-            instances: instances()
-                .into_iter()
+            instances: shelf
+                .iter()
                 .filter(|i| !for_sale || i.price.is_some())
+                .cloned()
                 .collect(),
             next: None,
         }),
@@ -212,7 +304,9 @@ mod tests {
     #[test]
     fn every_demo_model_has_a_picture_and_numbers_that_add_up() {
         let gallery = crate::demo::demo_art();
-        let WorkshopRead::Collections(all) = read(&WorkshopAsk::Collections, &[], true) else {
+        let WorkshopRead::Collections(all) =
+            read(&WorkshopAsk::Collections, &[], true, &instances())
+        else {
             panic!("collections")
         };
         let models: Vec<_> = all
@@ -227,7 +321,7 @@ mod tests {
                 "{}: not in the gallery",
                 m.name
             );
-            let ask = |ask| read(&ask, &[], true);
+            let ask = |ask| read(&ask, &[], true, &instances());
             let WorkshopRead::Counts(n) = ask(WorkshopAsk::Counts {
                 contract: c.contract.clone(),
                 model: m.id.clone(),
@@ -322,6 +416,76 @@ mod tests {
             }
         }
     }
+
+    fn shelf() -> Vec<Instance> {
+        instances()
+    }
+
+    /// AC-A7: a sale takes the free copies from the lowest number; a take-off the highest at
+    /// its price; a change of price the whole group.
+    #[test]
+    fn a_price_series_picks_its_serials_as_the_real_core() {
+        let all = shelf();
+        let sale = SeriesKind::Price {
+            count: 3,
+            price: 500_000,
+        };
+        assert_eq!(pick(&all, &sale), Ok(vec![1, 2, 4]), "free, lowest first");
+        let off = SeriesKind::Unprice {
+            count: 2,
+            price: Some(100_000_000_000),
+        };
+        assert_eq!(pick(&all, &off), Ok(vec![12, 9]), "highest first");
+        let change = SeriesKind::Reprice {
+            from: 100_000_000_000,
+            price: 50_000_000_000,
+        };
+        assert_eq!(
+            pick(&all, &change),
+            Ok(vec![3, 6, 9, 12]),
+            "the whole group"
+        );
+        let none = SeriesKind::Reprice { from: 1, price: 2 };
+        assert_eq!(pick(&all, &none), Err(SeriesRefusal::NoneAtPrice));
+        let many = SeriesKind::Price { count: 9, price: 1 };
+        assert_eq!(
+            pick(&all, &many),
+            Err(SeriesRefusal::NotEnoughInstances { have: 8 })
+        );
+        let zero = SeriesKind::Price { count: 1, price: 0 };
+        assert_eq!(pick(&all, &zero), Err(SeriesRefusal::ZeroPrice));
+    }
+
+    /// W9: the shelf after a sale, a change and a take-off reads back with its new prices.
+    #[test]
+    fn a_price_series_changes_what_is_read_back() {
+        let mut all = shelf();
+        let sale = SeriesKind::Price {
+            count: 2,
+            price: 50_000_000_000,
+        };
+        let serials = pick(&all, &sale).unwrap();
+        apply(&mut all, &sale, &serials);
+        let WorkshopRead::Counts(c) = read(
+            &WorkshopAsk::Counts {
+                contract: CONTRACT.into(),
+                model: MODEL.into(),
+            },
+            &[],
+            true,
+            &all,
+        ) else {
+            panic!()
+        };
+        assert_eq!(c.prices, vec![(50_000_000, 2), (100_000_000, 4)]);
+        let off = SeriesKind::Unprice {
+            count: 4,
+            price: Some(100_000_000_000),
+        };
+        let serials = pick(&all, &off).unwrap();
+        apply(&mut all, &off, &serials);
+        assert_eq!(prices_of(&all), vec![(50_000_000, 2)]);
+    }
 }
 
 /// BUG-314: «Sold» is not known before the sales are asked — the demo hid that nobody asked.
@@ -335,6 +499,7 @@ fn sold_is_not_known_before_the_sales_are_read() {
             },
             &[],
             sales_read,
+            &instances(),
         ) else {
             panic!("counts")
         };

@@ -1268,6 +1268,44 @@ fn moves_money(what: &What) -> bool {
 mod tests {
     use super::*;
 
+    /// W9 S5: a take-off — a transfer to oneself on the network — is its own line «Taken off
+    /// sale», never a gift's.
+    #[test]
+    fn a_take_off_line_is_never_a_gift() {
+        use super::super::nft_series::{Item, Kind as SeriesKind, Series, State};
+        let series = Series {
+            id: 2,
+            identity: "me".into(),
+            contract: "c".into(),
+            model: "m".into(),
+            kind: SeriesKind::Unprice,
+            items: (1..=2)
+                .map(|serial| Item {
+                    serial,
+                    doc: None,
+                    state: State::Done,
+                    why: None,
+                    sent_at: None,
+                    no_since: None,
+                })
+                .collect(),
+            created_at: 1_700_000_000,
+            spent: 290,
+            closed: false,
+            model_name: Some("Orange pin".into()),
+            cost_unknown: false,
+        };
+        let line = activity(&series_entry(&series).unwrap());
+        assert!(matches!(
+            line.kind,
+            ActivityKind::NftSeries {
+                act: evolite_api::series::SeriesAct::Unprice,
+                done: 2,
+                ..
+            }
+        ));
+    }
+
     /// BUG-307 (FEAT-0038 R-15, AC-A15): a series of three, one refused — one History line
     /// «2 of 3», its cost what the two done took; written again as it goes and after a restart,
     /// still that one line, its number kept; a run whose cost was not read says «not known».

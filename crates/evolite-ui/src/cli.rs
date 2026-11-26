@@ -266,7 +266,10 @@ pub const PRESETS: &[&str] = &[
     "identities-long", "tokens-identities-long", "collection-identities-long", "workshop-identities-long",
     "workshop", "workshop-new", "workshop-review", "workshop-steps", "workshop-collection",
     "workshop-model", "workshop-model-copy", "workshop-model-review", "workshop-model-page",
-    "workshop-give", "workshop-issue",
+    "workshop-give", "workshop-issue", "workshop-sell", "workshop-reprice", "workshop-unprice",
+    "workshop-sale-done",
+    "workshop-model-page-actions",
+    "workshop-sale-done-actions",
     "tokens", "tokens-first-search", "tokens-first-count", "tokens-balances", "tokens-again", "tokens-no-network-first", "tokens-pause", "tokens-no-network", "tokens-refresh-failed",
     "tokens-empty", "tokens-all-hidden", "tokens-send", "tokens-review", "tokens-add", "tokens-mainnet",
     "tokens-send-address", "tokens-send-more", "tokens-send-credits", "tokens-send-unknown",
@@ -625,6 +628,12 @@ fn dev_args<'a>(
                 | "workshop-model-page"
                 | "workshop-give"
                 | "workshop-issue"
+                | "workshop-sell"
+                | "workshop-reprice"
+                | "workshop-unprice"
+                | "workshop-sale-done"
+                | "workshop-model-page-actions"
+                | "workshop-sale-done-actions"
                 | "workshop-model-review",
             ),
         ) => Screen::Workshop,

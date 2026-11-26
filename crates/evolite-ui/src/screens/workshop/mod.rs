@@ -168,6 +168,10 @@ pub struct WorkshopState {
     pub series: Option<SeriesForm>,
     /// W4: «About the collection» open.
     about: bool,
+    /// `--screen workshop-*-actions` (W9 frames at 800): the model page kept scrolled to its
+    /// actions, «Prices» under them.
+    #[cfg(feature = "dev-tools")]
+    pub scroll_to_actions: bool,
 }
 
 /// BUG-314 r1 (the coordinator, 2026-11-25): the sales are read again on a visit to a model
@@ -300,6 +304,14 @@ impl WorkshopState {
             self.sales_read = false;
             self.sales_asked = Retry::default();
         }
+    }
+
+    /// W9 r1 in tests: the models' counts forgotten, as before their first read — asked again
+    /// by the next frame, drawn in it without them.
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub(crate) fn forget_counts(&mut self) {
+        self.counts.clear();
+        self.counts_asked.clear();
     }
 
     /// BUG-314 r1 in tests: when the sales were last read well.

@@ -50,6 +50,10 @@ const SUMMARY_DIALOGS: [(&str, bool); 29] = [
     // FEAT-0038 W8 «Give» (and «Continue» of a gift) and «Issue more» (and of an issue).
     ("workshop-give", true),
     ("workshop-issue", true),
+    // FEAT-0038 W9 «Put up for sale», «Change the price», «Take off sale».
+    ("workshop-sell", true),
+    ("workshop-reprice", true),
+    ("workshop-unprice", true),
 ];
 
 /// What a dialog shown is, for [`quiet`]: its id, whether it spends, its summary, its scroll.
@@ -259,8 +263,18 @@ fn the_summary_dialogs_are_all_listed() {
                 continue;
             }
             let text = std::fs::read_to_string(&path).unwrap();
-            let needle = ["dialog_with_", "summary("].concat();
-            for (at, _) in text.match_indices(&needle) {
+            // The summary dialog and its form with a line under the title (`_under`); this
+            // comment names neither whole, or the search would read it.
+            for (at, needle) in ["summary(", "summary_under("]
+                .iter()
+                .flat_map(|end| {
+                    let needle = ["dialog_with_", end].concat();
+                    text.match_indices(&needle)
+                        .map(|(at, _)| (at, needle.clone()))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+            {
                 if text[..at].ends_with("fn ") {
                     continue;
                 }
@@ -315,7 +329,7 @@ fn send_with_a_custom_fee_fits_at_1024() {
 }
 
 /// BUG-258: the Workshop's presets, at the medium window (the rail, under 1280 wide).
-const WORKSHOP: [&str; 11] = [
+const WORKSHOP: [&str; 15] = [
     "workshop",
     "workshop-new",
     "workshop-review",
@@ -327,6 +341,10 @@ const WORKSHOP: [&str; 11] = [
     "workshop-model-page",
     "workshop-give",
     "workshop-issue",
+    "workshop-sell",
+    "workshop-reprice",
+    "workshop-unprice",
+    "workshop-sale-done",
 ];
 
 /// Painted words cut by their clip (a single line wider than its card or column) or drawn over

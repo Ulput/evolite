@@ -248,6 +248,45 @@ pub(crate) fn sale_line() -> Activity {
     }
 }
 
+/// BUG-307, W9: a price series' one History line, as the real core writes it when the series
+/// is done (`journal::series_entry`): what it did, to how many, and what it took.
+pub(crate) fn series_line(
+    line: u64,
+    series: u64,
+    act: evolite_api::series::SeriesAct,
+    done: u32,
+    spent: Duffs,
+) -> Activity {
+    let kind = ActivityKind::NftSeries {
+        act,
+        model: Some("Winter tram".into()),
+        done,
+        refused: 0,
+        total: done,
+    };
+    let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
+    let at = now();
+    Activity {
+        id: line,
+        kind,
+        chain: Chain::Platform,
+        at,
+        amount: -spent,
+        proof: Proof::Proved,
+        txid: None,
+        fee: None,
+        block: None,
+        address: None,
+        layers,
+        flow,
+        key: format!("nftseries:{series}:{at}"),
+        detail: None,
+        note: None,
+        rate: None,
+        tax_transfer: false,
+    }
+}
+
 /// A Core line's card in full (FEAT-0005a), as the real core builds it from the record.
 fn core_detail(
     proof: Proof,

@@ -415,13 +415,20 @@ pub(super) fn painted_texts(kit: &Kit) -> Vec<String> {
 
 /// Whether `part` is painted on screen this frame.
 pub(super) fn painted_has(kit: &Kit, part: &str) -> bool {
-    painted_texts(kit).iter().any(|t| t.contains(part))
+    painted_texts(kit).iter().any(|t| says(t, part))
+}
+
+/// Whether `text` holds `part` as written, or with its no-break spaces read as plain ones:
+/// they keep a part on one line (W9's tiles), the words are the same. A test that asks for the
+/// no-break space itself («Evo\u{a0}Coffee») still finds it.
+fn says(text: &str, part: &str) -> bool {
+    text.contains(part) || (text.contains('\u{a0}') && text.replace('\u{a0}', " ").contains(part))
 }
 
 /// Whether some node says `part` within its words.
 pub(super) fn has_words(kit: &Kit, part: &str) -> bool {
     kit.query_all_by(|n| {
-        n.label().is_some_and(|l| l.contains(part)) || n.value().is_some_and(|v| v.contains(part))
+        n.label().is_some_and(|l| says(&l, part)) || n.value().is_some_and(|v| says(&v, part))
     })
     .next()
     .is_some()

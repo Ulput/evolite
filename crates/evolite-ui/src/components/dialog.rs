@@ -64,7 +64,7 @@ pub fn dialog_with_footer(
     width: f32,
     body: impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
 ) -> bool {
-    titled(ui, a, (id, icon, title), width, false, body)
+    titled(ui, a, (id, icon, title, None), width, false, body)
 }
 
 /// BUG-249: [`dialog_with_footer`] whose body also draws a [`Part::Summary`], pinned with the
@@ -78,14 +78,28 @@ pub fn dialog_with_summary(
     width: f32,
     body: impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
 ) -> bool {
-    titled(ui, a, (id, icon, title), width, true, body)
+    titled(ui, a, (id, icon, title, None), width, true, body)
+}
+
+/// [`dialog_with_summary`] with a line under its title: what the window is about (W9: «“Winter
+/// tram” · free 27»), 13 `muted`, wrapping short of the cross.
+pub fn dialog_with_summary_under(
+    ui: &mut Ui,
+    a: &mut Assets,
+    id: &str,
+    icon: &str,
+    (title, under): (&str, &str),
+    width: f32,
+    body: impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
+) -> bool {
+    titled(ui, a, (id, icon, title, Some(under)), width, true, body)
 }
 
 /// A dialog with an icon and a title, with or without a summary.
 fn titled(
     ui: &mut Ui,
     a: &mut Assets,
-    (id, icon, title): (&str, &str, &str),
+    (id, icon, title, under): (&str, &str, &str, Option<&str>),
     width: f32,
     summary: bool,
     body: impl FnMut(&mut Ui, &mut Assets, Part) -> bool,
@@ -101,7 +115,17 @@ fn titled(
             let p = a.p;
             let (boxr, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
             super::paint_icon_box(ui, a, boxr, 12, icon, 20.0, p.text);
-            ui.label(txt(title, 20.0, Weight::Bold, p.text));
+            let Some(under) = under else {
+                ui.label(txt(title, 20.0, Weight::Bold, p.text));
+                return;
+            };
+            let room = (ui.available_width() - CROSS - 10.0).max(0.0);
+            ui.vertical(|ui| {
+                ui.set_max_width(room);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                ui.add(super::para(title, 20.0, Weight::Bold, p.text));
+                ui.add(super::para(under, 13.0, Weight::Regular, p.muted));
+            });
         },
         body,
     )
@@ -790,7 +814,61 @@ impl Place {
         if self.top.is_none() && self.frames >= 2 {
             self.top = Some(drawn.top() - self.window.top());
         }
+        // W9 S5 (the designer, 2026-11-25), r1 (the architect): kept, it grew (its plan came)
+        // down to the window's edge — centred again, never nearer the edges than
+        // [`MARGIN_FIT`] (BUG-90: one that fits may stand 4 from them), and only up: one that
+        // stands centred, or fits as it stands, is not moved (BUG-39 №3).
+        if let Some(top) = self.top
+            && drawn.bottom() > self.window.bottom() - MARGIN_SCROLL
+        {
+            let centred = ((self.window.height() - drawn.height()) / 2.0)
+                .max(MARGIN_FIT)
+                .floor();
+            if centred < top {
+                self.top = Some(centred);
+                // Drawn there from the next frame: it is asked for now.
+                ctx.request_repaint();
+            }
+        }
         self.pass = ctx.cumulative_pass_nr();
         ctx.data_mut(|d| d.insert_temp(id.with("place"), self));
+    }
+}
+
+#[cfg(test)]
+mod place_tests {
+    use super::*;
+
+    /// Where a dialog kept at `top` in a window of `height` stands after a frame drawn `drawn`
+    /// tall.
+    fn after(height: f32, top: f32, drawn: f32) -> f32 {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("place-test");
+        let window = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(800.0, height));
+        let place = Place {
+            top: Some(top),
+            frames: 5,
+            window,
+            pass: 0,
+            opened: false,
+        };
+        let rect = Rect::from_min_size(egui::pos2(100.0, top), vec2(600.0, drawn));
+        place.keep(&ctx, id, rect);
+        ctx.data(|d| d.get_temp::<Place>(id.with("place")))
+            .and_then(|p| p.top)
+            .expect("kept")
+    }
+
+    /// W9 r1 (the architect): the card that fits 5 from the edges (BUG-90, 758 of 768) stays
+    /// where it is; one that grew to the bottom edge stands centred, never nearer the edges than
+    /// [`MARGIN_FIT`] (7 here — not [`MARGIN_SCROLL`]'s 16, which would leave 3 under it); a
+    /// dialog is never moved down.
+    #[test]
+    fn a_dialog_is_centred_again_only_when_it_grew_to_the_edge() {
+        assert_eq!(after(768.0, 5.0, 758.0), 5.0, "fits at 5: stays");
+        assert_eq!(after(570.0, 50.0, 556.0), 7.0, "grew to the edge: centred");
+        assert_eq!(after(600.0, 50.0, 300.0), 50.0, "room under it: stays");
+        assert_eq!(after(600.0, 10.0, 590.0), 5.0, "up, not down");
+        assert_eq!(after(600.0, 2.0, 597.0), 2.0, "never moved down");
     }
 }
