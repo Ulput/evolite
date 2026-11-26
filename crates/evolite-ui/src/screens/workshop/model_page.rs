@@ -1825,23 +1825,6 @@ fn price_field(ui: &mut Ui, p: &crate::theme::Palette, form: &mut SeriesForm, la
     );
 }
 
-/// W9 (the designer, 2026-11-25): the credits after, «≈», with as many decimals as `now` is
-/// shown with — «1,2000 DASH, ≈ 1,1998 DASH after», not «≈ 1,199838»; hidden as balances are.
-fn after_as(now: Duffs, after: Duffs) -> String {
-    let (_, mark) = crate::format::number_marks();
-    let shown = crate::format::number(now, false);
-    let decimals = shown
-        .rsplit_once(mark)
-        .map_or(0, |(_, f)| f.chars().filter(char::is_ascii_digit).count());
-    let (number, _) = crate::format::rounded_number(after, decimals);
-    let text = format!("{number} {}", crate::format::unit_name());
-    if crate::format::display().hide {
-        crate::format::mask(&text)
-    } else {
-        text
-    }
-}
-
 /// «If all are bought · {} in credits»: SemiBold `text` — the accent is for «proved» (W9 S2).
 fn if_all_bought(ui: &mut Ui, p: &crate::theme::Palette, sum: Duffs) {
     kv_row_fit(

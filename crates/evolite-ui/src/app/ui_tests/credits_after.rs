@@ -110,11 +110,7 @@ fn every_write_window_says_a_failed_credits_read() {
             }
         }
     }
-    assert!(
-        wrong.is_empty(),
-        "{}",
-        wrong.join("\n")
-    );
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }
 
 /// A3.2: credits for a write and a half — after it, less than another: amber, «Few credits will

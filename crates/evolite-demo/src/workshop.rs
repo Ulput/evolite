@@ -287,6 +287,7 @@ mod tests {
             },
             &[],
             true,
+            &instances(),
         ) else {
             panic!("counts");
         };
