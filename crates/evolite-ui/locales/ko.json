@@ -2950,7 +2950,7 @@
     "other": "사본 {}개 · {}"
   },
   "Name or id": "이름 또는 id",
-  "No identities for «{}»": "«{}»에 해당하는 아이덴티티 없음",
+  "No identities for “{}”": "«{}»에 해당하는 아이덴티티 없음",
   "Searching for your identities…": "아이덴티티를 찾는 중…",
   "Wallet identities · {}": "지갑의 아이덴티티 · {}",
   "needs a DashPay key": "DashPay 키 필요",
@@ -2985,6 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "앱의 컨트랙트 {}을(를) 읽을 수 없습니다. 이 버전의 evolite보다 새로운 것일 수 있습니다.",
   "Could not read the identity's keys for contract {} from Platform.": "컨트랙트 {}에 대한 아이덴티티의 키를 Platform에서 읽을 수 없습니다.",
   "Hide details": "자세히 숨기기",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "아무것도 쓰지 않았습니다. 다시 시도하세요. 다시 일어나면 «자세히»에서 Platform의 응답을 볼 수 있습니다.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "아무것도 쓰지 않았습니다. 다시 시도하세요. 다시 일어나면 «자세히»에서 Platform의 응답을 볼 수 있습니다.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "사본 하나는 «워크숍»의 모델 페이지에서 선물하거나 판매에 올릴 수 있습니다."
 }

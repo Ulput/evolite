@@ -2950,7 +2950,7 @@
     "other": "{} bản giá {}"
   },
   "Name or id": "Tên hoặc id",
-  "No identities for «{}»": "Không có danh tính nào cho «{}»",
+  "No identities for “{}”": "Không có danh tính nào cho «{}»",
   "Searching for your identities…": "Đang tìm danh tính của bạn…",
   "Wallet identities · {}": "Danh tính của ví · {}",
   "needs a DashPay key": "cần khóa DashPay",
@@ -2985,6 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Không đọc được hợp đồng {} của ứng dụng: có thể nó mới hơn phiên bản evolite này.",
   "Could not read the identity's keys for contract {} from Platform.": "Không đọc được khóa của danh tính cho hợp đồng {} từ Platform.",
   "Hide details": "Ẩn chi tiết",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Chưa chi gì. Hãy thử lại; nếu lại xảy ra, «Chi tiết» cho thấy Platform đã trả lời gì.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Chưa chi gì. Hãy thử lại; nếu lại xảy ra, «Chi tiết» cho thấy Platform đã trả lời gì.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Bạn có thể tặng hoặc rao bán một bản trên trang của mẫu trong «Xưởng»."
 }

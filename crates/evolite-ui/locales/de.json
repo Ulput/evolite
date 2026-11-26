@@ -2994,7 +2994,7 @@
     "other": "{} Exemplare für {}"
   },
   "Name or id": "Name oder ID",
-  "No identities for «{}»": "Keine Identitäten für «{}»",
+  "No identities for “{}”": "Keine Identitäten für «{}»",
   "Searching for your identities…": "Ihre Identitäten werden gesucht…",
   "Wallet identities · {}": "Identitäten der Wallet · {}",
   "needs a DashPay key": "DashPay-Schlüssel fehlt",
@@ -3030,6 +3030,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Der Vertrag {} der App konnte nicht gelesen werden: Er ist vielleicht neuer als diese Version von evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "Die Schlüssel der Identität für den Vertrag {} konnten nicht von Platform gelesen werden.",
   "Hide details": "Details ausblenden",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Es wurde nichts ausgegeben. Versuchen Sie es erneut; geschieht es wieder, zeigt «Details», was Platform geantwortet hat.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Es wurde nichts ausgegeben. Versuchen Sie es erneut; geschieht es wieder, zeigt «Details», was Platform geantwortet hat.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Eine Kopie können Sie auf der Seite des Modells in der «Werkstatt» verschenken oder zum Verkauf anbieten."
 }

@@ -2994,7 +2994,7 @@
     "other": "{} kopya · {} fiyatla"
   },
   "Name or id": "Ad veya id",
-  "No identities for «{}»": "«{}» için kimlik yok",
+  "No identities for “{}”": "«{}» için kimlik yok",
   "Searching for your identities…": "Kimlikleriniz aranıyor…",
   "Wallet identities · {}": "Cüzdanın kimlikleri · {}",
   "needs a DashPay key": "DashPay anahtarı gerekli",
@@ -3030,6 +3030,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Uygulamanın sözleşmesi {} okunamadı: evolite'in bu sürümünden daha yeni olabilir.",
   "Could not read the identity's keys for contract {} from Platform.": "Sözleşme {} için kimliğin anahtarları Platform'dan okunamadı.",
   "Hide details": "Ayrıntıları gizle",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Hiçbir şey harcanmadı. Tekrar deneyin; yine olursa «Ayrıntılar» Platform'un yanıtını gösterir.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Hiçbir şey harcanmadı. Tekrar deneyin; yine olursa «Ayrıntılar» Platform'un yanıtını gösterir.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Bir kopyayı «Atölye»deki modelin sayfasında hediye edebilir veya satışa koyabilirsiniz."
 }

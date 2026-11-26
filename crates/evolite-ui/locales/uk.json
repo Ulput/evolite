@@ -3082,7 +3082,7 @@
     "other": "{} екземпляра по {}"
   },
   "Name or id": "Ім'я або id",
-  "No identities for «{}»": "Немає ідентичностей за «{}»",
+  "No identities for “{}”": "Немає ідентичностей за «{}»",
   "Searching for your identities…": "Шукаємо ваші ідентичності…",
   "Wallet identities · {}": "Ідентичності гаманця · {}",
   "needs a DashPay key": "потрібен ключ DashPay",
@@ -3120,6 +3120,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Не вдалося розібрати контракт застосунку {}: можливо, він новіший за цю версію evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "Не вдалося прочитати ключі ідентичності для контракту {} з Platform.",
   "Hide details": "Сховати подробиці",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Нічого не витрачено. Спробуйте знову; якщо повториться, у «Докладно» — що відповіла Platform.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Нічого не витрачено. Спробуйте знову; якщо повториться, у «Докладно» — що відповіла Platform.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарувати або виставити на продаж один примірник можна на сторінці моделі в «Майстерні»."
 }

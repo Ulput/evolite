@@ -2950,7 +2950,7 @@
     "other": "{} 个副本，价格 {}"
   },
   "Name or id": "名称或 id",
-  "No identities for «{}»": "没有与「{}」匹配的身份",
+  "No identities for “{}”": "没有与「{}」匹配的身份",
   "Searching for your identities…": "正在查找你的身份…",
   "Wallet identities · {}": "钱包的身份 · {}",
   "needs a DashPay key": "需要 DashPay 密钥",
@@ -2985,6 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "无法读取应用的合约 {}：它可能比此版本的 evolite 更新。",
   "Could not read the identity's keys for contract {} from Platform.": "无法从 Platform 读取身份用于合约 {} 的密钥。",
   "Hide details": "隐藏详情",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "未花费任何东西。请重试；如果再次发生，「详情」会显示 Platform 的回答。",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "未花费任何东西。请重试；如果再次发生，「详情」会显示 Platform 的回答。",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "单个副本可在「工坊」中该模型的页面上赠送或出售。"
 }

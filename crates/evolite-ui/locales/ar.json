@@ -3170,7 +3170,7 @@
     "other": "{} نسخة بسعر {}"
   },
   "Name or id": "الاسم أو المعرّف",
-  "No identities for «{}»": "لا هويات تطابق «{}»",
+  "No identities for “{}”": "لا هويات تطابق «{}»",
   "Searching for your identities…": "جارٍ البحث عن هوياتك…",
   "Wallet identities · {}": "هويات المحفظة · {}",
   "needs a DashPay key": "يلزم مفتاح DashPay",
@@ -3210,6 +3210,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "تعذّرت قراءة عقد التطبيق {}: ربما يكون أحدث من هذا الإصدار من evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "تعذّرت قراءة مفاتيح الهوية للعقد {} من Platform.",
   "Hide details": "إخفاء التفاصيل",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "يمكنك إهداء نسخة واحدة أو عرضها للبيع من صفحة النموذج في «الورشة»."
 }

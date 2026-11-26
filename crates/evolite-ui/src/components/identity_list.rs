@@ -389,7 +389,7 @@ fn list(
                         ui.add_space(6.0);
                         ui.add(para(
                             &format!(
-                                tr!("No identities for «{}»"),
+                                tr!("No identities for “{}”"),
                                 crate::i18n::own(state.query.trim())
                             ),
                             13.0,

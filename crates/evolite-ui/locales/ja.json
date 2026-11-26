@@ -2950,7 +2950,7 @@
     "other": "{} 個のコピー · {}"
   },
   "Name or id": "名前または ID",
-  "No identities for «{}»": "「{}」に一致するアイデンティティはありません",
+  "No identities for “{}”": "「{}」に一致するアイデンティティはありません",
   "Searching for your identities…": "アイデンティティを検索中…",
   "Wallet identities · {}": "ウォレットのアイデンティティ · {}",
   "needs a DashPay key": "DashPay の鍵が必要",
@@ -2985,6 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "アプリのコントラクト {} を読み取れませんでした。この evolite のバージョンより新しい可能性があります。",
   "Could not read the identity's keys for contract {} from Platform.": "コントラクト {} 用のアイデンティティの鍵を Platform から読み取れませんでした。",
   "Hide details": "詳細を隠す",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "何も使われていません。再試行してください。再び起きる場合は「詳細」に Platform の応答が表示されます。",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "何も使われていません。再試行してください。再び起きる場合は「詳細」に Platform の応答が表示されます。",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "1 部ずつなら「ワークショップ」のモデルのページで贈ったり販売に出したりできます。"
 }

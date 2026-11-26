@@ -2994,7 +2994,7 @@
     "other": "{} प्रतियाँ · {} पर"
   },
   "Name or id": "नाम या आईडी",
-  "No identities for «{}»": "«{}» के लिए कोई पहचान नहीं",
+  "No identities for “{}”": "«{}» के लिए कोई पहचान नहीं",
   "Searching for your identities…": "आपकी पहचानें खोजी जा रही हैं…",
   "Wallet identities · {}": "वॉलेट की पहचानें · {}",
   "needs a DashPay key": "DashPay कुंजी चाहिए",
@@ -3030,6 +3030,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "ऐप का कॉन्ट्रैक्ट {} पढ़ा नहीं जा सका: शायद यह evolite के इस संस्करण से नया है।",
   "Could not read the identity's keys for contract {} from Platform.": "कॉन्ट्रैक्ट {} के लिए पहचान की कुंजियाँ Platform से पढ़ी नहीं जा सकीं।",
   "Hide details": "विवरण छिपाएँ",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "कुछ भी ख़र्च नहीं हुआ। फिर कोशिश करें; अगर फिर से हो, तो «विवरण» दिखाता है कि Platform ने क्या जवाब दिया।",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "कुछ भी ख़र्च नहीं हुआ। फिर कोशिश करें; अगर फिर से हो, तो «विवरण» दिखाता है कि Platform ने क्या जवाब दिया।",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "एक प्रति आप «वर्कशॉप» में मॉडल के पेज पर उपहार में दे सकते हैं या बिक्री पर रख सकते हैं।"
 }

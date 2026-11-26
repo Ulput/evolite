@@ -2950,7 +2950,7 @@
     "other": "{} salinan seharga {}"
   },
   "Name or id": "Nama atau id",
-  "No identities for «{}»": "Tidak ada identitas untuk «{}»",
+  "No identities for “{}”": "Tidak ada identitas untuk «{}»",
   "Searching for your identities…": "Mencari identitas Anda…",
   "Wallet identities · {}": "Identitas dompet · {}",
   "needs a DashPay key": "perlu kunci DashPay",
@@ -2985,6 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Kontrak {} milik aplikasi tidak dapat dibaca: mungkin lebih baru daripada versi evolite ini.",
   "Could not read the identity's keys for contract {} from Platform.": "Kunci identitas untuk kontrak {} tidak dapat dibaca dari Platform.",
   "Hide details": "Sembunyikan detail",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Tidak ada yang dibelanjakan. Coba lagi; jika terjadi lagi, «Detail» menunjukkan jawaban Platform.",
+  "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered.": "Tidak ada yang dibelanjakan. Coba lagi; jika terjadi lagi, «Detail» menunjukkan jawaban Platform.",
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Satu salinan dapat Anda hadiahkan atau jual di halaman model di «Bengkel»."
 }

@@ -1015,7 +1015,7 @@ pub fn refusal_words(why: &AppLinkRefusal, app: &str) -> (String, String, String
                 t(tr!("Could not read the app's request")),
                 body,
                 t(tr!(
-                    "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered."
+                    "Nothing was spent. Try again; if it happens again, “Details” shows what Platform answered."
                 )),
             )
         }
