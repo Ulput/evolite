@@ -3044,5 +3044,10 @@
   "needs a sign-in key": "falta la clave de inicio de sesión",
   "no keys of this wallet": "sin claves de este monedero",
   "ready": "lista",
-  "{} more · scroll or search": "{} más · desplace o busque"
+  "{} more · scroll or search": "{} más · desplace o busque",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "Se va la copia libre con el número más bajo: n.º {}. Las que están en venta no se tocan.",
+  "Number no. {} is issued.": "Se emite el número n.º {}.",
+  "supply {} · number no. {}": "tirada {} · número n.º {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Se van las copias libres con los números más bajos: n.º {}. Las que están en venta no se tocan.",
+  "Numbers no. {} are issued.": "Se emiten los números n.º {}."
 }

@@ -3004,5 +3004,10 @@
   "needs a sign-in key": "Anmeldeschlüssel fehlt",
   "no keys of this wallet": "keine Schlüssel dieser Wallet",
   "ready": "bereit",
-  "{} more · scroll or search": "{} weitere · blättern oder suchen"
+  "{} more · scroll or search": "{} weitere · blättern oder suchen",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "Es geht das freie Exemplar mit der niedrigsten Nummer – Nr. {}. Die zum Verkauf stehenden bleiben unberührt.",
+  "Number no. {} is issued.": "Ausgegeben wird die Nummer Nr. {}.",
+  "supply {} · number no. {}": "Auflage {} · Nummer Nr. {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Es gehen die freien Exemplare mit den niedrigsten Nummern – Nr. {}. Die zum Verkauf stehenden bleiben unberührt.",
+  "Numbers no. {} are issued.": "Ausgegeben werden die Nummern Nr. {}."
 }

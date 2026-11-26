@@ -319,6 +319,7 @@ pub(super) fn page(
     let for_sale = counts.as_ref().and_then(|c| count(c.for_sale)).unwrap_or(0);
     let free = mine.map(|m| m.saturating_sub(for_sale));
     let issued = counts.as_ref().and_then(|c| c.issued);
+    state.on_series(&wallet.series);
     let series_here: Vec<SeriesState> = wallet
         .series
         .iter()
@@ -688,6 +689,8 @@ fn supply(ui: &mut Ui, a: &mut Assets, supply: u32, issued: Option<u32>) {
     let p = a.p;
     let count = |n: u32| crate::format::count(n as u64);
     let line = match issued {
+        // BUG-325: one issued is «number no. 1», not «no. 1–1».
+        Some(1) => format!(tr!("supply {} · number no. {}"), count(supply), count(1)),
         Some(n) if n > 0 => format!(
             tr!("supply {} · numbers no. {}–{}"),
             count(supply),
@@ -816,20 +819,101 @@ fn given_tile(n: &Numbers) -> (String, Option<String>) {
         Count::Counted { count, .. } => crate::format::count(count),
     };
     let mut parts = match &g.last {
-        Some((at, to)) => {
-            let to = if to.starts_with('@') {
-                crate::i18n::own(to)
-            } else {
-                crate::text::whole(to)
-            };
-            format!(tr!("last: {}, {}"), crate::text::when(*at, n.now), to)
-        }
+        Some((at, to)) => last_gift(*at, to, n.now),
         None => tr!("No gifts yet").to_owned(),
     };
     if g.this_computer_only {
         parts = format!("{parts} · {}", tr!("only from this computer"));
     }
     (number, Some(parts))
+}
+
+/// «last: today, 13:04, @name». BUG-324: «today, 13:04» in the interface language before it
+/// goes in, kept as one piece — left a place of «last: {}, {}», the line split at its first
+/// comma and «today» stayed English («сегодня» in «Recent» beside it).
+pub(super) fn last_gift(
+    at: evolite_api::Timestamp,
+    to: &str,
+    now: chrono::DateTime<chrono::Local>,
+) -> String {
+    let to = if to.starts_with('@') {
+        crate::i18n::own(to)
+    } else {
+        crate::text::whole(to)
+    };
+    let when = crate::text::when(at, now);
+    let when = crate::i18n::t_in(crate::i18n::current(), &when);
+    format!(tr!("last: {}, {}"), crate::i18n::own(&when), to)
+}
+
+/// BUG-325: the numbers a gift or an issue takes — «no. 2» for one, «no. 2–5» for a run (not
+/// «no. 2–2»), and r1 Should: a list where they have gaps — a gift leaves those for sale, so it
+/// may take 2, 4, 5, which «no. 2–5» would say with the 3 for sale among them. `None` for none.
+pub(super) fn serials_words(give: bool, serials: &[u32]) -> Option<String> {
+    let mut sorted = serials.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let (&first, &last) = (sorted.first()?, sorted.last()?);
+    let n = |v: u32| crate::format::count(v as u64);
+    let run = (last - first) as usize + 1 == sorted.len();
+    Some(match (give, sorted.len() == 1, run) {
+        (true, true, _) => format!(
+            tr!(
+                "The free copy with the lowest number goes — no. {}. Those for sale are not touched."
+            ),
+            n(first)
+        ),
+        (true, false, true) => format!(
+            tr!(
+                "The free copies with the lowest numbers go — no. {}–{}. Those for sale are not touched."
+            ),
+            n(first),
+            n(last)
+        ),
+        (true, false, false) => format!(
+            tr!(
+                "The free copies with the lowest numbers go — no. {}. Those for sale are not touched."
+            ),
+            listed(&sorted)
+        ),
+        (false, true, _) => format!(tr!("Number no. {} is issued."), n(first)),
+        (false, false, true) => format!(tr!("Numbers no. {}–{} are issued."), n(first), n(last)),
+        (false, false, false) => format!(tr!("Numbers no. {} are issued."), listed(&sorted)),
+    })
+}
+
+/// `sorted` numbers with gaps as a list: «2, 4, 5» — a run of three or more as one range
+/// («2, 4–7»), at most [`RANGES_SHOWN`] parts, then «N more ranges».
+fn listed(sorted: &[u32]) -> String {
+    let n = |v: u32| crate::format::count(v as u64);
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < sorted.len() {
+        let mut j = i;
+        while j + 1 < sorted.len() && sorted[j + 1] == sorted[j] + 1 {
+            j += 1;
+        }
+        if j - i >= 2 {
+            parts.push(format!("{}–{}", n(sorted[i]), n(sorted[j])));
+        } else {
+            parts.extend(sorted[i..=j].iter().map(|v| n(*v)));
+        }
+        i = j + 1;
+    }
+    let mut line = parts
+        .iter()
+        .take(RANGES_SHOWN)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if parts.len() > RANGES_SHOWN {
+        let more = (parts.len() - RANGES_SHOWN) as u32;
+        line = format!(
+            "{line} {}",
+            crate::text::plural(more, tr!("more range"), tr!("more ranges"))
+        );
+    }
+    line
 }
 
 /// One number tile: its label, the number and up to two lines of its parts; one height.
@@ -1585,16 +1669,7 @@ fn series_window(
                         |_| {},
                     );
                 }
-                if let (Some(first), Some(last)) = (serials.first(), serials.last()) {
-                    let words = match form.action {
-                        Action::Give => format!(
-                            tr!(
-                                "The free copies with the lowest numbers go — no. {}–{}. Those for sale are not touched."
-                            ),
-                            first, last
-                        ),
-                        _ => format!(tr!("Numbers no. {}–{} are issued."), first, last),
-                    };
+                if let Some(words) = serials_words(form.action == Action::Give, &serials) {
                     ui.label(txt(&words, 12.0, Weight::Regular, p.muted));
                 }
             }

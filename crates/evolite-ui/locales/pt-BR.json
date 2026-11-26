@@ -3044,5 +3044,10 @@
   "needs a sign-in key": "falta a chave de login",
   "no keys of this wallet": "sem chaves desta carteira",
   "ready": "pronta",
-  "{} more · scroll or search": "mais {} · role ou busque"
+  "{} more · scroll or search": "mais {} · role ou busque",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "Sai a cópia livre de menor número — n.º {}. As à venda não são tocadas.",
+  "Number no. {} is issued.": "O número n.º {} está sendo emitido.",
+  "supply {} · number no. {}": "tiragem {} · número n.º {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Saem as cópias livres de menor numeração — n.º {}. As à venda não são tocadas.",
+  "Numbers no. {} are issued.": "Os números n.º {} estão sendo emitidos."
 }

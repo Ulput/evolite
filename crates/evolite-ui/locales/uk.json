@@ -3092,5 +3092,10 @@
   "needs a sign-in key": "потрібен ключ входу",
   "no keys of this wallet": "немає ключів цього гаманця",
   "ready": "готова",
-  "{} more · scroll or search": "ще {} · гортайте або шукайте"
+  "{} more · scroll or search": "ще {} · гортайте або шукайте",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "Піде вільний екземпляр з найменшим номером — № {}. Ті, що продаються, не чіпаються.",
+  "Number no. {} is issued.": "Випускається номер № {}.",
+  "supply {} · number no. {}": "наклад {} · номер № {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Підуть вільні екземпляри з найменшими номерами — № {}. Ті, що продаються, не чіпаються.",
+  "Numbers no. {} are issued.": "Випускаються номери № {}."
 }

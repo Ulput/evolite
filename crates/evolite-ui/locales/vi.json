@@ -2960,5 +2960,10 @@
   "needs a sign-in key": "cần khóa đăng nhập",
   "no keys of this wallet": "không có khóa của ví này",
   "ready": "sẵn sàng",
-  "{} more · scroll or search": "còn {} · cuộn hoặc tìm"
+  "{} more · scroll or search": "còn {} · cuộn hoặc tìm",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "Bản còn trống có số thấp nhất sẽ được tặng — số {}. Bản đang bán không bị động đến.",
+  "Number no. {} is issued.": "Đang phát hành số {}.",
+  "supply {} · number no. {}": "số lượng phát hành {} · số {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "Các bản còn trống có số thấp nhất sẽ được tặng — số {}. Bản đang bán không bị động đến.",
+  "Numbers no. {} are issued.": "Đang phát hành các số {}."
 }

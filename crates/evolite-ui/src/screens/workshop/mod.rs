@@ -143,6 +143,9 @@ pub struct WorkshopState {
     /// W7 «Given», by (contract, model); asked once a visit.
     given: HashMap<(String, String), evolite_api::workshop::Given>,
     pub(crate) given_asked: HashMap<(String, String), Retry>,
+    /// BUG-324: each gift series seen — whether it was running and how many it had given — so
+    /// that its model's «Given» is read again once it stops.
+    gifts_seen: HashMap<u64, (bool, u32)>,
     /// BUG-314: the identity's sales (DocumentHistory's `purchase`s), asked once a visit:
     /// «Sold» and the sales' History lines are the core's reading of them. A model's counts are
     /// asked once they answered, and again after a first good answer.
@@ -314,6 +317,26 @@ impl WorkshopState {
         self.counts_asked.clear();
     }
 
+    /// BUG-324: the gift series as the wallet has them now. One seen running, or seen before
+    /// with fewer given, that has stopped: its model's «Given» is read again — it said «1 ·
+    /// yesterday» after the gift until a restart. A series seen first already stopped (after a
+    /// restart) changes nothing: the page reads «Given» when it opens.
+    pub(super) fn on_series(&mut self, series: &[evolite_api::series::SeriesState]) {
+        use evolite_api::series::SeriesKind;
+        for s in series
+            .iter()
+            .filter(|s| matches!(s.kind, SeriesKind::Gift { .. }))
+        {
+            let before = self.gifts_seen.insert(s.id, (s.running, s.done));
+            let gave = before.is_some_and(|(running, done)| running || done != s.done);
+            if !s.running && gave {
+                let key = (s.target.contract.clone(), s.target.model.clone());
+                self.given.remove(&key);
+                self.given_asked.remove(&key);
+            }
+        }
+    }
+
     /// BUG-314 r1 in tests: when the sales were last read well.
     #[cfg(all(test, demo_core, feature = "dev-tools"))]
     pub(crate) fn sales_read_at(&self) -> Option<f64> {
@@ -368,6 +391,7 @@ impl WorkshopState {
         self.instances.clear();
         self.given.clear();
         self.given_asked.clear();
+        self.gifts_seen.clear();
         self.forget_sales();
         self.about = false;
         if !self.new.signed() {
@@ -914,5 +938,120 @@ mod retry_tests {
         assert!(moved);
         assert!(not_synced_retry_due(now, Some(true), moved, &mut r));
         assert!(!sync_moved(&mut seen, evolite_api::SyncStage::Done), "once");
+    }
+}
+
+#[cfg(test)]
+mod gift_tests {
+    use super::*;
+    use evolite_api::series::{SeriesKind, SeriesState, SeriesTarget};
+    use evolite_api::workshop::{Count, Given};
+
+    fn gift(id: u64, running: bool, done: u32) -> SeriesState {
+        SeriesState {
+            id,
+            target: SeriesTarget {
+                identity: "me".into(),
+                contract: "c".into(),
+                model: "m".into(),
+            },
+            kind: SeriesKind::Gift {
+                count: 2,
+                to: "@bob".into(),
+            },
+            total: 2,
+            done,
+            refused: 0,
+            unclear: 0,
+            running,
+            stopping: false,
+            per_write: 0,
+        }
+    }
+
+    fn read(state: &mut WorkshopState) {
+        let key = ("c".to_owned(), "m".to_owned());
+        state.given.insert(
+            key.clone(),
+            Given {
+                contract: "c".into(),
+                model: "m".into(),
+                count: Count::Proved(1),
+                last: None,
+                this_computer_only: false,
+            },
+        );
+        state.given_asked.insert(key, Retry::default());
+    }
+
+    fn read_now(state: &WorkshopState) -> bool {
+        state.given.contains_key(&("c".to_owned(), "m".to_owned()))
+    }
+
+    /// BUG-324: a gift series that stops — seen running, or with more given than before —
+    /// has its model's «Given» read again; one seen first already stopped (after a restart),
+    /// running, or stopped again unchanged leaves it.
+    #[test]
+    fn given_is_read_again_once_a_gift_series_stops() {
+        let mut state = WorkshopState::default();
+        read(&mut state);
+        state.on_series(&[gift(1, false, 1)]);
+        assert!(read_now(&state), "seen first stopped");
+        state.on_series(&[gift(1, false, 1)]);
+        assert!(read_now(&state), "unchanged");
+        state.on_series(&[gift(1, true, 1)]);
+        assert!(read_now(&state), "running");
+        state.on_series(&[gift(1, false, 2)]);
+        assert!(!read_now(&state), "stopped: read again");
+        assert!(state.given_asked.is_empty(), "asked again");
+        read(&mut state);
+        state.on_series(&[gift(1, false, 2)]);
+        assert!(read_now(&state), "once");
+        // «Continue» on another computer: more given, never seen running here.
+        state.on_series(&[gift(1, false, 3)]);
+        assert!(!read_now(&state), "more given");
+    }
+
+    /// BUG-325: one number is «no. 2», a run a range, for a gift and for an issue; r1 Should:
+    /// numbers with gaps (a gift leaves those for sale) a list, never a range over a gap.
+    #[test]
+    fn one_number_is_no_range() {
+        use super::model_page::serials_words;
+        let words = |give, s: &[u32]| serials_words(give, s).expect("words");
+        assert_eq!(
+            words(true, &[2]),
+            "The free copy with the lowest number goes — no. 2. Those for sale are not touched."
+        );
+        assert!(words(true, &[2, 3, 4, 5]).contains("no. 2–5."));
+        assert_eq!(
+            words(true, &[5, 2, 4]),
+            "The free copies with the lowest numbers go — no. 2, 4, 5. Those for sale are not touched."
+        );
+        assert!(words(true, &[2, 4, 5, 6, 7]).contains("no. 2, 4–7."));
+        assert_eq!(words(false, &[41]), "Number no. 41 is issued.");
+        assert_eq!(
+            words(false, &[41, 42, 43, 44, 45]),
+            "Numbers no. 41–45 are issued."
+        );
+        assert_eq!(words(false, &[41, 43]), "Numbers no. 41, 43 are issued.");
+        assert_eq!(serials_words(true, &[]), None);
+    }
+
+    /// BUG-324: «last: today, 13:04, @bob» in Russian says «сегодня» — the time translated as one
+    /// piece before it goes into the line.
+    #[test]
+    fn the_last_gift_is_said_in_the_interface_language() {
+        use crate::i18n::{Lang, set, t_in};
+        let now = chrono::Local::now();
+        set(Lang::Ru);
+        let line = super::model_page::last_gift(now.timestamp() - 3_600, "@bob", now);
+        let shown = t_in(Lang::Ru, &line);
+        set(Lang::En);
+        // An hour ago: «today» or, past midnight, «yesterday» — in Russian either way.
+        assert!(
+            !shown.contains("today") && !shown.contains("yesterday"),
+            "{shown}"
+        );
+        assert!(shown.contains("@bob"), "{shown}");
     }
 }

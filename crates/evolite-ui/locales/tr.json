@@ -3004,5 +3004,10 @@
   "needs a sign-in key": "giriş anahtarı gerekli",
   "no keys of this wallet": "bu cüzdanın anahtarı yok",
   "ready": "hazır",
-  "{} more · scroll or search": "{} tane daha · kaydırın veya arayın"
+  "{} more · scroll or search": "{} tane daha · kaydırın veya arayın",
+  "The free copy with the lowest number goes — no. {}. Those for sale are not touched.": "En düşük numaralı boş kopya gider — no. {}. Satılıkta olanlara dokunulmaz.",
+  "Number no. {} is issued.": "No. {} numarası çıkarılıyor.",
+  "supply {} · number no. {}": "tiraj {} · numara no. {}",
+  "The free copies with the lowest numbers go — no. {}. Those for sale are not touched.": "En düşük numaralı boş kopyalar gider — no. {}. Satılıkta olanlara dokunulmaz.",
+  "Numbers no. {} are issued.": "No. {} numaraları çıkarılıyor."
 }
