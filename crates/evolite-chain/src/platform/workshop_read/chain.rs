@@ -676,6 +676,9 @@ impl Chain {
                 at: (g.at_ms / 1000) as i64,
             });
         }
+        // BUG-330: read from the start once; kept with the cursor only when this pass went
+        // through (a failed one leaves the file, and the next reads from the start again).
+        found.gifts_from_start = true;
         Ok((found, out))
     }
 

@@ -33,6 +33,11 @@ pub struct Found {
     /// Contracts the identity bought an NFT of: a source it chose (its pictures drawn at once).
     #[serde(default)]
     pub bought: BTreeSet<String>,
+    /// BUG-330: the gifts to the identity were read from the start with BUG-321's History
+    /// lines. A cursor kept before (`false` in an older file) had passed gifts that never got a
+    /// line, so they are read once more from the start; the `nftrecv:` key keeps each one line.
+    #[serde(default)]
+    pub gifts_from_start: bool,
 }
 
 /// Which history a query reads.
@@ -188,9 +193,11 @@ impl Found {
         }
     }
 
-    /// Where the next read of `kind` starts.
+    /// Where the next read of `kind` starts: the gifts from the start until they were read so
+    /// once ([`Self::gifts_from_start`]).
     pub fn since(&self, kind: Kind) -> u64 {
         match kind {
+            Kind::Received if !self.gifts_from_start => 0,
             Kind::Received => self.received_ms,
             Kind::Bought => self.bought_ms,
         }
@@ -216,7 +223,11 @@ mod tests {
     /// The cursor moves to the newest time read, a contract is kept once, the kinds apart.
     #[test]
     fn what_is_found_is_added_and_the_cursor_moves() {
-        let mut found = Found::default();
+        // A cursor whose gifts were read from the start already (BUG-330).
+        let mut found = Found {
+            gifts_from_start: true,
+            ..Found::default()
+        };
         found.add(
             Kind::Received,
             [("A".into(), 10), ("B".into(), 30), ("A".into(), 20)],

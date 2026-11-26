@@ -442,6 +442,8 @@ fn a_gift_of_a_collection_not_read_is_read_again() {
             Kind::Received,
             docs.iter().filter_map(super::search::contract_of),
         );
+        // As `find_received` keeps it after a pass that went through (BUG-330).
+        found.gifts_from_start = true;
         Ok::<_, String>((kept, found))
     };
     assert!(
@@ -624,5 +626,43 @@ fn a_price_on_the_network_is_read_in_duffs_everywhere() {
     assert_eq!(
         u64::try_from(price_duffs(&docs[0]).expect("a price")).expect("positive") * 1_000,
         credits
+    );
+}
+
+/// BUG-330: a copy that searched before BUG-321 kept a cursor past its gifts, which never got a
+/// History line. Its file (no `gifts_from_start`) reads the gifts from the start once; once read
+/// so, the cursor counts again, after a restart too; the purchases' cursor is not touched.
+#[test]
+fn gifts_are_read_from_the_start_once_on_an_older_cursor() {
+    use super::search::{Found, Kind};
+    let older: Found = serde_json::from_str(
+        r#"{"received_ms": 1700000000000, "bought_ms": 1700000000500, "received": ["c"]}"#,
+    )
+    .expect("an older file");
+    assert_eq!(older.since(Kind::Received), 0, "the gifts from the start");
+    assert_eq!(
+        older.since(Kind::Bought),
+        1_700_000_000_500,
+        "purchases as kept"
+    );
+    assert_eq!(
+        Found::default().since(Kind::Received),
+        0,
+        "a new copy, from the start anyway"
+    );
+    let mut read = older.clone();
+    read.add(Kind::Received, [("c".to_owned(), 1_700_000_000_900)]);
+    read.gifts_from_start = true;
+    assert_eq!(
+        read.since(Kind::Received),
+        1_700_000_000_900,
+        "then from the cursor"
+    );
+    let kept: Found =
+        serde_json::from_str(&serde_json::to_string(&read).expect("saved")).expect("read again");
+    assert_eq!(
+        kept.since(Kind::Received),
+        1_700_000_000_900,
+        "after a restart"
     );
 }
