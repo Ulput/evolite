@@ -894,13 +894,14 @@ fn copies_put_up_for_sale_show_in_prices() {
     retype(&mut kit, "Price per copy", "0.5");
     wait_for(&mut kit, "the plan", |kit| has_words(kit, "3 records"));
     assert!(
-        has_words(&kit, "3 at 0.5000 DASH"),
+        has_words(&kit, "3 copies at 0.5000 DASH"),
         "{:?}",
         painted_texts(&kit)
     );
     assert!(has_words(&kit, "1.5000 DASH in credits"));
     assert!(has_words(&kit, "× ≈ 0.0000"), "one record's fee");
-    assert!(has_words(&kit, "now, ≈"), "the credits now and after");
+    // FEAT-0057 П3: the one line «Credits: now › ≈ after» in place of W9's own row.
+    assert!(has_words(&kit, " › ≈ "), "the credits now and after");
     assert!(
         has_words(&kit, "here no. 1–2, 4"),
         "the free ones from the lowest"
