@@ -70,6 +70,14 @@ pub struct IdentityState {
     /// «Write the link again» on the contest card (FEAT-0021 АРХ-6, AC-T12): its password, and
     /// its answer kept until the card closes (TECH-spend-flow, BUG-207).
     pub link_flow: SpendFlow<()>,
+    /// BUG-326 r1: the identity the open forms (profile, name, top-up) were opened for — the one
+    /// shown then, or the one chosen with them ([`Self::open_for`]); with `forms_wait`, until
+    /// that one is shown.
+    pub forms_for: Option<String>,
+    pub forms_wait: bool,
+    /// BUG-326 r2: forms opened while a made identity waits to be chosen (`Awaiting(before)`):
+    /// the new one's (its claim) — theirs once an identity other than `before` is shown.
+    pub forms_after: Option<Option<String>>,
 }
 
 /// The banner «Identity … created» over «Work as».
@@ -237,7 +245,12 @@ impl crate::screen_state::ScreenState for IdentityState {
             Why::WalletSwitch => *self = Self::default(),
             // A spend asked for the last identity waits for nothing now (History shows what it
             // did); a form opened for the new one (a claim's top-up after «Create») stays.
-            Why::IdentitySwitch => self.on_lock(),
+            // BUG-326: the last top-up's answer was the last identity's — «Credits added» over
+            // another's card said it was topped up.
+            Why::IdentitySwitch => {
+                self.on_lock();
+                self.top_up_result = None;
+            }
         }
     }
 }
@@ -785,6 +798,53 @@ impl IdentityState {
             self.top_up_result = None;
         }
         self.top_up = Some(TopUpForm::default());
+    }
+
+    /// BUG-326 r1: the forms opened with `id` chosen at once (the creation's «Top up»): theirs,
+    /// kept until it is shown.
+    pub fn open_for(&mut self, id: String) {
+        self.forms_for = Some(id);
+        self.forms_wait = true;
+    }
+
+    /// BUG-326 r1 (Should), r2 (Must): each frame, with the identity `shown`. An open form is the
+    /// identity's it was opened for; once another is shown it goes — over another's card «Save»,
+    /// «Add» or «Top up» would write from that one. The shown identity changes with a form open
+    /// exactly when one made in the background is chosen: the forms opened before that are the
+    /// last identity's and go; only the ones opened while the made one waits to be chosen
+    /// (`Created::Awaiting`, its claim) are the new one's and stay.
+    pub fn keep_forms_of(&mut self, shown: Option<&str>) {
+        let open = self.editing.is_some() || self.adding_name.is_some() || self.top_up.is_some();
+        if !open {
+            self.forms_for = None;
+            self.forms_wait = false;
+            self.forms_after = None;
+            return;
+        }
+        let Some(shown) = shown else {
+            return;
+        };
+        if let Some(before) = &self.forms_after {
+            if before.as_deref() != Some(shown) {
+                self.forms_for = Some(shown.to_owned());
+                self.forms_after = None;
+            }
+            return;
+        }
+        match self.forms_for.as_deref() {
+            None => match &self.created {
+                Some(Created::Awaiting(before)) => self.forms_after = Some(before.clone()),
+                _ => self.forms_for = Some(shown.to_owned()),
+            },
+            Some(own) if own == shown => self.forms_wait = false,
+            Some(_) if self.forms_wait => {}
+            Some(_) => {
+                self.editing = None;
+                self.adding_name = None;
+                self.top_up = None;
+                self.forms_for = None;
+            }
+        }
     }
 
     /// "Top up" on the credits card: the form, or why it cannot open now — never nothing.

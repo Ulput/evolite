@@ -196,6 +196,15 @@ impl<'a> Ctx<'a> {
             .expect("wallet screens open only with a wallet")
     }
 
+    /// BUG-326 r1: the identity chosen this frame, if one was (the forms opened with it are
+    /// its own).
+    pub fn choosing(&self) -> Option<String> {
+        self.commands.iter().rev().find_map(|c| match c {
+            Command::ChooseIdentity { id } => Some(id.clone()),
+            _ => None,
+        })
+    }
+
     /// Sent to the core after the frame.
     pub fn send(&mut self, command: Command) {
         self.commands.push(command);

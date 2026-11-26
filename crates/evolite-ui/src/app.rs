@@ -1744,6 +1744,14 @@ impl eframe::App for App {
         self.vault = Some(snapshot.vault);
         self.identity_keys
             .hide_unless_on(self.screen == Screen::IdentityKeys);
+        // BUG-326 r1: the forms of the identity they were opened for only.
+        self.identity.keep_forms_of(
+            snapshot
+                .wallet
+                .as_ref()
+                .and_then(|w| w.identity.as_ref())
+                .map(|i| i.id.as_str()),
+        );
         self.settings.hide_phrase_unless_shown(
             self.screen == Screen::Settings && self.settings.phrase_dialog,
         );
@@ -2134,6 +2142,10 @@ impl eframe::App for App {
         }
         if cx.take_top_up() {
             self.identity.open_top_up();
+            // BUG-326 r1: «Top up» of the identity chosen with it (the creation's card).
+            if let Some(id) = cx.choosing() {
+                self.identity.open_for(id);
+            }
         }
         if cx.take_enable_dashpay() {
             self.identity_keys.open_enable_dashpay();

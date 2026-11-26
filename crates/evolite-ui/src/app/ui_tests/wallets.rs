@@ -380,3 +380,137 @@ fn a_wallet_switch_mid_spend_shows_none_of_the_first_ones_answers() {
     assert!(app.fund_address.flow.can_act(), "the top-up ready");
     assert_eq!(app.fund_address.running(), None, "no top-up running");
 }
+
+/// BUG-326: identity A topped up, «Credits added» over its card; «Work as» B — the banner was
+/// A's and goes, not shown over B's card as if B were topped up.
+#[test]
+fn another_identity_is_shown_without_the_last_ones_top_up() {
+    let (_turn, mut kit) = demo_app("identity", "en");
+    let shown = |kit: &Kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone())
+    };
+    wait_for(&mut kit, "the identity", |kit| shown(kit).is_some());
+    let first = shown(&kit).expect("shown");
+    let other = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| {
+            w.identities
+                .iter()
+                .find(|i| i.id != first)
+                .map(|i| i.id.clone())
+        })
+        .expect("a second identity");
+    kit.state_mut().identity.top_up_result = Some((100_000, Ok(())));
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Credits added"), "A's banner over A's card");
+    kit.state_mut()
+        .core
+        .send(Command::ChooseIdentity { id: other.clone() });
+    wait_for(&mut kit, "B shown", |kit| {
+        shown(kit).as_deref() == Some(other.as_str())
+    });
+    kit.run_steps(3);
+    assert!(kit.state().identity.top_up_result.is_none(), "A's answer");
+    assert!(!has_words(&kit, "Credits added"), "no banner over B's card");
+}
+
+/// BUG-326 r1 (Should): «Edit profile», «Add a name» and «Top up» opened for A, then B shown —
+/// an identity made in the background is chosen when it is done, whatever is open. The forms
+/// were A's and go: over B's card their «Save» would write from B.
+#[test]
+fn another_identity_is_shown_without_the_last_ones_forms() {
+    let (_turn, mut kit) = demo_app("identity", "en");
+    let shown = |kit: &Kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone())
+    };
+    wait_for(&mut kit, "the identity", |kit| shown(kit).is_some());
+    let first = shown(&kit).expect("shown");
+    let other = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| {
+            w.identities
+                .iter()
+                .find(|i| i.id != first)
+                .map(|i| i.id.clone())
+        })
+        .expect("a second identity");
+    kit.state_mut().identity.editing = Some(screens::identity::ProfileForm::default());
+    kit.state_mut().identity.adding_name = Some(screens::identity::NameForm::default());
+    kit.state_mut().identity.open_top_up();
+    kit.run_steps(3);
+    kit.state_mut()
+        .core
+        .send(Command::ChooseIdentity { id: other.clone() });
+    wait_for(&mut kit, "B shown", |kit| {
+        shown(kit).as_deref() == Some(other.as_str())
+    });
+    kit.run_steps(3);
+    let id = &kit.state().identity;
+    assert!(id.editing.is_none(), "A's profile form");
+    assert!(id.adding_name.is_none(), "A's name form");
+    assert!(id.top_up.is_none(), "A's top-up form");
+}
+
+/// BUG-326 r2 (the architect's Must): the switch in the background is the creation's — A's
+/// forms open, «Create» answers (the banner waits for the new one), the snapshot chooses B. The
+/// forms were A's and go; only forms opened while the banner waits are the new one's.
+#[test]
+fn a_made_identity_chosen_closes_the_last_ones_forms() {
+    let (_turn, mut kit) = demo_app("identity", "en");
+    let shown = |kit: &Kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone())
+    };
+    wait_for(&mut kit, "the identity", |kit| shown(kit).is_some());
+    let first = shown(&kit).expect("shown");
+    let other = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| {
+            w.identities
+                .iter()
+                .find(|i| i.id != first)
+                .map(|i| i.id.clone())
+        })
+        .expect("a second identity");
+    kit.state_mut().identity.editing = Some(screens::identity::ProfileForm::default());
+    kit.state_mut().identity.adding_name = Some(screens::identity::NameForm::default());
+    kit.run_steps(3);
+    kit.state_mut()
+        .identity
+        .on_created(Some(Some(first.clone())));
+    kit.run_steps(2);
+    kit.state_mut()
+        .core
+        .send(Command::ChooseIdentity { id: other.clone() });
+    wait_for(&mut kit, "B shown", |kit| {
+        shown(kit).as_deref() == Some(other.as_str())
+    });
+    kit.run_steps(3);
+    let id = &kit.state().identity;
+    assert!(id.created.is_some(), "the creation's banner");
+    assert!(id.editing.is_none(), "A's profile form");
+    assert!(id.adding_name.is_none(), "A's name form");
+}
