@@ -816,23 +816,8 @@ fn group_card(
             );
         });
     });
-    // «You have 3 · 1 for sale at 0.5000 DASH · 2 not for sale».
     let prices: Vec<Duffs> = group.iter().filter_map(|&i| nfts[i].price).collect();
-    let mut summary = text::plural_in(n as u32, tr!("You have {}"), tr!("You have {}"));
-    if let Some(low) = prices.iter().min() {
-        let sale = text::plural_in(
-            prices.len() as u32,
-            tr!("{} for sale at {}"),
-            tr!("{} for sale at {}"),
-        )
-        .replacen("{}", &crate::format::amount(*low), 1);
-        summary = format!("{summary} · {sale}");
-    }
-    let unsold = (n - prices.len()) as u32;
-    if unsold > 0 {
-        let rest = text::plural_in(unsold, tr!("{} not for sale"), tr!("{} not for sale"));
-        summary = format!("{summary} · {rest}");
-    }
+    let summary = copies_summary(n, &prices);
     ui.add(crate::components::para(
         &crate::i18n::t(&summary),
         14.0,
@@ -1350,9 +1335,43 @@ impl crate::screen_state::ScreenState for CollectionState {
     }
 }
 
+/// «You have 3 · 1 for sale at 0.5000 DASH · 2 not for sale» of `n` copies at `prices` (those
+/// for sale). Batch 74 (BUG-307's class): each piece in the interface language before they are
+/// joined — the line translated whole was split at « · », and «1 for sale at …» was taken by
+/// another key's template and stayed half English.
+pub(super) fn copies_summary(n: usize, prices: &[Duffs]) -> String {
+    let lang = crate::i18n::current();
+    let piece = |s: String| crate::i18n::t_in(lang, &s).into_owned();
+    let mut parts = vec![piece(text::plural_in(
+        n as u32,
+        tr!("You have {}"),
+        tr!("You have {}"),
+    ))];
+    if let Some(low) = prices.iter().min() {
+        let sale = text::plural_in(
+            prices.len() as u32,
+            tr!("{} for sale at {}"),
+            tr!("{} for sale at {}"),
+        )
+        .replacen("{}", &crate::format::amount(*low), 1);
+        parts.push(piece(sale));
+    }
+    let unsold = n.saturating_sub(prices.len()) as u32;
+    if unsold > 0 {
+        parts.push(piece(text::plural_in(
+            unsold,
+            tr!("{} not for sale"),
+            tr!("{} not for sale"),
+        )));
+    }
+    parts.join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{failed_detail, groups, is_dash_name, numbers, third_line, tile_grid};
+    use super::{
+        copies_summary, failed_detail, groups, is_dash_name, numbers, third_line, tile_grid,
+    };
     use evolite_api::{Nft, NftOrigin};
 
     /// BUG-188 §2: the designer's table — 800 (676): 4 × 160, 1024 (868): 5 × 164, 1280 with
@@ -1455,6 +1474,16 @@ mod tests {
         assert_eq!(
             ru("You have 3 · 1 for sale at 0.5000 DASH · 2 not for sale"),
             "У вас 3 · продаётся 1 по 0.5000 DASH · не продаются 2"
+        );
+        // Batch 74: the screen's line, each piece in Russian before they are joined.
+        crate::i18n::set(crate::i18n::Lang::Ru);
+        let line = copies_summary(3, &[50_000_000]);
+        // The amount as Russian writes it, with its decimal comma.
+        let price = crate::format::amount(50_000_000);
+        crate::i18n::set(crate::i18n::Lang::En);
+        assert_eq!(
+            line,
+            format!("У вас 3 · продаётся 1 по {price} · не продаются 2")
         );
     }
 

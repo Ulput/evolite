@@ -2980,7 +2980,6 @@
   "all {}": "सभी {}",
   "at {} · {}": "{} पर · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite सबसे छोटे नंबरों वाली खाली प्रतियाँ लेता है — यहाँ {}।",
-  "{} at {}": "{} · {} पर",
   "{} per copy": "{} प्रति प्रति",
   "“{}” · for sale {}": "“{}” · बिक्री के लिए {}",
   "“{}” · free {}": "“{}” · खाली {}",
@@ -2988,5 +2987,9 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "कीमत केवल प्रति को खुद को देकर हटाई जा सकती है, इसलिए शुल्क उपहार जितना है।",
   "Received “{}” no. {} · from {}": "“{}” नं. {} मिला · {} से",
   "Received “{}” · from {}": "“{}” मिला · {} से",
-  "Received an NFT · from {}": "NFT मिला · {} से"
+  "Received an NFT · from {}": "NFT मिला · {} से",
+  "{} copy at {}|{} copies at {}": {
+    "one": "{} प्रति · {} पर",
+    "other": "{} प्रतियाँ · {} पर"
+  }
 }

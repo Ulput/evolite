@@ -3019,7 +3019,6 @@
   "all {}": "todas {}",
   "at {} · {}": "por {} · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "O evolite pega as cópias livres com os menores números — aqui {}.",
-  "{} at {}": "{} por {}",
   "{} per copy": "{} por cópia",
   "“{}” · for sale {}": "“{}” · à venda {}",
   "“{}” · free {}": "“{}” · livres {}",
@@ -3027,5 +3026,10 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "O preço só pode ser tirado passando a cópia para você mesmo, por isso a taxa é a mesma de um presente.",
   "Received “{}” no. {} · from {}": "Recebido “{}” nº {} · de {}",
   "Received “{}” · from {}": "Recebido “{}” · de {}",
-  "Received an NFT · from {}": "NFT recebido · de {}"
+  "Received an NFT · from {}": "NFT recebido · de {}",
+  "{} copy at {}|{} copies at {}": {
+    "one": "{} cópia por {}",
+    "many": "{} de cópias por {}",
+    "other": "{} cópias por {}"
+  }
 }

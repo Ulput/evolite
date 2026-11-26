@@ -2937,7 +2937,6 @@
   "all {}": "すべて {}",
   "at {} · {}": "{} で · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite は番号の小さい空きの部を選びます — ここでは {}。",
-  "{} at {}": "{} · {}",
   "{} per copy": "1 部 {}",
   "“{}” · for sale {}": "「{}」 · 出品中 {}",
   "“{}” · free {}": "「{}」 · 空き {}",
@@ -2945,5 +2944,8 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "価格は部を自分自身に譲渡することでしか外せないため、手数料は贈呈と同じです。",
   "Received “{}” no. {} · from {}": "「{}」No. {} を受け取りました · {} から",
   "Received “{}” · from {}": "「{}」を受け取りました · {} から",
-  "Received an NFT · from {}": "NFT を受け取りました · {} から"
+  "Received an NFT · from {}": "NFT を受け取りました · {} から",
+  "{} copy at {}|{} copies at {}": {
+    "other": "{} 個のコピー · {}"
+  }
 }

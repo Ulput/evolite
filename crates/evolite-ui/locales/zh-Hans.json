@@ -2937,7 +2937,6 @@
   "all {}": "全部 {}",
   "at {} · {}": "价格 {} · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite 会选取编号最小的空闲副本——这里是 {}。",
-  "{} at {}": "{} 个，价格 {}",
   "{} per copy": "每个副本 {}",
   "“{}” · for sale {}": "“{}” · 出售中 {}",
   "“{}” · free {}": "“{}” · 空闲 {}",
@@ -2945,5 +2944,8 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "只能通过把副本转给自己来取消价格，所以费用与赠送相同。",
   "Received “{}” no. {} · from {}": "已收到“{}”第 {} 号 · 来自 {}",
   "Received “{}” · from {}": "已收到“{}” · 来自 {}",
-  "Received an NFT · from {}": "已收到 NFT · 来自 {}"
+  "Received an NFT · from {}": "已收到 NFT · 来自 {}",
+  "{} copy at {}|{} copies at {}": {
+    "other": "{} 个副本，价格 {}"
+  }
 }

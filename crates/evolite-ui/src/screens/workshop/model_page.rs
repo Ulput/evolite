@@ -1607,11 +1607,14 @@ fn series_window(
                         ui,
                         &p,
                         tr!("You put up"),
-                        &format!(
-                            tr!("{} at {}"),
-                            crate::format::count(u64::from(count)),
-                            crate::format::amount(price)
-                        ),
+                        // Batch 74: its own key — a bare «{} at {}» took «1 for sale at …» of
+                        // the Collection's line when it was translated piece by piece.
+                        &crate::text::plural_in(
+                            count,
+                            tr!("{} copy at {}"),
+                            tr!("{} copies at {}"),
+                        )
+                        .replacen("{}", &crate::format::amount(price), 1),
                         words.clone(),
                     );
                     if_all_bought(ui, &p, price.saturating_mul(count as Duffs));

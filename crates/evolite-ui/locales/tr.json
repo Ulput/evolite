@@ -2980,7 +2980,6 @@
   "all {}": "tümü {}",
   "at {} · {}": "{} fiyatla · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite en küçük numaralı boş kopyaları alır — burada {}.",
-  "{} at {}": "{} · {} fiyatla",
   "{} per copy": "kopya başına {}",
   "“{}” · for sale {}": "“{}” · satışta {}",
   "“{}” · free {}": "“{}” · boş {}",
@@ -2988,5 +2987,9 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Fiyat yalnızca kopyayı kendinize aktararak kaldırılabilir, bu yüzden ücret hediyeyle aynıdır.",
   "Received “{}” no. {} · from {}": "“{}” no. {} alındı · {} tarafından",
   "Received “{}” · from {}": "“{}” alındı · {} tarafından",
-  "Received an NFT · from {}": "NFT alındı · {} tarafından"
+  "Received an NFT · from {}": "NFT alındı · {} tarafından",
+  "{} copy at {}|{} copies at {}": {
+    "one": "{} kopya · {} fiyatla",
+    "other": "{} kopya · {} fiyatla"
+  }
 }

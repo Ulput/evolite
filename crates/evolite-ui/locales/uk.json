@@ -3066,7 +3066,6 @@
   "all {}": "усі {}",
   "at {} · {}": "по {} · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite візьме вільні примірники з найменшими номерами — тут {}.",
-  "{} at {}": "{} по {}",
   "{} per copy": "{} за примірник",
   "“{}” · for sale {}": "«{}» · продаються {}",
   "“{}” · free {}": "«{}» · вільних {}",
@@ -3074,5 +3073,11 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Зняти ціну можна лише передачею примірника собі, тому плата як за подарунок.",
   "Received “{}” no. {} · from {}": "Отримано «{}» № {} · від {}",
   "Received “{}” · from {}": "Отримано «{}» · від {}",
-  "Received an NFT · from {}": "Отримано NFT · від {}"
+  "Received an NFT · from {}": "Отримано NFT · від {}",
+  "{} copy at {}|{} copies at {}": {
+    "one": "{} екземпляр по {}",
+    "few": "{} екземпляри по {}",
+    "many": "{} екземплярів по {}",
+    "other": "{} екземпляра по {}"
+  }
 }

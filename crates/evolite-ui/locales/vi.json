@@ -2937,7 +2937,6 @@
   "all {}": "tất cả {}",
   "at {} · {}": "giá {} · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite lấy các bản trống có số nhỏ nhất — ở đây là {}.",
-  "{} at {}": "{} giá {}",
   "{} per copy": "{} mỗi bản",
   "“{}” · for sale {}": "“{}” · đang bán {}",
   "“{}” · free {}": "“{}” · trống {}",
@@ -2945,5 +2944,8 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Chỉ có thể gỡ giá bằng cách chuyển bản cho chính mình, nên phí giống như khi tặng.",
   "Received “{}” no. {} · from {}": "Đã nhận “{}” số {} · từ {}",
   "Received “{}” · from {}": "Đã nhận “{}” · từ {}",
-  "Received an NFT · from {}": "Đã nhận NFT · từ {}"
+  "Received an NFT · from {}": "Đã nhận NFT · từ {}",
+  "{} copy at {}|{} copies at {}": {
+    "other": "{} bản giá {}"
+  }
 }

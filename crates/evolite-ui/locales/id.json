@@ -2937,7 +2937,6 @@
   "all {}": "semua {}",
   "at {} · {}": "seharga {} · {}",
   "evolite takes the free copies with the lowest numbers — here {}.": "evolite mengambil salinan bebas dengan nomor terkecil — di sini {}.",
-  "{} at {}": "{} seharga {}",
   "{} per copy": "{} per salinan",
   "“{}” · for sale {}": "“{}” · dijual {}",
   "“{}” · free {}": "“{}” · bebas {}",
@@ -2945,5 +2944,8 @@
   "A price can only be removed by passing the item to yourself, so the fee is the same as for a gift.": "Harga hanya bisa dihapus dengan memberikan salinan ke diri sendiri, jadi biayanya sama dengan hadiah.",
   "Received “{}” no. {} · from {}": "Diterima “{}” no. {} · dari {}",
   "Received “{}” · from {}": "Diterima “{}” · dari {}",
-  "Received an NFT · from {}": "NFT diterima · dari {}"
+  "Received an NFT · from {}": "NFT diterima · dari {}",
+  "{} copy at {}|{} copies at {}": {
+    "other": "{} salinan seharga {}"
+  }
 }
