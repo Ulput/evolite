@@ -2516,7 +2516,6 @@
   "Fund for the vote · not refunded": "Oylama katkısı · iade edilmez",
   "Writes to Platform": "Platform'a yazımlar",
   "Actions on several copies come in the next version": "Birden çok kopyayla işlemler bir sonraki sürümde gelecek",
-  "Asks “How many of {}”. Deleting can't be undone.": "“{} içinden kaç tane” diye soracak. Silme geri alınamaz.",
   "COPIES": "KOPYALAR",
   "Delete…": "Sil…",
   "Give…": "Hediye et…",
@@ -2527,7 +2526,6 @@
     "other": "{} tane var"
   },
   "for sale · {}": "satışta · {}",
-  "issue": "ihraç",
   "the picture does not match": "resim eşleşmiyor",
   "{} for sale at {}|{} for sale at {}": {
     "one": "{} tanesi {} fiyatla satışta",
@@ -2544,7 +2542,6 @@
   "{} · model of {}": "{} · {} adetlik model",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Hediye et” ve “Satışa çıkar”, “{} içinden kaç tane” diye sorar ve “Atölye”deki seriler gibi hepsini tek imzayla denetler. Hediye fiyatı kaldırır; satıştan sonra fiyatı yeni sahibi belirler.",
   "The token's rules could not be read from the network.": "Token kuralları ağdan okunamadı.",
   "Trying again in {} s": "{} sn sonra yeniden denenecek",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "İstekleri eski anahtara şifrelenmiş kişiler, yenisini gönderene kadar size ödeme yapamaz.",
@@ -3033,5 +3030,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Uygulamanın sözleşmesi {} okunamadı: evolite'in bu sürümünden daha yeni olabilir.",
   "Could not read the identity's keys for contract {} from Platform.": "Sözleşme {} için kimliğin anahtarları Platform'dan okunamadı.",
   "Hide details": "Ayrıntıları gizle",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Hiçbir şey harcanmadı. Tekrar deneyin; yine olursa «Ayrıntılar» Platform'un yanıtını gösterir."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Hiçbir şey harcanmadı. Tekrar deneyin; yine olursa «Ayrıntılar» Platform'un yanıtını gösterir.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Bir kopyayı «Atölye»deki modelin sayfasında hediye edebilir veya satışa koyabilirsiniz."
 }

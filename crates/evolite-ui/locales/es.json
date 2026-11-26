@@ -2548,7 +2548,6 @@
   "Fund for the vote · not refunded": "Aporte para la votación · no reembolsable",
   "Writes to Platform": "Escrituras en Platform",
   "Actions on several copies come in the next version": "Las acciones con varias copias llegan en la próxima versión",
-  "Asks “How many of {}”. Deleting can't be undone.": "Preguntará «Cuántas de {}». Eliminar no se puede deshacer.",
   "COPIES": "COPIAS",
   "Delete…": "Eliminar…",
   "Give…": "Regalar…",
@@ -2559,7 +2558,6 @@
     "other": "Tienes {}"
   },
   "for sale · {}": "a la venta · {}",
-  "issue": "emisión",
   "the picture does not match": "la imagen no coincide",
   "{} for sale at {}|{} for sale at {}": {
     "one": "{} a la venta por {}",
@@ -2576,7 +2574,6 @@
   "{} · model of {}": "{} · modelo de {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Regalar» y «Poner a la venta» preguntarán «Cuántas de {}» y lo comprobarán todo con una sola firma, como las series del «Taller». Un regalo quita el precio; tras una venta, el precio lo pone el nuevo dueño.",
   "The token's rules could not be read from the network.": "No se pudieron leer las reglas del token desde la red.",
   "Trying again in {} s": "Reintentando en {} s",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Los contactos cuyas solicitudes están cifradas con la clave antigua no podrán pagarle hasta que envíen una nueva.",
@@ -3074,5 +3071,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "No se pudo leer el contrato {} de la app: quizá es más nuevo que esta versión de evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "No se pudieron leer de Platform las claves de la identidad para el contrato {}.",
   "Hide details": "Ocultar detalles",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "No se gastó nada. Inténtelo de nuevo; si vuelve a pasar, «Detalles» muestra lo que respondió Platform."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "No se gastó nada. Inténtelo de nuevo; si vuelve a pasar, «Detalles» muestra lo que respondió Platform.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Puede regalar o poner a la venta una copia en la página del modelo en el «Taller»."
 }

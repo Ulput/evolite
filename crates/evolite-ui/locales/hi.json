@@ -2516,7 +2516,6 @@
   "Fund for the vote · not refunded": "मतदान का शुल्क · वापस नहीं होता",
   "Writes to Platform": "Platform में लेखन",
   "Actions on several copies come in the next version": "कई प्रतियों पर कार्रवाइयाँ अगले संस्करण में आएँगी",
-  "Asks “How many of {}”. Deleting can't be undone.": "पूछेगा “{} में से कितनी”। हटाना पूर्ववत नहीं किया जा सकता।",
   "COPIES": "प्रतियाँ",
   "Delete…": "हटाएँ…",
   "Give…": "उपहार दें…",
@@ -2527,7 +2526,6 @@
     "other": "आपके पास {}"
   },
   "for sale · {}": "बिक्री पर · {}",
-  "issue": "जारी",
   "the picture does not match": "चित्र मेल नहीं खाता",
   "{} for sale at {}|{} for sale at {}": {
     "one": "{} बिक्री पर, {} में",
@@ -2544,7 +2542,6 @@
   "{} · model of {}": "{} · {} का मॉडल",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“उपहार दें” और “बिक्री के लिए रखें” पूछेंगे “{} में से कितनी” और “कार्यशाला” की शृंखलाओं की तरह सब कुछ एक हस्ताक्षर से जाँचेंगे। उपहार कीमत हटा देता है; बिक्री के बाद कीमत नया मालिक तय करता है।",
   "The token's rules could not be read from the network.": "नेटवर्क से टोकन के नियम नहीं पढ़े जा सके।",
   "Trying again in {} s": "{} सेकंड में फिर कोशिश",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "जिन संपर्कों के अनुरोध पुरानी कुंजी पर एन्क्रिप्ट हैं, वे नया भेजने तक आपको भुगतान नहीं कर पाएँगे।",
@@ -3033,5 +3030,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "ऐप का कॉन्ट्रैक्ट {} पढ़ा नहीं जा सका: शायद यह evolite के इस संस्करण से नया है।",
   "Could not read the identity's keys for contract {} from Platform.": "कॉन्ट्रैक्ट {} के लिए पहचान की कुंजियाँ Platform से पढ़ी नहीं जा सकीं।",
   "Hide details": "विवरण छिपाएँ",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "कुछ भी ख़र्च नहीं हुआ। फिर कोशिश करें; अगर फिर से हो, तो «विवरण» दिखाता है कि Platform ने क्या जवाब दिया।"
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "कुछ भी ख़र्च नहीं हुआ। फिर कोशिश करें; अगर फिर से हो, तो «विवरण» दिखाता है कि Platform ने क्या जवाब दिया।",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "एक प्रति आप «वर्कशॉप» में मॉडल के पेज पर उपहार में दे सकते हैं या बिक्री पर रख सकते हैं।"
 }

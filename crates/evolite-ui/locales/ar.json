@@ -2644,7 +2644,6 @@
   "Fund for the vote · not refunded": "رسم التصويت · غير مسترد",
   "Writes to Platform": "عمليات الكتابة في Platform",
   "Actions on several copies come in the next version": "الإجراءات على عدة نسخ ستأتي في الإصدار التالي",
-  "Asks “How many of {}”. Deleting can't be undone.": "سيسأل «كم من {}». لا يمكن التراجع عن الحذف.",
   "COPIES": "النسخ",
   "Delete…": "حذف…",
   "Give…": "إهداء…",
@@ -2659,7 +2658,6 @@
     "other": "لديك {}"
   },
   "for sale · {}": "معروضة للبيع · {}",
-  "issue": "إصدار",
   "the picture does not match": "الصورة لا تطابق",
   "{} for sale at {}|{} for sale at {}": {
     "zero": "{} معروضة للبيع بسعر {}",
@@ -2688,7 +2686,6 @@
   "{} · model of {}": "{} · نموذج من {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«إهداء» و«عرض للبيع» سيسألان «كم من {}» ويتحققان من كل شيء بتوقيع واحد، مثل السلاسل في «الورشة». الهدية تزيل السعر؛ بعد البيع يحدد المالك الجديد السعر.",
   "The token's rules could not be read from the network.": "تعذّرت قراءة قواعد الرمز من الشبكة.",
   "Trying again in {} s": "إعادة المحاولة بعد {} ث",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "جهات الاتصال التي طلباتها مشفّرة بالمفتاح القديم لن تتمكن من الدفع لك حتى ترسل طلبًا جديدًا.",
@@ -3213,5 +3210,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "تعذّرت قراءة عقد التطبيق {}: ربما يكون أحدث من هذا الإصدار من evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "تعذّرت قراءة مفاتيح الهوية للعقد {} من Platform.",
   "Hide details": "إخفاء التفاصيل",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "لم يُنفق شيء. حاول مجددًا؛ وإن تكرر ذلك، يعرض «التفاصيل» ما أجابت به Platform.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "يمكنك إهداء نسخة واحدة أو عرضها للبيع من صفحة النموذج في «الورشة»."
 }

@@ -2484,7 +2484,6 @@
   "Fund for the vote · not refunded": "投票の供託金 · 返還されません",
   "Writes to Platform": "Platform への書き込み",
   "Actions on several copies come in the next version": "複数部数の操作は次のバージョンで追加されます",
-  "Asks “How many of {}”. Deleting can't be undone.": "「{} 部のうち何部」と尋ねます。削除は元に戻せません。",
   "COPIES": "部数一覧",
   "Delete…": "削除…",
   "Give…": "贈る…",
@@ -2494,7 +2493,6 @@
     "other": "{} 部所有"
   },
   "for sale · {}": "出品中 · {}",
-  "issue": "発行",
   "the picture does not match": "画像が一致しません",
   "{} for sale at {}|{} for sale at {}": {
     "other": "{} 部を {} で出品中"
@@ -2508,7 +2506,6 @@
   "{} · model of {}": "{} · {} 部のモデル",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "「贈る」と「出品」は「{} 部のうち何部」と尋ね、「工房」のシリーズと同様にすべてを1回の署名で確認します。贈ると価格は外れます。売却後の価格は新しい所有者が決めます。",
   "The token's rules could not be read from the network.": "ネットワークからトークンのルールを読み取れませんでした。",
   "Trying again in {} s": "{} 秒後に再試行",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "古い鍵に暗号化されたリクエストの連絡先は、新しいリクエストを送るまであなたに支払えません。",
@@ -2988,5 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "アプリのコントラクト {} を読み取れませんでした。この evolite のバージョンより新しい可能性があります。",
   "Could not read the identity's keys for contract {} from Platform.": "コントラクト {} 用のアイデンティティの鍵を Platform から読み取れませんでした。",
   "Hide details": "詳細を隠す",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "何も使われていません。再試行してください。再び起きる場合は「詳細」に Platform の応答が表示されます。"
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "何も使われていません。再試行してください。再び起きる場合は「詳細」に Platform の応答が表示されます。",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "1 部ずつなら「ワークショップ」のモデルのページで贈ったり販売に出したりできます。"
 }

@@ -2484,7 +2484,6 @@
   "Fund for the vote · not refunded": "Khoản góp cho cuộc bỏ phiếu · không hoàn lại",
   "Writes to Platform": "Ghi vào Platform",
   "Actions on several copies come in the next version": "Thao tác với nhiều bản sẽ có trong phiên bản tới",
-  "Asks “How many of {}”. Deleting can't be undone.": "Sẽ hỏi “Bao nhiêu trong {}”. Không thể hoàn tác việc xóa.",
   "COPIES": "CÁC BẢN",
   "Delete…": "Xóa…",
   "Give…": "Tặng…",
@@ -2494,7 +2493,6 @@
     "other": "Bạn có {}"
   },
   "for sale · {}": "đang bán · {}",
-  "issue": "phát hành",
   "the picture does not match": "hình không khớp",
   "{} for sale at {}|{} for sale at {}": {
     "other": "{} đang bán với giá {}"
@@ -2508,7 +2506,6 @@
   "{} · model of {}": "{} · mẫu trong {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“Tặng” và “Rao bán” sẽ hỏi “Bao nhiêu trong {}” và kiểm tra tất cả bằng một chữ ký, như các loạt trong “Xưởng”. Quà tặng bỏ giá; sau khi bán, chủ mới đặt giá.",
   "The token's rules could not be read from the network.": "Không thể đọc quy tắc của token từ mạng.",
   "Trying again in {} s": "Thử lại sau {} giây",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Các liên hệ có yêu cầu được mã hóa bằng khóa cũ sẽ không thể thanh toán cho bạn cho đến khi họ gửi yêu cầu mới.",
@@ -2988,5 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Không đọc được hợp đồng {} của ứng dụng: có thể nó mới hơn phiên bản evolite này.",
   "Could not read the identity's keys for contract {} from Platform.": "Không đọc được khóa của danh tính cho hợp đồng {} từ Platform.",
   "Hide details": "Ẩn chi tiết",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Chưa chi gì. Hãy thử lại; nếu lại xảy ra, «Chi tiết» cho thấy Platform đã trả lời gì."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Chưa chi gì. Hãy thử lại; nếu lại xảy ra, «Chi tiết» cho thấy Platform đã trả lời gì.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Bạn có thể tặng hoặc rao bán một bản trên trang của mẫu trong «Xưởng»."
 }

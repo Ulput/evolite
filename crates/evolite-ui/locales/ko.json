@@ -2484,7 +2484,6 @@
   "Fund for the vote · not refunded": "투표 보증금 · 환불되지 않음",
   "Writes to Platform": "Platform 기록",
   "Actions on several copies come in the next version": "여러 사본에 대한 작업은 다음 버전에서 제공됩니다",
-  "Asks “How many of {}”. Deleting can't be undone.": "“{}개 중 몇 개”를 묻습니다. 삭제는 되돌릴 수 없습니다.",
   "COPIES": "사본",
   "Delete…": "삭제…",
   "Give…": "선물하기…",
@@ -2494,7 +2493,6 @@
     "other": "{}개 보유"
   },
   "for sale · {}": "판매 중 · {}",
-  "issue": "발행",
   "the picture does not match": "그림이 일치하지 않음",
   "{} for sale at {}|{} for sale at {}": {
     "other": "{}개 판매 중, {}"
@@ -2508,7 +2506,6 @@
   "{} · model of {}": "{} · {}개 모델",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "“선물하기”와 “판매 등록”은 “{}개 중 몇 개”를 묻고 “공방”의 시리즈처럼 모두 한 번의 서명으로 확인합니다. 선물하면 가격이 사라지고, 판매 후에는 새 소유자가 가격을 정합니다.",
   "The token's rules could not be read from the network.": "네트워크에서 토큰 규칙을 읽을 수 없습니다.",
   "Trying again in {} s": "{}초 후 다시 시도",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "이전 키로 암호화된 요청을 보낸 연락처는 새 요청을 보낼 때까지 결제할 수 없습니다.",
@@ -2988,5 +2985,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "앱의 컨트랙트 {}을(를) 읽을 수 없습니다. 이 버전의 evolite보다 새로운 것일 수 있습니다.",
   "Could not read the identity's keys for contract {} from Platform.": "컨트랙트 {}에 대한 아이덴티티의 키를 Platform에서 읽을 수 없습니다.",
   "Hide details": "자세히 숨기기",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "아무것도 쓰지 않았습니다. 다시 시도하세요. 다시 일어나면 «자세히»에서 Platform의 응답을 볼 수 있습니다."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "아무것도 쓰지 않았습니다. 다시 시도하세요. 다시 일어나면 «자세히»에서 Platform의 응답을 볼 수 있습니다.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "사본 하나는 «워크숍»의 모델 페이지에서 선물하거나 판매에 올릴 수 있습니다."
 }

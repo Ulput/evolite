@@ -286,6 +286,10 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
             .iter()
             .position(|g| g.contains(&state.selected))
             .map(|k| groups[k].clone());
+        // BUG-308 r1: a group of the shown identity's own model says where it can be given now.
+        let mine = selected
+            .as_ref()
+            .is_some_and(|g| is_shown_identitys(wallet, &nfts[g[0]].issuer));
         // The card beside the grid only while the grid keeps four columns: content of 952 and
         // wider (a window of 1280); narrower, it opens as a window over the grid (BUG-188).
         let total = page_w;
@@ -374,7 +378,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                                         (&mut state.art, &mut asked),
                                         (nfts, group, &asks),
                                         (gift_fee, now, &mut state.page),
-                                        true,
+                                        (true, mine),
                                     );
                                     state.gifting |= picked.gift;
                                     if let Some(issuer) = picked.trust {
@@ -419,7 +423,7 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                         (&mut state.art, &mut asked),
                         (nfts, group, &asks),
                         (gift_fee, now, &mut state.page),
-                        false,
+                        (false, mine),
                     );
                     picked.gift
                 },
@@ -754,7 +758,7 @@ fn card_body(
     (art_cache, asked): (&mut ArtCache, &mut Vec<Command>),
     (nfts, group, asks): (&[Nft], &[usize], &[bool]),
     (gift_fee, now, page): (Option<Duffs>, chrono::DateTime<chrono::Local>, &mut usize),
-    panel: bool,
+    (panel, mine): (bool, bool),
 ) -> Picked {
     let first = group[0];
     if group.len() == 1 {
@@ -764,7 +768,15 @@ fn card_body(
             trust: trust.then(|| nfts[first].issuer.clone()),
         };
     }
-    group_card(ui, a, (art_cache, asked), nfts, group, (now, page), panel);
+    group_card(
+        ui,
+        a,
+        (art_cache, asked),
+        nfts,
+        group,
+        (now, page),
+        (panel, mine),
+    );
     Picked::default()
 }
 
@@ -776,9 +788,13 @@ fn group_card(
     nfts: &[Nft],
     group: &[usize],
     (now, page): (chrono::DateTime<chrono::Local>, &mut usize),
-    panel: bool,
+    (panel, mine): (bool, bool),
 ) {
     let p = a.p;
+    // BUG-309: the copies by their number, those without one last.
+    let mut group = group.to_vec();
+    group.sort_by_key(|&i| (nfts[i].edition.0.is_none(), nfts[i].edition.0));
+    let group = &group[..];
     let nft = &nfts[group[0]];
     let n = group.len();
     ui.spacing_mut().item_spacing.y = 12.0;
@@ -871,57 +887,57 @@ fn group_card(
         (tr!("Take off sale…"), ButtonKind::Secondary),
     ];
     let later = crate::i18n::t(SERIES_LATER).into_owned();
+    // BUG-308: not there yet, and seen to be so at every width — the buttons dimmed (in the
+    // window they were as bright as working ones on its ground), and under them what is true
+    // now, not what they will do.
     let action = |ui: &mut Ui, a: &mut Assets, (label, kind): (&str, ButtonKind), w| {
         crate::components::button_enabled(ui, a, label, kind, w, false)
             .on_disabled_hover_text(later.clone());
     };
-    if panel {
-        let w = ui.available_width();
-        for each in actions {
-            action(ui, a, each, Some(w));
-        }
-    } else {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+    ui.scope(|ui| {
+        ui.multiply_opacity(DIM);
+        if panel {
+            let w = ui.available_width();
             for each in actions {
-                action(ui, a, each, None);
+                action(ui, a, each, Some(w));
             }
+        } else {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                for each in actions {
+                    action(ui, a, each, None);
+                }
+                action(ui, a, (tr!("Delete…"), ButtonKind::DangerOutline), None);
+            });
+        }
+    });
+    if panel {
+        divider(ui, &p);
+        ui.scope(|ui| {
+            ui.multiply_opacity(DIM);
+            action(ui, a, (tr!("Delete…"), ButtonKind::DangerOutline), None);
         });
     }
     ui.add(crate::components::para(
-        &format!(
-            tr!(
-                "“Give” and “Put up for sale” ask “How many of {n}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price."
-            ),
-            n = n
-        ),
+        &later,
         12.0,
         Weight::Regular,
         p.muted,
     ));
-    divider(ui, &p);
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 12.0;
-        crate::components::button_enabled(
-            ui,
-            a,
-            tr!("Delete…"),
-            ButtonKind::DangerOutline,
-            None,
-            false,
-        )
-        .on_disabled_hover_text(later.clone());
+    // r1 (Should): where it can be done now — one copy of the identity's own model, on its
+    // page in the Workshop (W9). Not for another's model.
+    if mine {
         ui.add(crate::components::para(
-            &format!(
-                tr!("Asks “How many of {n}”. Deleting can't be undone."),
-                n = n
-            ),
+            tr!("You can give or put up for sale one copy on the model's page in the Workshop."),
             12.0,
             Weight::Regular,
             p.muted,
         ));
-    });
+    }
 }
+
+/// BUG-308: how much of itself a button not there yet shows, on any ground.
+const DIM: f32 = 0.45;
 
 /// One copy in a group's card: «№ 12 · from @alice · 13 Nov.» and its price or «not for sale»;
 /// in the panel shorter, «№ 12 · @alice» and the price alone. A picture that does not match its
@@ -934,36 +950,37 @@ fn copy_row(
     panel: bool,
 ) {
     let number = nft.edition.0.map(|n| format!("№ {n}")).unwrap_or_default();
-    let who = match &nft.origin {
-        NftOrigin::Gift { from, .. } if !from.is_empty() => {
-            if panel {
-                from.clone()
-            } else {
-                format!(tr!("from {from}"), from = from)
+    // BUG-309: an issuer without a name is its id — whole where it fits, else shortened in its
+    // middle to the row (FEAT-0051 R-5), in the panel too.
+    let issuer_id = (matches!(nft.origin, NftOrigin::Release) && is_identity_id(&nft.issuer))
+        .then_some(nft.issuer.as_str());
+    let left_with = |issuer: &str| {
+        let who = match &nft.origin {
+            NftOrigin::Gift { from, .. } if !from.is_empty() => {
+                if panel {
+                    from.clone()
+                } else {
+                    format!(tr!("from {from}"), from = from)
+                }
             }
+            NftOrigin::Release => format!(tr!("issue {}"), issuer),
+            _ => origin(nft),
+        };
+        let when = match &nft.origin {
+            NftOrigin::Gift { at, .. } => Some(*at),
+            NftOrigin::Received { at } => *at,
+            NftOrigin::Release => None,
+        };
+        let mut left = if number.is_empty() {
+            crate::i18n::t(&who).into_owned()
+        } else {
+            format!("{number} · {}", crate::i18n::t(&who))
+        };
+        if let (false, Some(at)) = (panel, when) {
+            left = format!("{left} · {}", text::date_short(at, now));
         }
-        NftOrigin::Release => {
-            if panel {
-                tr!("issue").into()
-            } else {
-                format!(tr!("issue {}"), nft.issuer)
-            }
-        }
-        _ => origin(nft),
+        left
     };
-    let when = match &nft.origin {
-        NftOrigin::Gift { at, .. } => Some(*at),
-        NftOrigin::Received { at } => *at,
-        NftOrigin::Release => None,
-    };
-    let mut left = if number.is_empty() {
-        crate::i18n::t(&who).into_owned()
-    } else {
-        format!("{number} · {}", crate::i18n::t(&who))
-    };
-    if let (false, Some(at)) = (panel, when) {
-        left = format!("{left} · {}", text::date_short(at, now));
-    }
     let (right, color) = match (nft.price, panel) {
         (Some(d), true) => (crate::format::amount(d), p.accent),
         (Some(d), false) => (
@@ -974,10 +991,37 @@ fn copy_row(
     };
     ui.add_space(9.0);
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(&left)
-                .font(crate::theme::figures(12.0, Weight::Regular))
-                .color(p.text),
+        // BUG-309: the state keeps its words and 12 from them; the row's start is cut with «…».
+        let right_w = crate::components::text_width(ui, &right, sans(12.0, Weight::Medium));
+        let room = (ui.available_width() - right_w - 12.0).max(0.0);
+        let font = crate::theme::figures(12.0, Weight::Regular);
+        let whole = left_with(&nft.issuer);
+        let left = match issuer_id {
+            Some(id) => left_with(&crate::components::fit_id(id, &|cut: &str| {
+                crate::components::text_width(ui, &left_with(cut), font.clone()) <= room
+            })),
+            None => whole.clone(),
+        };
+        // r1: the whole row under the pointer only when it is not all there — one hint, ours.
+        let cut = left != whole || crate::components::text_width(ui, &left, font.clone()) > room;
+        ui.allocate_ui_with_layout(
+            vec2(room, 16.0),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.set_max_width(room);
+                let row = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(&left)
+                            .font(crate::theme::figures(12.0, Weight::Regular))
+                            .color(p.text),
+                    )
+                    .truncate()
+                    .show_tooltip_when_elided(false),
+                );
+                if cut {
+                    row.on_hover_text(whole);
+                }
+            },
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             ui.label(txt(&right, 12.0, Weight::Medium, color));
@@ -992,6 +1036,27 @@ fn copy_row(
         ));
     }
     ui.add_space(9.0);
+}
+
+/// BUG-309: whether an issuer is an identity's id rather than a name. The core gives the
+/// collection owner's id (base58 of 32 bytes: 43 or 44 letters of its alphabet, no «@»); only the
+/// demo gives names. r1: an id by what it is — base58's alphabet has no 0, O, I or l, and a DPNS
+/// label of 43 such letters with no hyphen is not likely, where «40 letters and digits» was.
+fn is_identity_id(issuer: &str) -> bool {
+    (43..=44).contains(&issuer.len())
+        && issuer
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() && !matches!(c, '0' | 'O' | 'I' | 'l'))
+}
+
+/// BUG-308 r1: whether `issuer` is the identity the wallet works as — its id, or its name (the
+/// demo's issuers are names).
+fn is_shown_identitys(wallet: &evolite_api::Wallet, issuer: &str) -> bool {
+    wallet.identity.as_ref().is_some_and(|i| {
+        i.id == issuer
+            || i.name()
+                .is_some_and(|n| n == issuer.trim_start_matches('@'))
+    })
 }
 
 /// The selected NFT. Returns true when "Give" was clicked.

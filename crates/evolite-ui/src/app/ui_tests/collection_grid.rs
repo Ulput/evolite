@@ -145,3 +145,182 @@ fn the_filters_follow_the_collection_tab_and_turn_off_again() {
     kit.run_steps(3);
     assert_eq!(tiles(&kit).len(), all, "off again: all of it");
 }
+
+/// QA's kestrel7: a model issued by an identity without a name, its copies listed newest first.
+const ISSUER: &str = "6yGSpSLh8tRoffdQFnnKKutfJDYMqonrZRip39Wt9rso";
+
+fn djembe_as_qa_saw_it(kit: &mut Kit) {
+    show_wallet_edited(
+        kit,
+        3,
+        "Djembe issued by an id, 77 first",
+        |w| {
+            let mut djembe: Vec<_> = w
+                .nfts
+                .iter()
+                .filter(|n| n.name == "Djembe")
+                .cloned()
+                .collect();
+            if djembe.first().and_then(|n| n.edition.0) == Some(77) {
+                return;
+            }
+            w.nfts.retain(|n| n.name != "Djembe");
+            djembe.reverse();
+            for n in &mut djembe {
+                n.origin = evolite_api::NftOrigin::Release;
+                n.issuer = ISSUER.into();
+                // kestrel7's own model: its picture is drawn at once, no «Show».
+                n.chosen = true;
+                n.price = None;
+            }
+            w.nfts.splice(0..0, djembe);
+        },
+        |_| true,
+    );
+}
+
+/// The copies' rows of the open card: each «№ …» label and the «not for sale» beside it.
+fn copy_rows(kit: &Kit) -> Vec<(String, egui::Rect, egui::Rect)> {
+    let states: Vec<egui::Rect> = kit
+        .query_all_by(|n| n.role() == Role::Label && n.value().as_deref() == Some("not for sale"))
+        .map(|n| n.rect())
+        .collect();
+    kit.query_all_by(|n| n.role() == Role::Label && n.value().is_some_and(|v| v.starts_with("№ ")))
+        .filter_map(|n| {
+            let rect = n.rect();
+            let state = states
+                .iter()
+                .find(|s| (s.center().y - rect.center().y).abs() < 4.0)?;
+            Some((n.value().unwrap_or_default(), rect, *state))
+        })
+        .collect()
+}
+
+/// BUG-309: in the window at 1024 and in the panel at 1280 the copies go by number, the issuer's
+/// id is shortened, and the row's words keep 8 or more from «not for sale».
+#[test]
+fn a_groups_copies_go_by_number_with_the_issuers_id_short() {
+    let (_turn, mut kit) = demo_app("collection", "en");
+    wait_for(&mut kit, "the tiles", |kit| tiles(kit).len() > 5);
+    djembe_as_qa_saw_it(&mut kit);
+    // FEAT-0051 R-5: the id whole where it fits, else its ends around «…», at least 4 each.
+    let the_id = |shown: &str| {
+        shown == ISSUER
+            || shown.contains('…')
+                && shown.starts_with(&ISSUER[..4])
+                && shown.ends_with(&ISSUER[ISSUER.len() - 4..])
+    };
+    let check = |kit: &Kit, at: &str| {
+        let rows = copy_rows(kit);
+        let numbers: Vec<&str> = rows
+            .iter()
+            .map(|(w, _, _)| w.split(" · ").next().unwrap_or_default())
+            .collect();
+        assert_eq!(numbers, ["№ 12", "№ 40", "№ 77"], "{at}: by number");
+        for (w, _, _) in &rows {
+            let id = w.split(" · issue ").nth(1).unwrap_or_default();
+            assert!(the_id(id), "{at}: «{w}»");
+        }
+        for (w, row, state) in &rows {
+            assert!(
+                state.left() - row.right() >= 8.0,
+                "{at}: «{w}» {row:?} against {state:?}"
+            );
+        }
+    };
+    kit.set_size(egui::vec2(1024.0, 1100.0));
+    kit.run_steps(2);
+    open_djembe(&mut kit);
+    wait_for(&mut kit, "the group's card", |kit| has_text(kit, "COPIES"));
+    check(&kit, "1024");
+    kit.key_press(egui::Key::Escape);
+    kit.set_size(egui::vec2(1280.0, 800.0));
+    kit.run_steps(3);
+    open_djembe(&mut kit);
+    kit.run_steps(3);
+    check(&kit, "1280");
+}
+
+/// BUG-308: the card's actions on N are off — said so under them, not what they will do once
+/// they work; «Delete…» too, with no «Asks “How many of 3”».
+#[test]
+fn a_groups_actions_say_they_are_not_there_yet() {
+    let (_turn, mut kit) = demo_app("collection", "en");
+    wait_for(&mut kit, "the tiles", |kit| tiles(kit).len() > 5);
+    for (w, h) in [(1024.0, 1100.0), (1280.0, 1000.0)] {
+        kit.set_size(egui::vec2(w, h));
+        kit.run_steps(2);
+        open_djembe(&mut kit);
+        wait_for(&mut kit, "the group's card", |kit| has_text(kit, "COPIES"));
+        for action in ["Give…", "Put up for sale…", "Take off sale…", "Delete…"] {
+            assert!(
+                button(&kit, action).accesskit_node().is_disabled(),
+                "{w}: {action}"
+            );
+        }
+        assert!(
+            has_words(&kit, "Actions on several copies come in the next version"),
+            "{w}: said under them"
+        );
+        assert!(!has_words(&kit, "How many of"), "{w}: no promise");
+        kit.key_press(egui::Key::Escape);
+        kit.run_steps(2);
+    }
+}
+
+/// A click on the tile «Djembe · ×3» (the button; at 1280 the panel's title has the same words),
+/// then the group's card.
+fn open_djembe(kit: &mut Kit) {
+    kit.get_by_role_and_label(Role::Button, "Djembe · ×3")
+        .click();
+    let shown = |kit: &Kit| has_text(kit, "COPIES");
+    for _ in 0..200 {
+        if shown(kit) {
+            return;
+        }
+        kit.step();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let buttons: Vec<String> = kit
+        .query_all_by_role(Role::Button)
+        .filter_map(|n| n.accesskit_node().label())
+        .collect();
+    panic!("no group card; buttons: {buttons:?}");
+}
+
+/// BUG-308 r1 (Should): a group of the shown identity's own model says where one copy can be
+/// given now — the model's page in the Workshop; another's model does not.
+#[test]
+fn an_own_models_card_says_where_one_copy_is_given_now() {
+    const NOW: &str = "on the model's page in the Workshop";
+    let (_turn, mut kit) = demo_app("collection", "en");
+    wait_for(&mut kit, "the tiles", |kit| tiles(kit).len() > 5);
+    kit.set_size(egui::vec2(1024.0, 1100.0));
+    kit.run_steps(2);
+    open_djembe(&mut kit);
+    assert!(!has_words(&kit, NOW), "jembe's model, not @satoshi's");
+    kit.key_press(egui::Key::Escape);
+    kit.run_steps(2);
+    let me = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .and_then(|w| w.identity.as_ref())
+        .map(|i| i.id.clone())
+        .expect("the shown identity");
+    show_wallet_edited(
+        &mut kit,
+        3,
+        "Djembe issued by the shown identity",
+        move |w| {
+            for n in w.nfts.iter_mut().filter(|n| n.name == "Djembe") {
+                n.issuer = me.clone();
+                n.chosen = true;
+            }
+        },
+        |_| true,
+    );
+    open_djembe(&mut kit);
+    assert!(has_words(&kit, NOW), "its own model");
+}

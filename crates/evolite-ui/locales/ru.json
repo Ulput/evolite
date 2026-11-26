@@ -2551,7 +2551,6 @@
   "Fund for the vote · not refunded": "Взнос за спор · не возвращается",
   "Writes to Platform": "Записи в Platform",
   "Actions on several copies come in the next version": "Действия с несколькими экземплярами появятся в следующей версии",
-  "Asks “How many of {}”. Deleting can't be undone.": "Спросит «Сколько из {}». Удалить нельзя отменить.",
   "COPIES": "ЭКЗЕМПЛЯРЫ",
   "Delete…": "Удалить…",
   "Give…": "Подарить…",
@@ -2564,7 +2563,6 @@
     "other": "У вас {}"
   },
   "for sale · {}": "продаётся · {}",
-  "issue": "выпуск",
   "the picture does not match": "картинка не совпадает",
   "{} for sale at {}|{} for sale at {}": {
     "one": "продаётся {} по {}",
@@ -2587,7 +2585,6 @@
   "{} · model of {}": "{} · модель из {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Подарить» и «Выставить» спросят «Сколько из {}» и проверят всё одной подписью, как серии в «Мастерской». Подарок снимает цену; после продажи цену назначает новый владелец.",
   "The token's rules could not be read from the network.": "Не удалось прочитать правила токена из сети.",
   "Trying again in {} s": "Повтор через {} с",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Контакты, чьи запросы зашифрованы на старый ключ, не смогут платить, пока не пришлют новый.",
@@ -3085,5 +3082,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Не удалось разобрать контракт приложения {}: возможно, он новее этой версии evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "Не удалось прочитать ключи личности для контракта {} с Platform.",
   "Hide details": "Скрыть подробности",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Ничего не потрачено. Попробуйте снова; если повторится, в «Подробнее» — что ответила Platform."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Ничего не потрачено. Попробуйте снова; если повторится, в «Подробнее» — что ответила Platform.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарить или выставить на продажу один экземпляр можно на странице модели в «Мастерской»."
 }

@@ -2580,7 +2580,6 @@
   "Fund for the vote · not refunded": "Внесок за спір · не повертається",
   "Writes to Platform": "Записи в Platform",
   "Actions on several copies come in the next version": "Дії з кількома примірниками з'являться в наступній версії",
-  "Asks “How many of {}”. Deleting can't be undone.": "Запитає «Скільки з {}». Видалення не можна скасувати.",
   "COPIES": "ПРИМІРНИКИ",
   "Delete…": "Видалити…",
   "Give…": "Подарувати…",
@@ -2593,7 +2592,6 @@
     "other": "У вас {}"
   },
   "for sale · {}": "продається · {}",
-  "issue": "випуск",
   "the picture does not match": "зображення не збігається",
   "{} for sale at {}|{} for sale at {}": {
     "one": "продається {} за {}",
@@ -2616,7 +2614,6 @@
   "{} · model of {}": "{} · модель з {}",
   "{} · ×{}": "{} · ×{}",
   "×{}": "×{}",
-  "“Give” and “Put up for sale” ask “How many of {}” and check it all with one signature, as series in the Workshop. A gift removes the price; after a sale the new owner sets the price.": "«Подарувати» і «Виставити» запитають «Скільки з {}» і перевірять усе одним підписом, як серії в «Майстерні». Подарунок знімає ціну; після продажу ціну призначає новий власник.",
   "The token's rules could not be read from the network.": "Не вдалося прочитати правила токена з мережі.",
   "Trying again in {} s": "Повтор через {} с",
   "Contacts whose requests are encrypted to the old key cannot pay you until they send a new one.": "Контакти, чиї запити зашифровано на старий ключ, не зможуть платити, доки не надішлють новий.",
@@ -3123,5 +3120,6 @@
   "Could not read the app's contract {}: it may be newer than this version of evolite.": "Не вдалося розібрати контракт застосунку {}: можливо, він новіший за цю версію evolite.",
   "Could not read the identity's keys for contract {} from Platform.": "Не вдалося прочитати ключі ідентичності для контракту {} з Platform.",
   "Hide details": "Сховати подробиці",
-  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Нічого не витрачено. Спробуйте знову; якщо повториться, у «Докладно» — що відповіла Platform."
+  "Nothing was spent. Try again; if it happens again, «Details» shows what Platform answered.": "Нічого не витрачено. Спробуйте знову; якщо повториться, у «Докладно» — що відповіла Platform.",
+  "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарувати або виставити на продаж один примірник можна на сторінці моделі в «Майстерні»."
 }
