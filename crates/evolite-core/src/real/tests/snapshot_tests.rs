@@ -646,7 +646,11 @@ fn the_collection_waits_for_the_search_of_ones_own_collections() {
 async fn the_nft_search_is_read_back_by_a_new_run() {
     use evolite_chain::workshop_read::search::{Found, Kind};
     let dir = fresh_dir("nft-search");
-    let mut found = Found::default();
+    // Gifts read from the start already (BUG-330), so the gifts' cursor counts.
+    let mut found = Found {
+        gifts_from_start: true,
+        ..Found::default()
+    };
     found.add(Kind::Received, [("CollA".to_string(), 40)]);
     found.add(Kind::Bought, [("CollB".to_string(), 50)]);
     {
