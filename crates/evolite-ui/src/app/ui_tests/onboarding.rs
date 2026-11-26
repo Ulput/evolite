@@ -62,3 +62,26 @@ fn adding_a_wallet_the_password_step_has_one_way_back() {
         .collect();
     assert_eq!(backs, ["Back"], "the ways back at the top");
 }
+
+/// BUG-255 (3), as BUG-270 made `segmented`: the phrase-length radio buttons on «Create» and
+/// «Restore» are named in the interface language for a screen reader — in Russian «12 слов» and
+/// «24 слова», never «12 words». Mutant: the raw key as the name → red.
+#[test]
+fn the_phrase_length_is_named_in_the_interface_language() {
+    for preset in ["create", "restore"] {
+        let (_turn, mut kit) = demo_app(preset, "ru");
+        kit.run_steps(3);
+        let names: Vec<String> = kit
+            .query_all_by_role(Role::RadioButton)
+            .filter_map(|n| n.accesskit_node().label())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "12 слов") && names.iter().any(|n| n == "24 слова"),
+            "{preset}: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.contains("words")),
+            "{preset}: {names:?}"
+        );
+    }
+}

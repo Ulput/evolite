@@ -91,12 +91,17 @@ pub fn declared_on(network: Network, op: &Spend, seen: &Seen, app_cost: Duffs) -
         enough,
     };
     match op {
+        // BUG-255 (2): at the rate the payment is signed at (FEAT-0040), not the normal one: a
+        // «Higher» payment declared at the normal fee logged `declared:226, actual:452`.
         Spend::Send {
             from: Source::Core,
             amount,
+            fee_rate,
             ..
         } => {
             let price = fees.core_payment_for(*amount);
+            let price =
+                fee_rate.map_or(price, |rate| evolite_api::fee_choice::at_rate(price, rate));
             of("send_core", price, covers(seen.core, *amount, price))
         }
         // FEAT-0030: the usual fee plus the excess the person agreed to burn, against the fully
@@ -481,6 +486,29 @@ pub(crate) mod tests {
             platform_input_addresses: Vec::new(),
             first_name: false,
         }
+    }
+
+    /// BUG-255 (2): a Core payment at a chosen rate is declared at that rate — «Higher» (2 000
+    /// duffs per kB) twice the normal fee — as the payment is signed. Mutant: the normal fee
+    /// whatever the rate → red.
+    #[test]
+    fn a_core_payment_is_declared_at_its_rate() {
+        let send = |fee_rate| Spend::Send {
+            coins: None,
+            fee_rate,
+            fee_shown: None,
+            id: 1,
+            from: Source::Core,
+            to: "yAddress".into(),
+            amount: 100_000,
+            note: None::<NoteText>,
+            rate: None,
+        };
+        let seen = seen(10_000_000);
+        let normal = declared_on(Network::Testnet, &send(None), &seen, 0).declared;
+        let higher = declared_on(Network::Testnet, &send(Some(2_000)), &seen, 0).declared;
+        assert!(normal > 0);
+        assert_eq!(higher, 2 * normal);
     }
 
     /// One of every spend, with an amount of 100 where there is one. `declared` has no catch-all,
