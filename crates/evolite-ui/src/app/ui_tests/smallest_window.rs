@@ -406,7 +406,7 @@ fn painted(kit: &Kit) -> Painted {
 }
 
 /// Painted words cut by their clip, drawn over other words, or drawn over a picture.
-fn text_trouble(kit: &Kit) -> Vec<String> {
+pub(super) fn text_trouble(kit: &Kit) -> Vec<String> {
     let Painted {
         texts,
         pictures,

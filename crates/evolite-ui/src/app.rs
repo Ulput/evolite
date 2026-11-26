@@ -1752,6 +1752,8 @@ impl eframe::App for App {
                 .and_then(|w| w.identity.as_ref())
                 .map(|i| i.id.as_str()),
         );
+        self.identity
+            .read_again_unless_on(self.screen == Screen::Identity);
         self.settings.hide_phrase_unless_shown(
             self.screen == Screen::Settings && self.settings.phrase_dialog,
         );

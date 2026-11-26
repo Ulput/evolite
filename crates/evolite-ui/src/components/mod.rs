@@ -174,6 +174,34 @@ pub(crate) fn text_width(ui: &Ui, text: &str, font: FontId) -> f32 {
         .x
 }
 
+/// [`paint_text`] in at most `width`, on one line, cut with «…» (Arabic by words from its end):
+/// a table's cell never runs into the next column (BUG-293). With whether it was cut: the caller
+/// then says the whole words on hover (§8d-2: the mouse reads them too, not only a screen reader).
+pub(crate) fn paint_text_in(
+    ui: &Ui,
+    pos: egui::Pos2,
+    anchor: Align2,
+    text: &str,
+    font: FontId,
+    color: Color32,
+    width: f32,
+) -> (Rect, bool) {
+    let shown = cut_to(ui.ctx(), text, &font, width, 1);
+    let shortened = shown != crate::i18n::t(text);
+    let mut job = with_ids(&shown, font, color, None);
+    job.wrap = egui::text::TextWrapping {
+        max_width: width,
+        max_rows: 1,
+        break_anywhere: true,
+        overflow_character: Some('…'),
+    };
+    let galley = ui.painter().layout_job(job);
+    let cut = shortened || galley.elided;
+    let rect = anchor.anchor_size(pos, galley.size());
+    ui.painter().galley(rect.min, galley, color);
+    (rect, cut)
+}
+
 pub(crate) fn paint_text(
     ui: &Ui,
     pos: egui::Pos2,

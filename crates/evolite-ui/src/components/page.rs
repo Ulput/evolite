@@ -88,7 +88,11 @@ pub fn page_header(
     let one_row = actions_w == 0.0 || title_w + count_w + 20.0 + actions_w <= ui.available_width();
     let title_row = |ui: &mut Ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
-        ui.label(txt(title, 28.0, Weight::Bold, p.text));
+        // BUG-299: a title wider than its row (a long @name) is drawn smaller, to 20, and past
+        // that cut with «…»; the whole of it under the pointer and for a screen reader.
+        let room = ui.available_width() - count_w;
+        let size = fitted_size(ui, title, 28.0, 20.0, room);
+        ui.add(egui::Label::new(txt(title, size, Weight::Bold, p.text)).truncate());
         if let Some(count) = count {
             ui.label(
                 egui::RichText::new(crate::i18n::t(count))

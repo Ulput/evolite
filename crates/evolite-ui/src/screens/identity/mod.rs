@@ -78,6 +78,9 @@ pub struct IdentityState {
     /// BUG-326 r2: forms opened while a made identity waits to be chosen (`Awaiting(before)`):
     /// the new one's (its claim) — theirs once an identity other than `before` is shown.
     pub forms_after: Option<Option<String>>,
+    /// BUG-289: the identity this visit asked Platform for again, so the keys card sums up the
+    /// same keys K1 lists (a key another wallet added included).
+    pub(crate) keys_read_for: Option<String>,
 }
 
 /// The banner «Identity … created» over «Work as».
@@ -200,6 +203,13 @@ impl IdentityState {
         }
     }
 
+    /// Off Identity, the next visit reads the identity again (BUG-289).
+    pub fn read_again_unless_on(&mut self, on: bool) {
+        if !on {
+            self.keys_read_for = None;
+        }
+    }
+
     /// The core's answer to `SaveProfile`, taken only by the form that asked it (`ask`).
     pub fn on_profile_saved(&mut self, ask: Option<u64>, result: &Result<(), CoreError>) {
         let Some(form) = &mut self.editing else {
@@ -260,6 +270,16 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
     let mut asked: Vec<Command> = Vec::new();
     ui.spacing_mut().item_spacing.y = 22.0;
     let has_identity = wallet.identity.is_some();
+    // BUG-289: each visit reads the identity from Platform again, as K1 does (АРХ-4): what
+    // another wallet changed shows in the keys card, not only in the list.
+    if let Some(id) = &wallet.identity
+        && state.keys_read_for.as_deref() != Some(id.id.as_str())
+    {
+        state.keys_read_for = Some(id.id.clone());
+        asked.push(Command::ReadIdentityKeys {
+            identity: id.id.clone(),
+        });
+    }
     page_header(ui, a, "Identity", None, |ui, a| {
         // Without an identity there is nothing to top up or name: "Create an identity" below.
         if has_identity {

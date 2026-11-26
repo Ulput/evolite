@@ -658,6 +658,11 @@ fn key_table(
     let picks = evolite_api::key_plan::dashpay_picks(keys);
     let width = ui.available_width();
     let x = |i: usize, left: f32| left + COLUMNS[i] * width;
+    // BUG-293: a cell's room, up to the next column (the last one up to «⋯»), 12 apart.
+    let room = |i: usize| match COLUMNS.get(i + 1) {
+        Some(next) => (next - COLUMNS[i]) * width - 12.0,
+        None => (1.0 - COLUMNS[i]) * width - 40.0,
+    };
     // The heads.
     let (head, _) = ui.allocate_exact_size(vec2(width, 28.0), Sense::hover());
     for (i, name) in [
@@ -696,15 +701,19 @@ fn key_table(
             p.text
         };
         let cy = row.center().y;
+        // BUG-293 r2: whether a cell was cut — then the row says all its words on hover.
+        let cut = std::cell::Cell::new(false);
         let text_at = |ui: &Ui, i: usize, y: f32, s: &str, font, color| {
-            crate::components::paint_text(
+            let (_, shortened) = crate::components::paint_text_in(
                 ui,
                 pos2(x(i, row.left()), y),
                 Align2::LEFT_CENTER,
                 s,
                 font,
                 color,
+                room(i),
             );
+            cut.set(cut.get() || shortened);
         };
         text_at(ui, 0, cy, &key.id.to_string(), style(UI.mono()), ink);
         match &sub {
@@ -740,7 +749,16 @@ fn key_table(
                 let words = format!(tr!("disabled {}"), text::date_short(at, now));
                 let shown = crate::i18n::t(&words).into_owned();
                 let font = style(CAPTION.weight(Weight::Medium));
-                let galley = ui.painter().layout_no_wrap(shown, font, p.muted);
+                // BUG-293: the badge in its column too, cut with «…» if it must be.
+                let mut job = egui::text::LayoutJob::simple_singleline(shown, font, p.muted);
+                job.wrap = egui::text::TextWrapping {
+                    max_width: room(4) - 16.0,
+                    max_rows: 1,
+                    break_anywhere: true,
+                    overflow_character: Some('…'),
+                };
+                let galley = ui.painter().layout_job(job);
+                cut.set(cut.get() || galley.elided);
                 let rect = Rect::from_min_size(
                     pos2(x(4, row.left()), cy - galley.size().y / 2.0 - 3.0),
                     galley.size() + vec2(16.0, 6.0),
@@ -771,6 +789,28 @@ fn key_table(
             state
         );
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &spoken));
+        // BUG-293 r2 (§8d-2): a cell cut with «…» — the row's words whole under the pointer,
+        // each under its column's head; «Whose» above all (the review).
+        if cut.get() {
+            let t = |s: &str| crate::i18n::t(s).into_owned();
+            let purpose = match &sub {
+                Some(sub) => format!("{} · {}", t(&title), t(sub)),
+                None => t(&title),
+            };
+            let state = match key.disabled_at {
+                None => t(tr!("active")),
+                Some(at) => t(&format!(tr!("disabled {}"), text::date_short(at, now))),
+            };
+            let whole = [
+                (tr!("Purpose"), purpose),
+                (tr!("Level"), text::key_level(key.level).to_owned()),
+                (tr!("Whose"), t(&owner_words(&key.owner))),
+                (tr!("State"), state),
+            ]
+            .map(|(head, words)| format!("{}: {words}", t(head)))
+            .join("\n");
+            resp.on_hover_text(whole);
+        }
         // «⋯»: what can be done with this key (the designer's menu), where anything can.
         if !menu_items(key).is_empty() {
             let dots = Rect::from_center_size(pos2(row.right() - 16.0, cy), vec2(32.0, 32.0));

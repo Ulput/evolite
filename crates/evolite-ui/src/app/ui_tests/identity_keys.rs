@@ -936,3 +936,121 @@ fn show_the_key_stays_put_as_the_warning_comes() {
         "the button moved: {tops:?}"
     );
 }
+
+/// BUG-293: at 1024 in Russian, an app's disabled key — «приложение @ypstage26-084» and the badge
+/// «отключён …» — keeps each cell in its column: no words over others, none cut by their clip.
+#[test]
+fn a_disabled_apps_key_keeps_its_cells_apart_at_1024() {
+    let (_turn, mut kit) = demo_app("identity-keys", "ru");
+    kit.set_size(egui::vec2(1024.0, 768.0));
+    settle(&mut kit);
+    wait_for(&mut kit, "K1", |k| k.state().screen == Screen::IdentityKeys);
+    let app = evolite_api::KeyOwner::App("@ypstage26-084".into());
+    with_identity(&mut kit, "two disabled app keys", |i| {
+        for k in i.keys.iter_mut().filter(|k| k.id == 3 || k.id == 4) {
+            k.owner = app.clone();
+            k.purpose = evolite_api::KeyPurpose::App("@ypstage26-084".into());
+            k.disabled_at = Some(1_763_942_400);
+        }
+    });
+    kit.run_steps(2);
+    let wrong = super::smallest_window::text_trouble(&kit);
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    // r2 (§8d-2): «Whose» is cut in its column — the pointer over the row reads it whole, in a
+    // hint under the column heads («Чей: …»), not there before the pointer.
+    let whole = "приложение @ypstage26-084";
+    let hint = |kit: &Kit| {
+        super::painted_texts(kit)
+            .iter()
+            .any(|t| t.contains(whole) && t.contains("Чей: "))
+    };
+    assert!(!hint(&kit), "no hint before the pointer");
+    kit.get_by(|n| n.value().is_some_and(|v| v.starts_with("3 · ")))
+        .hover();
+    let mut seen = false;
+    for _ in 0..90 {
+        kit.step();
+        if hint(&kit) {
+            seen = true;
+            break;
+        }
+    }
+    assert!(seen, "the hint says «{whole}» whole");
+}
+
+/// BUG-299: «Keys · @a-very-long-name» at 1024 × 768 is not cut by the buttons: they go under it,
+/// and the title, smaller, ends with «…» where it must — never past the page or over a button.
+#[test]
+fn a_long_name_in_the_keys_title_is_not_cut_by_the_buttons() {
+    const LONG: &str = "qa-kestrel-langes-identitaet-name-4-with-a-much-longer-tail-2026";
+    for lang in ["en", "ru"] {
+        let (_turn, mut kit) = demo_app("identity-keys", lang);
+        kit.set_size(egui::vec2(1024.0, 768.0));
+        settle(&mut kit);
+        wait_for(&mut kit, "K1", |k| k.state().screen == Screen::IdentityKeys);
+        with_identity(&mut kit, "a long name", |i| {
+            if let Some(n) = i.names.iter_mut().find(|n| n.primary) {
+                n.label = LONG.into();
+            }
+        });
+        kit.run_steps(4);
+        let title = kit
+            .query_all_by(|n| {
+                n.role() == Role::Label && n.value().is_some_and(|v| v.contains(LONG))
+            })
+            .next()
+            .unwrap_or_else(|| panic!("{lang}: no title"))
+            .rect();
+        for name in ["+ Add a key", "Replace the main key"] {
+            let b = button(&kit, &crate::i18n::spoken(name)).rect();
+            assert!(
+                !b.intersects(title),
+                "{lang}: {name} {b:?} over the title {title:?}"
+            );
+        }
+        assert!(
+            title.right() <= kit.ctx.content_rect().right(),
+            "{lang}: the title {title:?} past the window"
+        );
+        let wrong = super::smallest_window::text_trouble(&kit);
+        assert!(wrong.is_empty(), "{lang}: {}", wrong.join("\n"));
+    }
+}
+
+/// BUG-289: Identity reads the identity from Platform again on each visit, as K1 does, so its
+/// keys card sums up the keys K1 lists — a key another wallet added included.
+#[test]
+fn identity_reads_the_identity_again_on_each_visit() {
+    let (_turn, mut kit) = demo_app("identity", "en");
+    wait_for(&mut kit, "the identity", |k| {
+        k.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| w.identity.is_some())
+    });
+    kit.run_steps(2);
+    let id = |k: &Kit| {
+        k.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.identity.as_ref())
+            .map(|i| i.id.clone())
+    };
+    assert_eq!(
+        kit.state().identity.keys_read_for,
+        id(&kit),
+        "asked on the visit"
+    );
+    kit.state_mut().screen = Screen::Overview;
+    kit.run_steps(2);
+    assert_eq!(
+        kit.state().identity.keys_read_for,
+        None,
+        "forgotten off Identity"
+    );
+    kit.state_mut().screen = Screen::Identity;
+    kit.run_steps(2);
+    assert_eq!(kit.state().identity.keys_read_for, id(&kit), "asked again");
+}
