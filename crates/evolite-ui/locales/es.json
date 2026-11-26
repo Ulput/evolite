@@ -2980,5 +2980,6 @@
   "Put up for sale {} “{}” at {}": "Puestas a la venta {} «{}» por {}",
   "Taken off sale {} “{}”": "Retiradas de la venta {} «{}»",
   "series · done {} of {}": "serie · hechas {} de {}",
-  "series · done {} · refused {}": "serie · hechas {} · rechazadas {}"
+  "series · done {} · refused {}": "serie · hechas {} · rechazadas {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "En Core solo hay {}: faltan {}. Reciba DASH en Core y luego póngalo en el pool."
 }

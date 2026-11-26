@@ -2902,5 +2902,6 @@
   "Put up for sale {} “{}” at {}": "Đã rao bán {} “{}” với giá {}",
   "Taken off sale {} “{}”": "Đã ngừng bán {} “{}”",
   "series · done {} of {}": "loạt · xong {}/{}",
-  "series · done {} · refused {}": "loạt · xong {} · bị từ chối {}"
+  "series · done {} · refused {}": "loạt · xong {} · bị từ chối {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core chỉ có {}: còn thiếu {}. Hãy nhận DASH vào Core, rồi đưa vào pool."
 }

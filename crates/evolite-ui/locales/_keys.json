@@ -432,6 +432,7 @@
   "Core did not confirm the payout in time. Platform signs it again on its own; you don't need to do anything.",
   "Core fee",
   "Core fee + processing on Platform",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.",
   "Core money, credits and the private pool; identities and names; DashPay contacts and profile. evolite reads again from the network the history of Core payments, names, contact requests, the profile, withdrawals and the pool.",
   "Core node address",
   "Core nodes",

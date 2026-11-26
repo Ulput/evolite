@@ -2902,5 +2902,6 @@
   "Put up for sale {} “{}” at {}": "已上架 {} 个“{}”，价格 {}",
   "Taken off sale {} “{}”": "已下架 {} 个“{}”",
   "series · done {} of {}": "系列 · 已完成 {}/{}",
-  "series · done {} · refused {}": "系列 · 已完成 {} · 被拒 {}"
+  "series · done {} · refused {}": "系列 · 已完成 {} · 被拒 {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core 中只有 {}：还差 {}。请先向 Core 收款 DASH，再放入池中。"
 }

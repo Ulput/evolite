@@ -348,7 +348,10 @@ fn draw_path(
                     }
                 }
                 if now == PoolNow::Ready && !enough {
-                    first_into_pool(ui, a, form, shield, needed, in_pool);
+                    let core = Core::of(wallet);
+                    if first_into_pool(ui, a, form, shield, needed, in_pool, core) {
+                        cx.go(crate::screens::Screen::Receive);
+                    }
                 } else if now == PoolNow::Ready && form.pool.shielded_for_it {
                     // R-7: advice only, never a wait imposed.
                     notice(
@@ -428,7 +431,75 @@ fn draw_path(
     None
 }
 
-/// UC-2: too little in the pool — the first step, with the pool's own «Shield» window.
+/// What Core can put into the pool, as far as it is known (BUG-315).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Core {
+    /// Checked in this sync: what it holds; the Core payment on top of an amount sent from it;
+    /// the Platform fee taken out of that amount on its way into the pool.
+    Known {
+        has: Duffs,
+        core_payment: Duffs,
+        shield_fee: Duffs,
+    },
+    /// Not checked yet: nothing said about it, the «Shield» window checks.
+    NotKnown,
+}
+
+impl Core {
+    fn of(w: &Wallet) -> Self {
+        if w.balances.core_as_of.is_none() {
+            Core::Known {
+                has: w.balances.core,
+                core_payment: w.fees.core_payment,
+                shield_fee: w.fees.shield_from_core,
+            }
+        } else {
+            Core::NotKnown
+        }
+    }
+}
+
+/// Core is short too (BUG-315): what it has, and how much more must come to it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct CoreShort {
+    pub has: Duffs,
+    pub more: Duffs,
+}
+
+/// What «First put DASH into the pool» offers (R-6, BUG-315): 0.1 when Core can send it and it
+/// covers the shortfall; less, all Core can send, when that still covers it; `Err`: Core is
+/// short too.
+///
+/// The same model as the «Shield» window (`price.rs`, `Spend::Shield { from: Core }`, and the live
+/// test `live_pool_core_and_identity`): for an amount X, Core spends X + `core_payment` and the
+/// pool gets X − `shield_fee` — Platform's fee comes out of the amount, not on top (r1 Must).
+pub(crate) fn into_pool(short: Duffs, core: Core) -> Result<Duffs, CoreShort> {
+    let Core::Known {
+        has,
+        core_payment,
+        shield_fee,
+    } = core
+    else {
+        return Ok(INTO_POOL);
+    };
+    // The most Core can send: what it has, less its own payment.
+    let max = has - core_payment;
+    let arrives = |amount: Duffs| amount - shield_fee;
+    if INTO_POOL <= max && arrives(INTO_POOL) >= short {
+        Ok(INTO_POOL)
+    } else if max > 0 && arrives(max) >= short {
+        Ok(max)
+    } else {
+        Err(CoreShort {
+            has,
+            more: short + shield_fee + core_payment - has,
+        })
+    }
+}
+
+/// UC-2: too little in the pool — the first step, with the pool's own «Shield» window. BUG-315:
+/// never an amount Core does not have; Core short too — how much more and «Receive» (`true`:
+/// pressed).
 fn first_into_pool(
     ui: &mut Ui,
     a: &mut Assets,
@@ -436,8 +507,10 @@ fn first_into_pool(
     shield: &mut PoolState,
     needed: Duffs,
     in_pool: Duffs,
-) {
+    core: Core,
+) -> bool {
     let p = a.p;
+    let short = needed.saturating_sub(in_pool);
     notice(
         ui,
         a,
@@ -455,12 +528,31 @@ fn first_into_pool(
         Weight::SemiBold,
         p.text,
     ));
+    let put = match into_pool(short, core) {
+        Ok(put) => put,
+        Err(CoreShort { has, more }) => {
+            notice(
+                ui,
+                a,
+                "warning",
+                p.text,
+                &format!(
+                    tr!(
+                        "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool."
+                    ),
+                    dash(has),
+                    dash(more)
+                ),
+            );
+            return button(ui, a, tr!("Receive"), ButtonKind::Secondary, None).clicked();
+        }
+    };
     ui.add(crate::components::para(
         &format!(
             tr!(
                 "It is visible that you put {} into the pool. It is not visible that the identity was created from this money."
             ),
-            dash(INTO_POOL)
+            dash(put)
         ),
         13.0,
         Weight::Regular,
@@ -469,7 +561,7 @@ fn first_into_pool(
     if button(
         ui,
         a,
-        &format!(tr!("Put {} into the pool"), dash(INTO_POOL)),
+        &format!(tr!("Put {} into the pool"), dash(put)),
         ButtonKind::Secondary,
         None,
     )
@@ -477,11 +569,12 @@ fn first_into_pool(
     {
         shield.shielding = true;
         shield.from = FROM_CORE;
-        shield.amount = crate::format::input_text(INTO_POOL);
-        shield.suggested = Some(INTO_POOL);
+        shield.amount = crate::format::input_text(put);
+        shield.suggested = Some(put);
         shield.result = None;
         form.pool.shielded_for_it = true;
     }
+    false
 }
 
 /// R-5 (A8): what is private and what is seen, before the password. Never «fully anonymous».

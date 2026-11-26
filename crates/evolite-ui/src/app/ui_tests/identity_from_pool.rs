@@ -91,6 +91,155 @@ fn too_little_in_the_pool_puts_0_1_in_first() {
     assert_eq!(kit.state().screen, Screen::CreateIdentity, "still here");
 }
 
+/// BUG-315 (R-6, r1 Must): what «First put DASH into the pool» offers — 0.1 when Core can send it
+/// and it covers the shortfall, all Core can send when that still covers it, and Core short too
+/// said with how much more; a Core not checked yet is not taken for short. The model of the
+/// «Shield» window: Core spends the amount + its payment, the pool gets the amount − the fee.
+#[test]
+fn into_the_pool_never_offers_what_core_does_not_have() {
+    use crate::screens::create_identity::pool::{Core, CoreShort, INTO_POOL, into_pool};
+    let core = |has| Core::Known {
+        has,
+        core_payment: 1_000,
+        shield_fee: 100_000,
+    };
+    let short = |has, more| Err(CoreShort { has, more });
+    assert_eq!(into_pool(2_000_000, core(50_000_000)), Ok(INTO_POOL));
+    assert_eq!(
+        into_pool(2_000_000, core(INTO_POOL + 1_000)),
+        Ok(INTO_POOL),
+        "0.1 and Core's own payment"
+    );
+    assert_eq!(
+        into_pool(2_000_000, core(INTO_POOL + 999)),
+        Ok(INTO_POOL - 1),
+        "one duff short of 0.1: all Core can send"
+    );
+    assert_eq!(
+        into_pool(9_950_000, core(50_000_000)),
+        Ok(49_999_000),
+        "0.1 less the fee does not cover the shortfall: more than 0.1"
+    );
+    assert_eq!(
+        into_pool(2_000_000, core(5_000_000)),
+        Ok(4_999_000),
+        "all Core can send, less its own payment"
+    );
+    // Exactly enough: what arrives (2 100 000 − 100 000) is the shortfall.
+    assert_eq!(into_pool(2_000_000, core(2_101_000)), Ok(2_100_000));
+    assert_eq!(
+        into_pool(2_000_000, core(2_100_999)),
+        short(2_100_999, 1),
+        "one duff less: short by one"
+    );
+    // r1 Must: the edge the fee on top did not see — what would go in covers the shortfall,
+    // what arrives (less the fee) does not.
+    assert_eq!(into_pool(2_000_500, core(2_101_000)), short(2_101_000, 500));
+    assert_eq!(
+        into_pool(2_000_000, core(1_600_000)),
+        short(1_600_000, 501_000),
+        "short by, the fee and the payment counted"
+    );
+    assert_eq!(
+        into_pool(2_000_000, core(0)),
+        short(0, 2_101_000),
+        "nothing in Core: the shortfall, the fee and the payment"
+    );
+    assert_eq!(
+        into_pool(2_000_000, Core::NotKnown),
+        Ok(INTO_POOL),
+        "not known: not short"
+    );
+}
+
+/// The wallet's Core as checked in this sync, `core` in it.
+fn core_of(core: evolite_api::Duffs) -> impl Fn(&mut evolite_api::Wallet) {
+    move |w| {
+        w.balances.core = core;
+        w.balances.core_as_of = None;
+    }
+}
+
+/// BUG-315 (QA: 0.02 in Core, «Put 0.1000 DASH into the pool» offered): Core short too — said,
+/// with how much more, no «Put … into the pool», and «Receive» opens Receive.
+#[test]
+fn core_short_too_says_how_much_more_and_offers_receive() {
+    let (_turn, mut kit) = demo_app("create-identity-pool-short", "en");
+    settle(&mut kit);
+    show_wallet_edited(&mut kit, 2, "0.01 in Core", core_of(1_000_000), |_| true);
+    assert!(has_words(&kit, "Core has only "), "Core's shortfall said");
+    assert!(has_words(&kit, "more is needed. Receive DASH to Core"));
+    // r1 Must: «… more» is what Core must still receive — the pool's shortfall, the fee taken
+    // out of the amount on its way and Core's own payment, less what Core has.
+    let w = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.clone())
+        .expect("a wallet");
+    let exit = crate::screens::create_identity::pool::exit_for(&w.fees, false);
+    let short = exit + w.fees.pool_identity_create - w.balances.shielded;
+    let more = short + w.fees.shield_from_core + w.fees.core_payment - 1_000_000;
+    assert!(
+        has_words(
+            &kit,
+            &format!("{} more is needed", crate::format::amount(more))
+        ),
+        "«{} more»",
+        crate::format::amount(more)
+    );
+    assert!(
+        !has_words(&kit, "It is visible that you put"),
+        "nothing to put in"
+    );
+    assert!(
+        kit.query_all_by_role(Role::Button).all(|b| !b
+            .accesskit_node()
+            .label()
+            .unwrap_or_default()
+            .starts_with("Put ")),
+        "no «Put … into the pool»"
+    );
+    // The plate's «Receive», not the menu's or the top bar's (which open Receive too): the
+    // lowest one on the page.
+    kit.query_all_by_role_and_label(Role::Button, "Receive")
+        .filter(|b| b.accesskit_node().bounding_box().is_some())
+        .max_by(|a, b| {
+            let y = |n: &egui_kittest::Node<'_>| {
+                n.accesskit_node().bounding_box().map_or(0.0, |r| r.y0)
+            };
+            y(a).total_cmp(&y(b))
+        })
+        .expect("«Receive» on the plate")
+        .click();
+    show_wallet_edited(&mut kit, 2, "the click", core_of(1_000_000), |_| true);
+    assert_eq!(kit.state().screen, Screen::Receive);
+}
+
+/// BUG-315: Core has less than 0.1 but enough — all it has goes in, never more.
+#[test]
+fn core_with_less_than_0_1_puts_in_what_it_has() {
+    let (_turn, mut kit) = demo_app("create-identity-pool-short", "en");
+    settle(&mut kit);
+    show_wallet_edited(&mut kit, 2, "0.06 in Core", core_of(6_000_000), |_| true);
+    // r1 Must: all Core can send — what it has less its own payment; the fee comes out on the way.
+    let payment = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.core_payment)
+        .expect("a wallet");
+    let put = crate::format::balance(6_000_000 - payment);
+    assert!(!has_words(&kit, "Core has only "), "Core is enough");
+    button(&kit, &format!("Put {put} into the pool")).click();
+    show_wallet_edited(&mut kit, 4, "the click", core_of(6_000_000), |_| true);
+    assert_eq!(
+        crate::format::parse_amount(&kit.state().pool.amount),
+        Some(6_000_000 - payment)
+    );
+}
+
 /// R-1, A5: from Core is not offered on the ordinary level; on the advanced one it is a choice
 /// of its own, its warning over the Core form, and the way back.
 #[test]

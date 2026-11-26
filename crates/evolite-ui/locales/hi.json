@@ -2943,5 +2943,6 @@
   "Put up for sale {} “{}” at {}": "{} “{}” बिक्री के लिए रखी गईं, कीमत {}",
   "Taken off sale {} “{}”": "{} “{}” बिक्री से हटाई गईं",
   "series · done {} of {}": "शृंखला · {} हो गईं, कुल {}",
-  "series · done {} · refused {}": "शृंखला · {} हो गईं · {} अस्वीकृत"
+  "series · done {} · refused {}": "शृंखला · {} हो गईं · {} अस्वीकृत",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core में केवल {} हैं: {} और चाहिए। पहले Core में DASH प्राप्त करें, फिर उसे पूल में डालें।"
 }

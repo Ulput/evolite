@@ -2902,5 +2902,6 @@
   "Put up for sale {} “{}” at {}": "{} “{}” dijual seharga {}",
   "Taken off sale {} “{}”": "Penjualan {} “{}” dibatalkan",
   "series · done {} of {}": "seri · selesai {} dari {}",
-  "series · done {} · refused {}": "seri · selesai {} · ditolak {}"
+  "series · done {} · refused {}": "seri · selesai {} · ditolak {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core hanya berisi {}: masih kurang {}. Terima DASH ke Core, lalu masukkan ke pool."
 }

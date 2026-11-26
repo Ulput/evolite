@@ -3107,5 +3107,6 @@
   "Put up for sale {} “{}” at {}": "عُرضت للبيع {} من «{}» بسعر {}",
   "Taken off sale {} “{}”": "أُوقف بيع {} من «{}»",
   "series · done {} of {}": "سلسلة · تم {} من {}",
-  "series · done {} · refused {}": "سلسلة · تم {} · رُفض {}"
+  "series · done {} · refused {}": "سلسلة · تم {} · رُفض {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "في Core فقط {}: يلزم {} إضافية. استلم DASH إلى Core، ثم ضعها في المجمع."
 }

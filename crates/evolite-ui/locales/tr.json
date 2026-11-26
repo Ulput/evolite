@@ -2943,5 +2943,6 @@
   "Put up for sale {} “{}” at {}": "{} adet “{}” {} fiyatla satışa çıkarıldı",
   "Taken off sale {} “{}”": "{} adet “{}” satıştan kaldırıldı",
   "series · done {} of {}": "seri · {} / {} tamamlandı",
-  "series · done {} · refused {}": "seri · {} tamamlandı · {} reddedildi"
+  "series · done {} · refused {}": "seri · {} tamamlandı · {} reddedildi",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core'da yalnızca {} var: {} daha gerekiyor. Önce Core'a DASH alın, sonra havuza koyun."
 }

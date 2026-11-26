@@ -2902,5 +2902,6 @@
   "Put up for sale {} “{}” at {}": "{}개의 “{}” {}에 판매 등록됨",
   "Taken off sale {} “{}”": "{}개의 “{}” 판매 취소됨",
   "series · done {} of {}": "시리즈 · {}/{} 완료",
-  "series · done {} · refused {}": "시리즈 · {} 완료 · {} 거부됨"
+  "series · done {} · refused {}": "시리즈 · {} 완료 · {} 거부됨",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core에는 {}만 있습니다. {}가 더 필요합니다. Core로 DASH를 받은 뒤 풀에 넣으세요."
 }

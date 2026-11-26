@@ -2902,5 +2902,6 @@
   "Put up for sale {} “{}” at {}": "{} 部の「{}」を {} で出品しました",
   "Taken off sale {} “{}”": "{} 部の「{}」の出品を取り消しました",
   "series · done {} of {}": "シリーズ · {} / {} 完了",
-  "series · done {} · refused {}": "シリーズ · {} 完了 · {} 拒否"
+  "series · done {} · refused {}": "シリーズ · {} 完了 · {} 拒否",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "Core には {} しかありません。あと {} 必要です。Core で DASH を受け取ってから、プールに入れてください。"
 }

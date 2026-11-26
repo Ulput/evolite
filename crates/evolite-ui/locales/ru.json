@@ -2991,5 +2991,6 @@
   "Put up for sale {} “{}” at {}": "Выставлено на продажу {} «{}» по {}",
   "Taken off sale {} “{}”": "Снято с продажи {} «{}»",
   "series · done {} of {}": "серия · сделано {} из {}",
-  "series · done {} · refused {}": "серия · сделано {} · отказ {}"
+  "series · done {} · refused {}": "серия · сделано {} · отказ {}",
+  "Core has only {}: {} more is needed. Receive DASH to Core, then put it into the pool.": "В Core только {}: не хватает ещё {}. Получите DASH на Core, затем положите их в пул."
 }

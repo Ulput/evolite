@@ -4,7 +4,7 @@
 //! «Check the new identity» with the password before anything is locked. The core does the
 //! asset lock and the rest.
 
-mod pool;
+pub(crate) mod pool;
 
 pub use pool::PoolPath;
 // For the kittests only (`ui_tests`): not in a test build without the demo core and dev-tools.
