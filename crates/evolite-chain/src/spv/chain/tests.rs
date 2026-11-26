@@ -2622,37 +2622,6 @@ async fn three_recipients_are_one_transaction_with_change() {
             .join("wallets")
             .join("testnet")
             .join("platform-wallet.db"),
-/// BUG-323 (the architect's probe): Yappr staging's App Connect request reads one contract
-/// group and two contracts, proved; each read alone, its error's whole text printed, and the
-/// protocol version the SDK sees. Testnet, read-only, no phrase, no spend.
-/// `cargo test -p evolite-chain live_bug_323_connect_reads -- --ignored --nocapture`
-#[test]
-#[ignore = "live: reads testnet"]
-fn live_bug_323_connect_reads() {
-    std::thread::Builder::new()
-        .stack_size(16 << 20)
-        .spawn(|| {
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .thread_stack_size(8 << 20)
-                .build()
-                .unwrap()
-                .block_on(bug_323_reads())
-        })
-        .unwrap()
-        .join()
-        .unwrap();
-}
-
-async fn bug_323_reads() {
-    use dash_sdk::platform::Fetch;
-    use dash_sdk::platform::contract_groups::ContractGroupInfo;
-    use dpp::data_contract::accessors::v0::DataContractV0Getters;
-    use dpp::platform_value::string_encoding::Encoding;
-    let dir = std::env::temp_dir().join("evolite-live-provider");
-    let paths = ChainPaths {
-        spv: dir.join("spv"),
-        store: dir.join("platform-wallet.db"),
         core_node: dir.join("core-node.txt"),
         held_since: dir.join("held-since.json"),
     };
@@ -2738,6 +2707,44 @@ async fn bug_323_reads() {
     drop(wallet);
     chain.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// BUG-323 (the architect's probe): Yappr staging's App Connect request reads one contract
+/// group and two contracts, proved; each read alone, its error's whole text printed, and the
+/// protocol version the SDK sees. Testnet, read-only, no phrase, no spend.
+/// `cargo test -p evolite-chain live_bug_323_connect_reads -- --ignored --nocapture`
+#[test]
+#[ignore = "live: reads testnet"]
+fn live_bug_323_connect_reads() {
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_stack_size(8 << 20)
+                .build()
+                .unwrap()
+                .block_on(bug_323_reads())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn bug_323_reads() {
+    use dash_sdk::platform::Fetch;
+    use dash_sdk::platform::contract_groups::ContractGroupInfo;
+    use dpp::data_contract::accessors::v0::DataContractV0Getters;
+    use dpp::platform_value::string_encoding::Encoding;
+    let dir = std::env::temp_dir().join("evolite-live-provider");
+    let paths = ChainPaths {
+        spv: dir.join("spv"),
+        store: dir.join("platform-wallet.db"),
+        core_node: dir.join("core-node.txt"),
+        held_since: dir.join("held-since.json"),
+    };
+    let chain = Chain::default();
+    chain
         .start(&paths, Arc::new(|_: &SyncStatus| {}))
         .await
         .expect("chain starts");
