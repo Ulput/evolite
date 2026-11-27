@@ -385,6 +385,65 @@ fn keys_are_built_as_the_dip_says() {
     );
 }
 
+/// BUG-290: an encryption key this phrase registered for an app (rotation 0, or a later one
+/// past ours on the identity) is the app's, with its contract; another's key bound to the same
+/// contract, the other half, an unbound key, a later rotation with no earlier one: not.
+#[test]
+fn an_encryption_key_made_here_is_an_apps() {
+    let half = |purpose| EncBinding {
+        contract: OTHER,
+        purpose,
+    };
+    let secret = |b: &EncBinding, rotation: u32| {
+        let base = if b.purpose == EncPurpose::Decryption {
+            0x70
+        } else {
+            0x50
+        };
+        Zeroizing::new([base + rotation as u8; SLOT])
+    };
+    let ours = |b: &EncBinding, rotation: u32| compressed(&secret(b, rotation)).ok();
+    let enc = half(EncPurpose::Encryption);
+    let key_at =
+        |id, b: &EncBinding, rotation| encryption_key(id, b, &secret(b, rotation)).unwrap();
+    let (r0, r1) = (key_at(3, &enc, 0), key_at(4, &enc, 1));
+    let on = |keys: Vec<IdentityPublicKey>| {
+        move |data: &[u8]| keys.iter().any(|k| k.data().as_slice() == data)
+    };
+    let both = vec![r0.clone(), r1.clone()];
+    assert_eq!(
+        app_encryption_contract(&r0, on(both.clone()), ours),
+        Some(OTHER)
+    );
+    assert_eq!(
+        app_encryption_contract(&r1, on(both), ours),
+        Some(OTHER),
+        "rotation 1"
+    );
+    assert_eq!(
+        app_encryption_contract(&r1, on(vec![r1.clone()]), ours),
+        None,
+        "rotation 1 without rotation 0 on the identity"
+    );
+    let dec = key_at(5, &half(EncPurpose::Decryption), 0);
+    assert_eq!(
+        app_encryption_contract(&dec, on(vec![dec.clone()]), ours),
+        Some(OTHER)
+    );
+    let theirs = encryption_key(6, &enc, &Zeroizing::new([0x07; SLOT])).unwrap();
+    assert_eq!(
+        app_encryption_contract(&theirs, on(vec![theirs.clone()]), ours),
+        None,
+        "another wallet's"
+    );
+    let IdentityPublicKey::V0(mut v0) = r0.clone() else {
+        panic!("encryption_key makes a V0 key")
+    };
+    v0.contract_bounds = None;
+    let unbound = IdentityPublicKey::V0(v0);
+    assert_eq!(app_encryption_contract(&unbound, on(vec![]), ours), None);
+}
+
 /// "Encryption Keys": register only when no key is there; send only our current key; else omit.
 #[test]
 fn an_encryption_key_is_registered_sent_or_left_out() {

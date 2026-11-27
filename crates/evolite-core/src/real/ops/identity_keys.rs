@@ -4,16 +4,44 @@
 use crate::real::*;
 use evolite_api::KeyOwner;
 use evolite_api::key_plan::{self, KeyRefusal, KeyRequest};
-use evolite_chain::identity::{Owner, key_owner, this_wallet_keys, this_wallet_secret};
+use evolite_chain::identity::{
+    Owner, app_encryption_keys, key_owner, this_wallet_keys, this_wallet_secret,
+};
 use std::collections::HashMap;
 
 /// This phrase's public keys of each identity, by (identity, revision): derived once while the
 /// wallet is open (АРХ-1). Public keys only; while it is closed owners are not known anyway.
 #[derive(Default)]
-pub(in crate::real) struct ThisKeys(std::sync::Mutex<HashMap<(String, u64), PublicKeys>>);
+pub(in crate::real) struct ThisKeys(std::sync::Mutex<HashMap<(String, u64), Derived>>);
 
 /// One identity's: its key numbers with this phrase's public key at each.
 type PublicKeys = HashMap<u32, [u8; 33]>;
+
+/// What the phrase says of one identity's keys: its DIP-13 public keys, and the encryption keys
+/// App Connect v2 registered from it with their contracts (BUG-290).
+type Derived = (PublicKeys, Vec<(u32, [u8; 32])>);
+
+/// BUG-290: the encryption keys App Connect v2 registered from this phrase, each with the name
+/// of the app signed in with that contract (as `identity` first), else the contract's id: an
+/// app's key, never «another wallet's».
+fn app_encryption_owners(
+    enc: &[(u32, [u8; 32])],
+    apps: &[connected_apps::App],
+    identity: &str,
+) -> Vec<(u32, String)> {
+    enc.iter()
+        .map(|(id, contract)| {
+            let contract = crate::real::ops::app_connect2::base58(contract);
+            let mut same = apps.iter().filter(|a| a.contract == contract);
+            let name = same
+                .clone()
+                .find(|a| a.identity == identity)
+                .or_else(|| same.next())
+                .map_or(contract.clone(), |a| a.name.clone());
+            (*id, name)
+        })
+        .collect()
+}
 
 /// The key ids the apps signed in as `identity` on this computer left on it, with each app's
 /// name: an older sign-in's two keys, an App Connect v2 sign-in's session keys.
@@ -51,16 +79,21 @@ impl Real {
             return;
         };
         let identity = &managed.identity;
-        let this = {
+        let (this, enc) = {
             let mut cache = self.this_keys.0.lock().unwrap_or_else(|e| e.into_inner());
             cache
                 .entry((api.id.clone(), identity.revision()))
                 .or_insert_with(|| {
-                    this_wallet_keys(keys, slot, identity.public_keys().keys().copied())
+                    (
+                        this_wallet_keys(keys, slot, identity.public_keys().keys().copied()),
+                        app_encryption_keys(keys, identity),
+                    )
                 })
                 .clone()
         };
-        let apps = app_keys(&self.apps.all(), &api.id);
+        let records = self.apps.all();
+        let mut apps = app_keys(&records, &api.id);
+        apps.extend(app_encryption_owners(&enc, &records, &api.id));
         for key in &mut api.keys {
             let Some(public) = identity.public_keys().get(&key.id) else {
                 continue;
@@ -101,7 +134,7 @@ impl Real {
             .ok_or(CoreError::NotAvailable(tr!("The keys are not open").into()))?;
         let wallet_id = open.id;
         let wallet = loaded(&self.chain, &wallet_id).await?;
-        let (slot, kind, data, disabled) = {
+        let (slot, kind, data, disabled, enc) = {
             let state = wallet.state().await;
             let managed = state
                 .identity_manager
@@ -127,10 +160,13 @@ impl Real {
                 key.key_type(),
                 key.data().to_vec(),
                 key.disabled_at().is_some(),
+                app_encryption_keys(&keys, &managed.identity),
             )
         };
         let this = this_wallet_keys(&keys, slot, [key_id]);
-        let apps = app_keys(&self.apps.all(), identity);
+        let records = self.apps.all();
+        let mut apps = app_keys(&records, identity);
+        apps.extend(app_encryption_owners(&enc, &records, identity));
         may_reveal(
             disabled,
             key_owner(kind, key_id, &data, this.get(&key_id), &apps),
@@ -168,7 +204,7 @@ const NOT_FROM_PHRASE: &str =
 fn api_keys(
     managed: &platform_wallet::ManagedIdentity,
     keys: &key_wallet::Wallet,
-    apps: &[(u32, String)],
+    records: &[connected_apps::App],
 ) -> Vec<evolite_api::IdentityKey> {
     use dpp::identity::accessors::IdentityGettersV0;
     use dpp::identity::identity_public_key::accessors::v0::IdentityPublicKeyGettersV0;
@@ -178,6 +214,13 @@ fn api_keys(
     };
     let public_keys = managed.identity.public_keys();
     let this = this_wallet_keys(keys, slot, public_keys.keys().copied());
+    let mut apps = app_keys(records, &api.id);
+    apps.extend(app_encryption_owners(
+        &app_encryption_keys(keys, &managed.identity),
+        records,
+        &api.id,
+    ));
+    let apps = apps.as_slice();
     for key in &mut api.keys {
         if let Some(public) = public_keys.get(&key.id) {
             key.owner = match key_owner(
@@ -213,11 +256,7 @@ impl Real {
                 && m.identity_index.is_some()
                 && m.identity.id().to_string(Encoding::Base58) == identity
         })?;
-        Some(api_keys(
-            managed,
-            keys,
-            &app_keys(&self.apps.all(), identity),
-        ))
+        Some(api_keys(managed, keys, &self.apps.all()))
     }
 
     /// `ReadIdentityKeys` (АРХ-4): the identity read from Platform again in the background, the
@@ -346,7 +385,7 @@ impl Real {
                     let managed = state.identity_manager.managed_identity(&who.id).ok_or(
                         CoreError::NotAvailable(tr!("The wallet has no identity").into()),
                     )?;
-                    api_keys(managed, &keys, &app_keys(&apps.all(), &identity))
+                    api_keys(managed, &keys, &apps.all())
                 };
                 let plan = key_plan::plan(&fresh, &add, &disable).map_err(|r| key_refusal(&r))?;
                 // BUG-145: what the update cost, from the credits before and after.
@@ -583,6 +622,31 @@ mod tests {
             .map(|(id, _)| id)
             .collect();
         assert_eq!(found, [7, 8, 9, 10]);
+    }
+
+    /// BUG-290: an encryption key App Connect v2 made from this phrase is the app's that signed
+    /// in with its contract — as this identity first, else as another — and, with no such app
+    /// on this computer (a restored wallet), the contract's; never «another wallet's».
+    #[test]
+    fn an_apps_encryption_key_is_named_by_its_contract() {
+        let contract = [7u8; 32];
+        let id = crate::real::ops::app_connect2::base58(&contract);
+        let mut other = app("id2", None, &[9]);
+        other.contract = id.clone();
+        other.name = "Elsewhere".into();
+        let mut here = app("id1", None, &[10]);
+        here.contract = id.clone();
+        here.name = "@yappr".into();
+        let enc = [(7, contract)];
+        assert_eq!(
+            app_encryption_owners(&enc, &[other.clone(), here], "id1"),
+            [(7, "@yappr".to_owned())]
+        );
+        assert_eq!(
+            app_encryption_owners(&enc, std::slice::from_ref(&other), "id1"),
+            [(7, "Elsewhere".to_owned())]
+        );
+        assert_eq!(app_encryption_owners(&enc, &[], "id1"), [(7, id)]);
     }
 
     /// FEAT-0020 AC-T11: refused before the password — a disabled key (also this wallet's), an

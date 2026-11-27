@@ -1242,6 +1242,36 @@ mod owner_tests {
     }
 }
 
+/// BUG-290: the keys of `identity` that App Connect v2 registered from this phrase for an app's
+/// encryption pair, with the contract each is bound to: an app's keys, made by this wallet —
+/// never «another wallet's». Found by the phrase alone, so after a restore too.
+pub fn app_encryption_keys(
+    keys: &key_wallet::Wallet,
+    identity: &dpp::identity::Identity,
+) -> Vec<(u32, [u8; 32])> {
+    use crate::apps::app_connect_v2::{grant, keys as v2keys};
+    let me = identity.id().to_buffer();
+    let all = identity.public_keys();
+    let on_identity = |data: &[u8]| all.values().any(|k| k.data().as_slice() == data);
+    all.values()
+        .filter_map(|key| {
+            let contract =
+                grant::app_encryption_contract(key, on_identity, |binding, rotation| {
+                    let path = v2keys::encryption_key_path(
+                        crate::network::dash(),
+                        me,
+                        binding.contract,
+                        binding.purpose,
+                        rotation,
+                    );
+                    let secret = v2keys::derive(keys, &path).ok()?;
+                    grant::compressed(&secret).ok()
+                })?;
+            Some((key.id(), contract))
+        })
+        .collect()
+}
+
 /// This phrase's DIP-13 public keys of identity slot `slot` at the numbers `ids` (FEAT-0020
 /// АРХ-1): what [`key_owner`] compares an identity's keys with. Needs the open wallet; derived
 /// once per identity and revision by the caller.

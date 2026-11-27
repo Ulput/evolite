@@ -297,6 +297,42 @@ pub fn encryption_key(
     }))
 }
 
+/// BUG-290: the contract of `key` when App Connect v2 registered it from this phrase — an
+/// encryption key (either half), `ECDSA_SECP256K1`, bound to one contract that is not a system
+/// one, whose data is ours (`ours(binding, rotation)`) at a rotation. The rotations go as
+/// [`enc_step`]'s: up to the first of ours not on the identity (`on_identity`).
+pub fn app_encryption_contract(
+    key: &IdentityPublicKey,
+    on_identity: impl Fn(&[u8]) -> bool,
+    mut ours: impl FnMut(&EncBinding, u32) -> Option<[u8; 33]>,
+) -> Option<[u8; 32]> {
+    let half = match key.purpose() {
+        Purpose::ENCRYPTION => EncPurpose::Encryption,
+        Purpose::DECRYPTION => EncPurpose::Decryption,
+        _ => return None,
+    };
+    let Some(ContractBounds::SingleContract { id }) = key.contract_bounds() else {
+        return None;
+    };
+    let binding = EncBinding {
+        contract: id.to_buffer(),
+        purpose: half,
+    };
+    if key.key_type() != KeyType::ECDSA_SECP256K1 || is_system(&binding.contract) {
+        return None;
+    }
+    for rotation in 0..MAX_ROTATIONS {
+        let data = ours(&binding, rotation)?;
+        if key.data().as_slice() == data {
+            return Some(binding.contract);
+        }
+        if !on_identity(&data) {
+            return None;
+        }
+    }
+    None
+}
+
 /// What a login does for one encryption binding (DIP, "Encryption Keys").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EncStep {

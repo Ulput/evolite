@@ -2709,6 +2709,21 @@ async fn three_recipients_are_one_transaction_with_change() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// BUG-287: the DashPay import counts contacts as «Contacts» does: each once, though one sent
+/// two requests; only both ways; never the identity itself.
+#[test]
+fn a_contact_with_two_requests_is_one_contact() {
+    let id = |n: u8| Identifier::from([n; 32]);
+    let me = id(1);
+    let sent_to: std::collections::BTreeSet<_> = [id(2), id(3), id(4), me].into();
+    let got_from = [id(2), id(3), id(3), id(5), me];
+    assert_eq!(
+        super::contacts::established_contacts(me, &sent_to, got_from),
+        2,
+        "@2, @3 (twice); @5 only asked; not me"
+    );
+}
+
 /// BUG-323 (the architect's probe): Yappr staging's App Connect request reads one contract
 /// group and two contracts, proved; each read alone, its error's whole text printed, and the
 /// protocol version the SDK sees. Testnet, read-only, no phrase, no spend.

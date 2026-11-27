@@ -957,6 +957,26 @@ fn the_found_dashpay_wallet_is_in_the_window() {
     assert!(in_the_window(&kit, &set), "«Set the password»");
 }
 
+/// BUG-288: «We found your DashPay wallet» in Russian — the identity's row is «Личность …», as
+/// every row's title (BUG-270 put it through `tr!`; QA's build before it said «Identity 5TKG…»).
+/// The rows are painted, not in the tree: read from what is painted.
+#[test]
+fn the_found_dashpay_wallets_identity_row_is_translated() {
+    let (_turn, mut kit) = demo_app("dashpay", "ru");
+    wait_for(&mut kit, "the found wallet", |kit| {
+        painted_has(kit, "Кошелёк Core")
+    });
+    let painted = painted_texts(&kit);
+    assert!(
+        painted.iter().any(|t| t.starts_with("Личность ")),
+        "{painted:?}"
+    );
+    assert!(
+        !painted.iter().any(|t| t.contains("Identity")),
+        "{painted:?}"
+    );
+}
+
 /// BUG-127: «Which wallet to open?» in the smallest window (800×440): the wheel brings «Open»,
 /// «Add wallet» and the foot into the window. The screen did not scroll, and they stayed below
 /// its edge — the password could only be sent with Enter, and no wallet added. On mainnet: under

@@ -162,14 +162,14 @@ impl Chain {
                 d.properties().get("toUserId")?.to_identifier().ok()
             })
             .collect();
-        let contacts = got
-            .into_values()
-            .flatten()
-            .filter(|d| {
+        let contacts = established_contacts(
+            id,
+            &to,
+            got.into_values().flatten().map(|d| {
                 use dpp::document::DocumentV0Getters;
-                to.contains(&d.owner_id())
-            })
-            .count() as u32;
+                d.owner_id()
+            }),
+        );
         Ok(DashPayFound {
             identity: Some((
                 id.to_string(Encoding::Base58),
@@ -781,6 +781,21 @@ pub(crate) fn sent_to_query(
                 .with_limit(100)
         })
         .map_err(|e| e.to_string())
+}
+
+/// BUG-287: how many contacts `me` has — the owners of requests to it (`got_from`) it sent a
+/// request to as well (`sent_to`), each once: a contact who sent a second request (keys
+/// rotated, an account added) is one contact, as «Contacts» shows; never `me` itself.
+pub(crate) fn established_contacts(
+    me: Identifier,
+    sent_to: &std::collections::BTreeSet<Identifier>,
+    got_from: impl IntoIterator<Item = Identifier>,
+) -> u32 {
+    got_from
+        .into_iter()
+        .filter(|owner| *owner != me && sent_to.contains(owner))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len() as u32
 }
 
 /// DashPay `contactRequest` documents with `field` (`$ownerId` or `toUserId`) equal to `id`, by
