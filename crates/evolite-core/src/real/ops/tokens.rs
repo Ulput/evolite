@@ -652,14 +652,7 @@ fn rows(
                 Origin::Found => TokenOrigin::Found,
                 Origin::ByHand => TokenOrigin::ByHand,
             };
-            // BUG-178: a found token at zero stays when this identity has something to do with it:
-            // a claim (the search found it through another identity of the wallet), or a price.
-            let something =
-                facts.is_some_and(|f| f.claims.contains_key(id) || f.offers.contains_key(id));
-            if origin == TokenOrigin::Found && balance == Some(0) && !something {
-                return None;
-            }
-            Some(TokenRow {
+            let row = TokenRow {
                 info,
                 origin,
                 balance,
@@ -674,7 +667,15 @@ fn rows(
                 offer: facts
                     .filter(|_| infos.get(id).is_none_or(|i| i.issuer != identity))
                     .and_then(|f| offer_of(f.offers.get(id)?, f.read_ms)),
-            })
+            };
+            // BUG-178: a found token at zero stays when this identity has something to do with it
+            // (the search found it through another identity of the wallet). BUG-300: only what
+            // the row offers — «Claim» or «Buy» — not a claim not due yet or the issuer's own
+            // price, which the row shows no button for: the screen says zero tokens do not appear.
+            let something = row.claims.is_some_and(|c| {
+                c.perpetual.is_some() || c.scheduled.is_some_and(|s| s.due.is_some())
+            }) || row.offer.is_some();
+            (row.origin != TokenOrigin::Found || row.balance != Some(0) || something).then_some(row)
         })
         .collect()
 }
@@ -804,6 +805,50 @@ mod rows_tests {
             "with «something to claim»"
         );
         assert!(shown[1].offer.is_some());
+    }
+
+    /// BUG-300: a found token at zero with nothing the row offers stays out — a pre-programmed
+    /// payout not due yet (no «Claim»), or the price of a token this identity issued itself (no
+    /// «Buy» for the owner, T-2.5): the screen says tokens at zero do not appear.
+    #[test]
+    fn a_found_token_at_zero_with_no_button_stays_out() {
+        let list = [
+            tracked("LATER", Origin::Found),
+            tracked("OWN", Origin::Found),
+        ];
+        let mut own = info("OWN");
+        own.issuer = "ME".into();
+        let infos: HashMap<String, TokenInfo> =
+            [("LATER".to_owned(), info("LATER")), ("OWN".to_owned(), own)].into();
+        let mut facts = chain::TokenFacts::default();
+        for id in ["LATER", "OWN"] {
+            facts.balances.insert(id.into(), 0);
+        }
+        facts.claims.insert(
+            "LATER".into(),
+            chain::Claimable {
+                perpetual: None,
+                scheduled: Some(evolite_chain::tokens::claim::Scheduled {
+                    due: None,
+                    due_after: 0,
+                    next_at: Some(u64::MAX),
+                }),
+            },
+        );
+        facts.offers.insert(
+            "OWN".into(),
+            chain::Offer {
+                price: Some(
+                    dpp::tokens::token_pricing_schedule::TokenPricingSchedule::SinglePrice(1_000),
+                ),
+                left: None,
+            },
+        );
+        assert!(rows(&list, &infos, Some(&facts), "ME", |_| false).is_empty());
+        // Another identity of the wallet sees «Buy» on it: it stays there.
+        let other = rows(&list, &infos, Some(&facts), "OTHER", |_| false);
+        assert_eq!(other.len(), 1);
+        assert_eq!(other[0].info.token_id, "OWN");
     }
 }
 

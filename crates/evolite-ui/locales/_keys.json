@@ -2079,7 +2079,7 @@
   "Tokens are issued by Dash Platform apps: points, coupons, game money. They sit on an identity, not on an address. If the search did not find your token — for example, one with a zero balance — add it by id.",
   "Tokens are not on this network",
   "Tokens cannot be read or sent from evolite yet",
-  "Tokens with a zero balance do not appear in the list — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.",
+  "Tokens with a zero balance do not appear in the list, except ones you can claim or buy — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.",
   "Tokens work only on testnet for now",
   "Too little for a payment",
   "Too many digits after the decimal mark: the smallest amount is {}",

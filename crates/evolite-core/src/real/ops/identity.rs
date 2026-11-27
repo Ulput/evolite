@@ -1150,9 +1150,9 @@ pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) ->
 }
 
 /// TECH-bug-prevention (TEAM.md §8d-4): what a Platform write took from the identity's credits,
-/// in duffs, and whether that is known. Both balances read: their difference (`0` when the
-/// credits did not go down), known. Either read failed: `(0, false)` — «cost not known», never a
-/// write that looks free.
+/// in duffs, and whether that is known. Both balances read and the credits went down: their
+/// difference, known. Either read failed, or the credits did not go down: `(0, false)` — «cost
+/// not known», never a write that looks free.
 ///
 /// BUG-303: whole duffs of each balance, as the screens show them, not of the difference — the
 /// one rule for every own line ([`own_line`], [`spent_credits`]); batch 73 found the two paths
@@ -1160,11 +1160,19 @@ pub(in crate::real) fn spent_credits(before: Option<u64>, after: Option<u64>) ->
 ///
 /// Credits that went **up** across the write mean credits came in meanwhile (a top-up, a
 /// transfer to it): what the write took is then not known, `(0, false)`, not «free».
+///
+/// BUG-297: the same credits on both sides are not «free» either — a Platform write always
+/// takes some; the read after it did not see it yet (Platform's node behind, a refresh that
+/// failed). A contact request read as «0.0000 DASH» in History: now «cost not known».
 pub(in crate::real) fn write_cost(before: Option<u64>, after: Option<u64>) -> (Duffs, bool) {
     match (before, after) {
         (Some(before), Some(after)) => {
             let spent = identity::credits_as_duffs(before) - identity::credits_as_duffs(after);
-            if spent < 0 { (0, false) } else { (spent, true) }
+            if spent <= 0 {
+                (0, false)
+            } else {
+                (spent, true)
+            }
         }
         _ => (0, false),
     }

@@ -1560,7 +1560,7 @@
   "Tokens": "代币",
   "Tokens are issued by Dash Platform apps: points, coupons, game money. They sit on an identity, not on an address. If the search did not find your token — for example, one with a zero balance — add it by id.": "代币由 Dash Platform 应用发行：积分、优惠券、游戏币。代币在身份上，而不在地址上。如果搜索没有找到你的代币（例如余额为零的代币），请按 ID 添加。",
   "Tokens cannot be read or sent from evolite yet": "暂时还不能在 evolite 中读取或发送代币",
-  "Tokens with a zero balance do not appear in the list — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.": "余额为零的代币不会出现在列表中 —— 请按 ID 添加此类代币。发放不计入余额：如果某个持续分配可能有可领取的内容，代币会标记为“有可领取”。分配给演进节点的发放和预设分配的发放不在此显示。代币余额和转账对网络上的所有人可见。",
+  "Tokens with a zero balance do not appear in the list, except ones you can claim or buy — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.": "余额为零的代币不会出现在列表中（可领取或可购买的除外） —— 请按 ID 添加此类代币。发放不计入余额：如果某个持续分配可能有可领取的内容，代币会标记为“有可领取”。分配给演进节点的发放和预设分配的发放不在此显示。代币余额和转账对网络上的所有人可见。",
   "Tokens work only on testnet for now": "代币目前仅在 testnet 可用",
   "Too many digits after the decimal mark: the smallest amount is {}": "小数位数过多：最小金额为 {}",
   "Too many wrong passwords": "密码错误次数过多",

@@ -332,6 +332,39 @@ pub(super) fn resolved(
         });
 }
 
+/// BUG-296: while a name is checked, its card's place — the same frame and 36-point row as
+/// [`resolved`], the face an empty circle and `words` in it — so the card that comes takes the
+/// place and the form under it does not move while the person types the amount.
+pub(super) fn checking(ui: &mut Ui, a: &mut Assets, words: &str) {
+    let p = a.p;
+    egui::Frame::new()
+        .fill(p.bg)
+        .stroke(Stroke::new(1.0, p.line))
+        .corner_radius(12)
+        .inner_margin(Margin::symmetric(14, 12))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                let (face, _) = ui.allocate_exact_size(vec2(36.0, 36.0), egui::Sense::hover());
+                ui.painter()
+                    .circle_stroke(face.center(), 17.5, Stroke::new(1.0, p.line));
+                ui.allocate_ui_with_layout(
+                    vec2(ui.available_width(), 36.0),
+                    Layout::left_to_right(Align::Center),
+                    |ui| {
+                        ui.add(crate::components::para(
+                            words,
+                            12.0,
+                            Weight::Regular,
+                            p.muted,
+                        ));
+                    },
+                );
+            });
+        });
+}
+
 #[cfg(test)]
 mod tests {
     use super::book_matches;

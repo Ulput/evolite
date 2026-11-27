@@ -1184,7 +1184,7 @@ fn keep_in_mind(ui: &mut Ui, a: &mut Assets) {
         });
         para(
             ui,
-            tr!("Tokens with a zero balance do not appear in the list — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network."),
+            tr!("Tokens with a zero balance do not appear in the list, except ones you can claim or buy — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network."),
             12.0,
             p.muted,
             None,

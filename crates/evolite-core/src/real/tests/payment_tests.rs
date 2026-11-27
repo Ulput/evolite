@@ -144,10 +144,11 @@ fn counts_what_a_write_cost_in_duffs() {
 fn a_cost_read_that_failed_is_not_known_not_free() {
     use crate::real::ops::identity::{costed, write_cost};
     assert_eq!(write_cost(Some(5_000_000), Some(4_000_000)), (1_000, true));
+    // BUG-297: a write takes something; the same credits after it is a read that did not see it.
     assert_eq!(
-        write_cost(Some(1_000), Some(1_000)),
-        (0, true),
-        "known: nothing spent"
+        write_cost(Some(1_000_000), Some(1_000_000)),
+        (0, false),
+        "the read after the write did not see it: not known, not free"
     );
     assert_eq!(
         write_cost(Some(1_000), Some(2_000)),

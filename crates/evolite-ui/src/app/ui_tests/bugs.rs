@@ -1086,7 +1086,7 @@ fn the_unlock_links_are_named_in_reading_order() {
 /// every paragraph since BUG-119: its first words in the top row, its last word in the bottom.
 #[test]
 fn tokens_keep_in_mind_in_arabic_reads_down_from_its_first_row() {
-    const KEY: &str = "Tokens with a zero balance do not appear in the list — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.";
+    const KEY: &str = "Tokens with a zero balance do not appear in the list, except ones you can claim or buy — add such a token by id. Payouts are not in the balance: if a perpetual distribution may have something to claim, the token is marked “something to claim”. Payouts of distributions to evonodes and of pre-programmed distributions are not shown here. Token balances and transfers are visible to everyone on the network.";
     let (_turn, mut kit) = demo_app("tokens", "ar");
     // Tall enough for the block under the seven rows to be painted.
     kit.set_size(egui::vec2(1024.0, 1400.0));

@@ -791,12 +791,8 @@ fn recipient_lines(
     } else if checking {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs(1));
-        ui.add(crate::components::para(
-            crate::text::name_waiting(form.asked_at),
-            12.0,
-            Weight::Regular,
-            p.muted,
-        ));
+        // BUG-296: in the card's place, so the card does not push the amount down.
+        super::recipient::checking(ui, a, crate::text::name_waiting(form.asked_at));
     } else if let Some((why, typo)) = &name_problem {
         let color = if *typo { p.danger } else { p.muted };
         ui.label(txt(why, 12.0, Weight::Regular, color));

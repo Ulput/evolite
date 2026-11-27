@@ -313,6 +313,42 @@ fn a_name_just_asked_is_only_being_checked_on_send() {
     assert!(!has_words(&kit, "The network is slow to answer"));
 }
 
+/// BUG-296: the name's card comes in the place «Checking the name» kept — «Amount» under it
+/// stays where it was, and what is typed there goes in the field (QA: it moved ~38 points down
+/// and the first amount typed was lost).
+#[test]
+fn the_name_card_does_not_move_the_amount() {
+    let amount_at = |kit: &Kit| {
+        painted_rects(kit, "Amount")
+            .first()
+            .expect("«Amount»")
+            .top()
+    };
+    let (_turn, mut kit) = demo_app("send", "en");
+    kit.run_steps(3);
+    {
+        let send = &mut kit.state_mut().send;
+        send.recipient = "@alice".into();
+        send.asked = "@alice".into();
+        send.resolution = None;
+        send.asked_at = Some(std::time::Instant::now());
+    }
+    kit.run_steps(3);
+    assert!(has_words(&kit, "Checking the name in DPNS"));
+    let checking = amount_at(&kit);
+    // Asked again, the demo core answers: the card.
+    kit.state_mut().send.asked.clear();
+    wait_for(&mut kit, "the card", |kit| {
+        !has_words(kit, "Checking the name in DPNS") && has_words(kit, "@alice")
+    });
+    kit.run_steps(2);
+    let resolved = amount_at(&kit);
+    assert!(
+        (checking - resolved).abs() < 1.0,
+        "«Amount» at {checking} while checking, at {resolved} with the card"
+    );
+}
+
 /// `NotSynced`, sent at once when the lists are not in: the words, not «Checking» (BUG-87).
 #[test]
 fn a_name_not_checkable_yet_says_why_on_send() {
