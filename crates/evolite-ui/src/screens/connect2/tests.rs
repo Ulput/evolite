@@ -90,7 +90,7 @@ fn no_amount_named_is_5_dash() {
     let none = request(vec![offer(SessionLimits::DEFAULT_BUDGET, None, 90, true)]);
     let choice = Choice::of(&none, NOW);
     assert_eq!(choice.limit(&SessionLimits::wallet()), Some(500_000_000));
-    assert!(explanation(&[none_primary(&none)], local()).contains("did not name an amount"));
+    assert!(explanation(&[none_primary(&none)], None, local()).contains("did not name an amount"));
 }
 
 fn none_primary(r: &AppRequest) -> SessionOffer {
@@ -237,14 +237,14 @@ fn the_explanation_says_the_whole_ask() {
         offer(1_000_000, Some(1_000_000), 90, false),
     ];
     let later = chrono::TimeZone::timestamp_opt(&Local, NOW + 30, 0).unwrap();
-    let said = explanation(&yappr, later);
+    let said = explanation(&yappr, None, later);
     assert!(said.contains("asks for 0.51 DASH and 90 days"), "{said}");
     assert!(!said.contains("lowered"), "{said}");
     let mut greedy = yappr.clone();
     greedy[0].proposed_budget = Some(1_000_000_000);
     greedy[0].budget = SessionLimits::MAX_BUDGET;
     greedy[0].changed = true;
-    let said = explanation(&greedy, local());
+    let said = explanation(&greedy, None, local());
     assert!(
         said.contains("asks for 10.01 DASH; evolite lowered it to 5 DASH"),
         "{said}"
@@ -359,6 +359,30 @@ fn your_amount_reads_one_mark_and_refuses_two() {
         );
     }
     crate::i18n::set(crate::i18n::Lang::En);
+}
+
+/// BUG-301: a renewal selects the limit the person chose before (0.015) when the app asks more
+/// (0.51), and says so — more only by their choice; a first sign-in selects what the app asks.
+#[test]
+fn a_renewal_selects_the_limit_chosen_before() {
+    let first = request(vec![offer(51_000_000, Some(51_000_000), 90, true)]);
+    let limits = SessionLimits::wallet();
+    assert_eq!(Choice::of(&first, NOW).limit(&limits), Some(51_000_000));
+    let mut renewal = first.clone();
+    let AppRequestKind::Connect2 { renews, .. } = &mut renewal.kind;
+    *renews = Some(Renewal {
+        budget: 1_500_000,
+        limit: 1_500_000,
+        spent: Some(0),
+        until: NOW + 90 * DAY,
+    });
+    assert_eq!(Choice::of(&renewal, NOW).limit(&limits), Some(1_500_000));
+    let AppRequestKind::Connect2 {
+        sessions, renews, ..
+    } = &renewal.kind;
+    let now = chrono::TimeZone::timestamp_opt(&Local, NOW, 0).unwrap();
+    let said = explanation(sessions, renews.as_ref(), now);
+    assert!(said.contains("Your limit before"), "{said}");
 }
 
 /// BUG-323: a failed read says which — the group, the contract (perhaps newer than this

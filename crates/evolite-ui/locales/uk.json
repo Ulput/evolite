@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "Витрачено {} з {} · до {} · {} попередніми ключами",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "Витрачено: перевіряємо… з {} · до {} · {} попередніми ключами",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "Витрачено {} з {} · до {} · попередніми ключами: невідомо",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "Витрачено: перевіряємо… з {} · до {} · попередніми ключами: невідомо",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "Застосунок просить {}. Вибрано ваш попередній ліміт, {}: більше — лише якщо оберете самі.",
   "noticed {}": "помічено {}",
   "Keys changed in another app: added {} · disabled {}": "Ключі змінено в іншому застосунку: додано {} · вимкнено {}",
   "Keys changed in another app: added {}": "Ключі змінено в іншому застосунку: додано {}",

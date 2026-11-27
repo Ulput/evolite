@@ -244,7 +244,72 @@ fn stored_key(id: u32, bounds: &Bounds, level: Level, limits: &Limits) -> Stored
         document_type,
         budget: limits.budget,
         expires_at: limits.expires_at,
+        spent_before: Some(0),
     }
+}
+
+/// BUG-302: what each of `new` keys takes over from the renewed session's key of the same binding
+/// — what that one had spent (`reads`, read just before the renewal) and what it had taken over
+/// itself. An earlier key with no pair hands its spending to the first new key of the same target.
+/// A key not read, or one that had taken over an unknown, hands over «not known»: never a 0 that
+/// is not one (§8d).
+pub(in crate::real) fn carry_spent(new: &mut [StoredKey], old: &App, reads: &Reads) {
+    let Some(session) = &old.session else {
+        return;
+    };
+    // What an earlier key spent, all told; `None`: not known.
+    let spent_by = |was: &StoredKey| -> Option<u64> {
+        let read = reads.get(&(old.contract.clone(), old.identity.clone(), was.id))?;
+        let left = read.remaining?;
+        was.spent_before?
+            .checked_add(was.budget.saturating_sub(left))
+    };
+    let mut paired = vec![false; session.keys.len()];
+    for key in new.iter_mut() {
+        let Some(at) = session.keys.iter().position(|k| {
+            k.kind == key.kind && k.target == key.target && k.document_type == key.document_type
+        }) else {
+            continue;
+        };
+        paired[at] = true;
+        key.spent_before = spent_by(&session.keys[at]);
+    }
+    for (was, _) in session.keys.iter().zip(&paired).filter(|(_, p)| !**p) {
+        if let Some(key) = new.iter_mut().find(|k| k.target == was.target) {
+            key.spent_before = key
+                .spent_before
+                .zip(spent_by(was))
+                .map(|(a, b)| a.saturating_add(b));
+        }
+    }
+}
+
+/// BUG-302: what is left of the budgets of `app`'s session keys, read now with its proof — what
+/// was read before may be old, the app spends till the renewal. A read that fails is no read:
+/// the map is left without it.
+async fn fresh_reads(chain: &evolite_chain::chain::Chain, app: &App) -> Reads {
+    let mut fresh = Reads::new();
+    let Some(session) = &app.session else {
+        return fresh;
+    };
+    let Ok(identity) = Identifier::from_string(&app.identity, Encoding::Base58) else {
+        return fresh;
+    };
+    let ids = session.keys.iter().map(|k| k.id).collect();
+    // A failed read: the earlier keys' spending is not known, and the renewal goes on.
+    let Ok(budgets) = chain.remaining_budgets(identity, ids).await else {
+        return fresh;
+    };
+    for (id, remaining) in budgets {
+        fresh.insert(
+            (app.contract.clone(), app.identity.clone(), id),
+            KeyRead {
+                remaining,
+                disabled: false,
+            },
+        );
+    }
+    fresh
 }
 
 /// The session keys of a kept sign-in as the screens show them, with what Platform last said.
@@ -280,6 +345,7 @@ pub(in crate::real) fn shown_session(
                 expires_at: (key.expires_at / 1_000) as Timestamp,
                 state,
                 remaining: read.and_then(|r| r.remaining).map(duffs),
+                spent_before: key.spent_before.map(duffs),
             }
         })
         .collect()
@@ -335,6 +401,7 @@ pub(in crate::real) fn renewal(
     let read = reads.get(&(app.contract.clone(), app.identity.clone(), primary.id));
     Some(Renewal {
         budget: duffs(primary.budget),
+        limit: duffs(session.keys.iter().map(|k| k.budget).sum()),
         spent: read
             .and_then(|r| r.remaining)
             .map(|left| duffs(primary.budget.saturating_sub(left))),
@@ -590,6 +657,7 @@ impl Real {
             return Err(super::identity_keys::identity_busy());
         };
         let (chain, apps, refresh) = (self.chain.clone(), self.apps.clone(), self.refresher());
+        let reads = self.app_reads.clone();
         let (journal, unclear) = (self.journal.clone(), self.unclear.clone());
         self.answer_later("task:approve_connect2", async move {
             let result = async {
@@ -689,6 +757,23 @@ impl Real {
                 }
                 // The previous session of the same connection: its keys go in the same update.
                 let previous = apps.get(&base58(&request.app_id), &base58(&me));
+                // BUG-302: the new keys keep what the renewed ones spent.
+                if let (Some(connection), Some(app)) = (&request.connection_id, &previous)
+                    && app.session.as_ref().is_some_and(|s| {
+                        s.connection.as_deref() == Some(evolite_common::hex(connection).as_str())
+                    })
+                {
+                    let fresh = fresh_reads(&chain, app).await;
+                    {
+                        // What was read just now is what the screens show too.
+                        let mut kept = reads.lock().unwrap_or_else(|e| e.into_inner());
+                        for (at, read) in &fresh {
+                            let disabled = kept.get(at).is_some_and(|r| r.disabled);
+                            kept.insert(at.clone(), KeyRead { disabled, ..*read });
+                        }
+                    }
+                    carry_spent(&mut stored, app, &fresh);
+                }
                 let disable: Vec<u32> = match (&request.connection_id, &previous) {
                     (Some(connection), Some(app)) => app
                         .session

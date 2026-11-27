@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "{1} में से {0} ख़र्च · {2} तक · पिछली कुंजियों से {3}",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "ख़र्च: जाँच हो रही है… {} में से · {} तक · पिछली कुंजियों से {}",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "{1} में से {0} ख़र्च · {2} तक · पिछली कुंजियों से: पता नहीं",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "ख़र्च: जाँच हो रही है… {} में से · {} तक · पिछली कुंजियों से: पता नहीं",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "ऐप {} माँग रहा है। आपकी पिछली सीमा, {}, चुनी गई है: ज़्यादा तभी जब आप चुनें।",
   "noticed {}": "{} को देखा गया",
   "Keys changed in another app: added {} · disabled {}": "किसी दूसरे ऐप में कुंजियाँ बदलीं: जोड़ी गई {} · बंद की गई {}",
   "Keys changed in another app: added {}": "किसी दूसरे ऐप में कुंजियाँ बदलीं: जोड़ी गई {}",

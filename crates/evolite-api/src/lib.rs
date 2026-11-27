@@ -1293,6 +1293,9 @@ pub enum AppBinding {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Renewal {
     pub budget: Duffs,
+    /// BUG-301: the connection's limit as the person chose it last — all its keys' budgets
+    /// together. A renewal selects it, not what the app asks; more only by choice.
+    pub limit: Duffs,
     /// What Platform last said was spent; `None` until read.
     pub spent: Option<Duffs>,
     pub until: Timestamp,
@@ -1384,6 +1387,10 @@ pub struct SessionKey {
     /// What is left of the budget, as Platform last said ([`Command::ReadAppBudgets`]); `None`
     /// until read.
     pub remaining: Option<Duffs>,
+    /// BUG-302: what the keys this one renewed (the same binding, the same connection) had
+    /// spent, read just before the renewal: their spending stays on the app's card. `None`: not
+    /// known (that read failed) — «not known», never 0.
+    pub spent_before: Option<Duffs>,
 }
 
 /// One session key an App Connect v2 app asks for, as the wallet offers it.

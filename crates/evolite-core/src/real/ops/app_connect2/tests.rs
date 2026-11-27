@@ -26,6 +26,7 @@ fn stored(id: u32, expires_at: u64) -> StoredKey {
         document_type: (id != 8).then(|| "profile".into()),
         budget: 50_000_000_000,
         expires_at,
+        spent_before: Some(0),
     }
 }
 
@@ -254,6 +255,7 @@ fn a_request_of_the_same_connection_is_a_renewal() {
         renewal(&kept, Some(&same), &reads),
         Some(Renewal {
             budget: 50_000_000,
+            limit: 50_000_000,
             spent: None,
             until: ((NOW_MS + 1) / 1_000) as Timestamp,
         })
@@ -492,6 +494,91 @@ fn a_request_is_priced_with_the_fees_of_every_form() {
         open.contains("snapshot::fees_from("),
         "not the measured fees"
     );
+}
+
+/// BUG-301: a renewal knows the connection's limit as chosen — all its keys' budgets together.
+/// BUG-302: the renewing keys take over what the renewed key of the same binding spent (read
+/// just before) and had taken over; an earlier key with no pair, to the first key of its target;
+/// a key of another target, nothing.
+#[test]
+fn a_renewal_keeps_the_limit_chosen_and_what_was_spent() {
+    let mut second = stored(9, NOW_MS + 1);
+    second.budget = 10_000_000_000;
+    let kept = app(vec![stored(8, NOW_MS + 1), second]);
+    let reads = Reads::new();
+    let renewed = renewal(&kept, Some(&[0u8; 16]), &reads).expect("a renewal");
+    assert_eq!(renewed.limit, 60_000_000, "50 + 10 million duffs");
+
+    let mut old = kept.clone();
+    if let Some(s) = old.session.as_mut() {
+        s.keys[0].spent_before = Some(1_000_000_000);
+    }
+    let read = |left| KeyRead {
+        remaining: Some(left),
+        disabled: false,
+    };
+    let mut reads = Reads::new();
+    reads.insert(("C".to_owned(), "I".to_owned(), 8), read(48_000_000_000));
+    reads.insert(("C".to_owned(), "I".to_owned(), 9), read(9_500_000_000));
+    let fresh = || {
+        let mut new = vec![stored(10, NOW_MS + 2), stored(11, NOW_MS + 2)];
+        new[0].kind = "group".into();
+        new[0].document_type = None;
+        new[1].kind = "contract".into();
+        new[1].document_type = None;
+        new[1].target = "other".into();
+        new
+    };
+    let mut new = fresh();
+    carry_spent(&mut new, &old, &reads);
+    assert_eq!(
+        new[0].spent_before,
+        Some(3_500_000_000),
+        "2 spent by key 8, 1 it had taken over, 0.5 by key 9 without a pair"
+    );
+    assert_eq!(new[1].spent_before, Some(0), "another target");
+}
+
+/// BUG-302 r1: an earlier key whose budget was not read hands over «not known», never 0 — the
+/// 0 would be kept for good, the earlier keys disabled in the same update.
+#[test]
+fn a_renewal_without_a_read_does_not_know_what_was_spent() {
+    let old = app(vec![stored(8, NOW_MS + 1), stored(9, NOW_MS + 1)]);
+    let new_keys = || {
+        let mut new = vec![stored(10, NOW_MS + 2)];
+        new[0].kind = "group".into();
+        new[0].document_type = None;
+        new
+    };
+    let mut new = new_keys();
+    carry_spent(&mut new, &old, &Reads::new());
+    assert_eq!(new[0].spent_before, None, "no read: not known");
+
+    // Key 8 read, key 9 (no pair, the same target) not: still not known.
+    let mut reads = Reads::new();
+    reads.insert(
+        ("C".to_owned(), "I".to_owned(), 8),
+        KeyRead {
+            remaining: Some(50_000_000_000),
+            disabled: false,
+        },
+    );
+    let mut new = new_keys();
+    carry_spent(&mut new, &old, &reads);
+    assert_eq!(new[0].spent_before, None, "a part not known: not known");
+
+    // What an earlier renewal did not know stays not known.
+    let mut was = old.clone();
+    if let Some(s) = was.session.as_mut() {
+        s.keys.truncate(1);
+        s.keys[0].spent_before = None;
+    }
+    let mut new = new_keys();
+    carry_spent(&mut new, &was, &reads);
+    assert_eq!(new[0].spent_before, None, "taken over not known");
+
+    let shown = shown_session(&app(new), &Reads::new(), NOW_MS);
+    assert_eq!(shown[0].spent_before, None);
 }
 
 /// BUG-323: each failed read of `open_connect2` is its own refusal — the stage, the id in base58,

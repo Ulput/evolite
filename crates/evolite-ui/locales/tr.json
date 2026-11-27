@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "{} / {} harcandı · {} tarihine kadar · önceki anahtarlarla {}",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "Harcanan: kontrol ediliyor… / {} · {} tarihine kadar · önceki anahtarlarla {}",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "{} / {} harcandı · {} tarihine kadar · önceki anahtarlarla: bilinmiyor",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "Harcanan: kontrol ediliyor… / {} · {} tarihine kadar · önceki anahtarlarla: bilinmiyor",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "Uygulama {} istiyor. Önceki limitiniz, {}, seçili: daha fazlası yalnızca siz seçerseniz.",
   "noticed {}": "{} fark edildi",
   "Keys changed in another app: added {} · disabled {}": "Anahtarlar başka bir uygulamada değişti: eklenen {} · devre dışı {}",
   "Keys changed in another app: added {}": "Anahtarlar başka bir uygulamada değişti: eklenen {}",

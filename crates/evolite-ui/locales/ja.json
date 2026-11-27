@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "{1} のうち {0} 使用 · {2} まで · 以前の鍵で {3}",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "使用：確認中… {} のうち · {} まで · 以前の鍵で {}",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "{1} のうち {0} 使用 · {2} まで · 以前の鍵で：不明",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "使用：確認中… {} のうち · {} まで · 以前の鍵で：不明",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "アプリは {} を求めています。以前の上限 {} が選択されています。増やすのはあなたが選んだときだけです。",
   "noticed {}": "{} に検出",
   "Keys changed in another app: added {} · disabled {}": "別のアプリで鍵が変更されました：追加 {} · 無効 {}",
   "Keys changed in another app: added {}": "別のアプリで鍵が変更されました：追加 {}",

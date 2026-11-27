@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "أُنفق {} من {} · حتى {} · {} بالمفاتيح السابقة",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "أُنفق: جارٍ التحقق… من {} · حتى {} · {} بالمفاتيح السابقة",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "أُنفق {} من {} · حتى {} · بالمفاتيح السابقة: غير معروف",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "أُنفق: جارٍ التحقق… من {} · حتى {} · بالمفاتيح السابقة: غير معروف",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "يطلب التطبيق {}. تم اختيار حدّك السابق، {}: الزيادة فقط إن اخترتها.",
   "noticed {}": "لوحظ في {}",
   "Keys changed in another app: added {} · disabled {}": "تغيّرت المفاتيح في تطبيق آخر: أضيف {} · عُطّل {}",
   "Keys changed in another app: added {}": "تغيّرت المفاتيح في تطبيق آخر: أضيف {}",

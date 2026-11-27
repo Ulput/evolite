@@ -64,14 +64,36 @@ fn spent_line(key: &SessionKey, now: chrono::DateTime<chrono::Local>) -> String 
     // de 2027») takes the line apart and leaves it half English (BUG-250, B3).
     let limit = crate::i18n::own(&limit);
     let until = crate::i18n::own(&text::date_short(key.expires_at, now));
-    match key.remaining {
-        Some(left) => format!(
-            tr!("Spent {} of {} · until {}"),
-            crate::format::short_number(key.budget - left),
+    // BUG-302: after a renewal what the earlier keys spent stays on the card, apart from this
+    // key's limit.
+    // Not known (the read before the renewal failed): said so, never as 0 (§8d).
+    let spent = key
+        .remaining
+        .map(|left| crate::format::short_number(key.budget - left));
+    match (spent, key.spent_before) {
+        (Some(spent), Some(0)) => format!(tr!("Spent {} of {} · until {}"), spent, limit, until),
+        (Some(spent), Some(earlier)) => format!(
+            tr!("Spent {} of {} · until {} · {} by the earlier keys"),
+            spent,
             limit,
-            until
+            until,
+            crate::format::short_number(earlier)
         ),
-        None => format!(tr!("Spent: checking… of {} · until {}"), limit, until),
+        (Some(spent), None) => format!(
+            tr!("Spent {} of {} · until {} · by the earlier keys: not known"),
+            spent, limit, until
+        ),
+        (None, Some(0)) => format!(tr!("Spent: checking… of {} · until {}"), limit, until),
+        (None, Some(earlier)) => format!(
+            tr!("Spent: checking… of {} · until {} · {} by the earlier keys"),
+            limit,
+            until,
+            crate::format::short_number(earlier)
+        ),
+        (None, None) => format!(
+            tr!("Spent: checking… of {} · until {} · by the earlier keys: not known"),
+            limit, until
+        ),
     }
 }
 
@@ -501,6 +523,37 @@ mod tests {
     use super::*;
     use evolite_api::{AppBinding, CoreError, KeyLevel};
 
+    /// BUG-302: after a renewal the card keeps what the earlier keys spent, beside this key's
+    /// limit; none before, nothing more said.
+    #[test]
+    fn a_renewed_key_says_what_the_earlier_keys_spent() {
+        let mut key = SessionKey {
+            id: 10,
+            level: KeyLevel::High,
+            binding: AppBinding::Group { id: "G".into() },
+            budget: 1_000_000,
+            expires_at: 1_900_000_000,
+            state: evolite_api::SessionKeyState::Live,
+            remaining: Some(929_404),
+            spent_before: Some(0),
+        };
+        let now = chrono::Local::now();
+        assert!(!spent_line(&key, now).contains("earlier"));
+        key.spent_before = Some(164_575);
+        let line = spent_line(&key, now);
+        assert!(line.contains("by the earlier keys"), "{line}");
+        key.remaining = None;
+        assert!(spent_line(&key, now).contains("by the earlier keys"));
+        // BUG-302 r1: not read before the renewal: «not known», never «0».
+        key.spent_before = None;
+        for remaining in [None, Some(929_404)] {
+            key.remaining = remaining;
+            let line = spent_line(&key, now);
+            assert!(line.contains("by the earlier keys: not known"), "{line}");
+            assert!(!line.contains("0 by the earlier"), "{line}");
+        }
+    }
+
     #[test]
     fn only_an_app_link_from_a_qr_goes_to_the_core() {
         use crate::qr_scan::{Kind, Scanned};
@@ -538,6 +591,7 @@ mod tests {
             expires_at: 1_000,
             state,
             remaining,
+            spent_before: Some(0),
         }
     }
 
@@ -631,6 +685,7 @@ mod budgets_due_tests {
             expires_at: now.timestamp() + 86_400,
             state: SessionKeyState::Live,
             remaining: None,
+            spent_before: Some(0),
         };
         // The limit and the date are kept whole (`own`, BUG-250): read without their marks.
         let bare = |s: String| s.replace(['\u{2068}', '\u{2069}'], "");

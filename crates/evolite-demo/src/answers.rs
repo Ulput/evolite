@@ -349,6 +349,7 @@ fn connect2_example(identity: String, wallet: &Wallet, renews: bool) -> AppReque
         breaks_old_clients: !renews,
         renews: renews.then_some(Renewal {
             budget: 50_000_000,
+            limit: 51_000_000,
             spent: Some(2_000_000),
             until: end,
         }),
@@ -380,6 +381,7 @@ pub fn connected_v2(asked: &AppRequestKind, grant: &SessionGrant) -> Option<Conn
                 expires_at,
                 state: SessionKeyState::Live,
                 remaining: None,
+                spent_before: Some(0),
             })
         })
         .collect();
@@ -405,6 +407,7 @@ pub fn demo_apps(t: Timestamp, day: Timestamp, min: Timestamp) -> Vec<ConnectedA
         expires_at: end,
         state,
         remaining: Some(left),
+        spent_before: Some(0),
     };
     let write = |id: &str| AppBinding::Group { id: id.into() };
     let app = |id: &str, name: &str, last_used, session, disconnected_at| ConnectedApp {

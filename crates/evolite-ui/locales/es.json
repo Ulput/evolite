@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "Gastado {} de {} · hasta {} · {} con las claves anteriores",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "Gastado: comprobando… de {} · hasta {} · {} con las claves anteriores",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "Gastado {} de {} · hasta {} · con las claves anteriores: no se sabe",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "Gastado: comprobando… de {} · hasta {} · con las claves anteriores: no se sabe",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "La aplicación pide {}. Está seleccionado su límite anterior, {}: más solo si usted lo elige.",
   "noticed {}": "detectado {}",
   "Keys changed in another app: added {} · disabled {}": "Claves cambiadas en otra app: añadida {} · desactivada {}",
   "Keys changed in another app: added {}": "Claves cambiadas en otra app: añadida {}",

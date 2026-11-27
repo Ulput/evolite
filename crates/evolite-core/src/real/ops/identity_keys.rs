@@ -597,6 +597,7 @@ mod tests {
                         document_type: None,
                         budget: 0,
                         expires_at: 0,
+                        spent_before: Some(0),
                     })
                     .collect(),
                 response: None,

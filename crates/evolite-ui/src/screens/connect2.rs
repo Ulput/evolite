@@ -45,7 +45,10 @@ impl Choice {
     /// as the core offered it), else the wallet's defaults — 5 DASH and 90 days.
     pub fn of(request: &AppRequest, now: Timestamp) -> Self {
         let AppRequestKind::Connect2 {
-            sessions, limits, ..
+            sessions,
+            limits,
+            renews,
+            ..
         } = &request.kind;
         let primary = sessions.first();
         // The connection's one limit: what the app asks for all its keys, at most 5 DASH (the
@@ -53,6 +56,12 @@ impl Choice {
         let budget = match sessions.iter().map(|s| s.budget).sum::<Duffs>() {
             0 => SessionLimits::DEFAULT_BUDGET,
             asked => asked.min(limits.max_budget),
+        };
+        // BUG-301: a renewal selects the limit the person chose before, when it is less than
+        // what the app asks: more only by their own choice.
+        let budget = match renews {
+            Some(old) if old.limit > 0 => budget.min(old.limit),
+            _ => budget,
         };
         let end = primary.map_or(now + SessionLimits::DEFAULT_TERM_DAYS * DAY, |s| {
             s.expires_at
@@ -251,7 +260,11 @@ fn number(d: Duffs) -> String {
 /// The explanation under the limit and period (A1b, point 9).
 /// `sessions`: all the keys asked; the app's amount is what it asks for all of them together
 /// (the one limit, the architect, round 4), its period the primary key's.
-fn explanation(sessions: &[SessionOffer], now: DateTime<Local>) -> String {
+fn explanation(
+    sessions: &[SessionOffer],
+    renews: Option<&Renewal>,
+    now: DateTime<Local>,
+) -> String {
     let rules = tr!(
         "evolite allows at most 5 DASH, and a period from an hour to a year. After that the limit changes only with a new sign-in."
     );
@@ -282,6 +295,17 @@ fn explanation(sessions: &[SessionOffer], now: DateTime<Local>) -> String {
             tr!("The app asks for {}. That is what is selected; you can choose less."),
             dash(amount)
         ),
+    };
+    // BUG-301: a renewal selected the person's limit before, under what the app asks.
+    let asked = match (renews, total) {
+        (Some(old), Some(amount)) if old.limit > 0 && old.limit < amount => format!(
+            tr!(
+                "The app asks for {}. Your limit before, {}, is selected: more only if you choose it."
+            ),
+            dash(amount),
+            dash(old.limit)
+        ),
+        _ => asked,
     };
     let allowed: Duffs = sessions
         .iter()
@@ -848,7 +872,12 @@ pub fn request(
                     |_| {},
                 );
             }
-            wrapped(ui, &explanation(sessions, now), 12.0, p.muted);
+            wrapped(
+                ui,
+                &explanation(sessions, renews.as_ref(), now),
+                12.0,
+                p.muted,
+            );
             match renews {
                 Some(old) => renewal_note(ui, a, app, old),
                 None if *breaks_old_clients => permanent(ui, a, identity),

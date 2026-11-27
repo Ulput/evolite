@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "Terpakai {} dari {} · sampai {} · {} oleh kunci sebelumnya",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "Terpakai: memeriksa… dari {} · sampai {} · {} oleh kunci sebelumnya",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "Terpakai {} dari {} · sampai {} · oleh kunci sebelumnya: tidak diketahui",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "Terpakai: memeriksa… dari {} · sampai {} · oleh kunci sebelumnya: tidak diketahui",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "Aplikasi meminta {}. Batas Anda sebelumnya, {}, dipilih: lebih hanya jika Anda memilihnya.",
   "noticed {}": "terdeteksi {}",
   "Keys changed in another app: added {} · disabled {}": "Kunci diubah di aplikasi lain: ditambahkan {} · dinonaktifkan {}",
   "Keys changed in another app: added {}": "Kunci diubah di aplikasi lain: ditambahkan {}",

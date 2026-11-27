@@ -62,6 +62,15 @@ pub struct SessionKey {
     pub budget: u64,
     /// Block time, milliseconds.
     pub expires_at: u64,
+    /// BUG-302: credits the keys it renewed had spent, read just before the renewal; `None`: not
+    /// known (a read that failed). A key kept before this was known: 0.
+    #[serde(default = "known_zero")]
+    pub spent_before: Option<u64>,
+}
+
+/// BUG-302: a key kept before `spent_before` was: its renewal carried nothing over.
+fn known_zero() -> Option<u64> {
+    Some(0)
 }
 
 /// The `loginKeyResponse` as published: its id (base58) and its three values (hex).
@@ -221,6 +230,7 @@ mod tests {
                 document_type: None,
                 budget: 50_000_000_000,
                 expires_at: 1_800_000_000_000,
+                spent_before: Some(0),
             }],
             response: Some(Response {
                 document: "D1".into(),

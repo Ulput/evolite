@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "已花费 {} / {} · 至 {} · 之前的密钥花费 {}",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "已花费：正在检查… / {} · 至 {} · 之前的密钥花费 {}",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "已花费 {} / {} · 至 {} · 之前的密钥花费：未知",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "已花费：正在检查… / {} · 至 {} · 之前的密钥花费：未知",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "应用请求 {}。已选择你之前的限额 {}：只有你自己选择时才会更多。",
   "noticed {}": "发现于 {}",
   "Keys changed in another app: added {} · disabled {}": "密钥已在其他应用中更改：添加 {} · 停用 {}",
   "Keys changed in another app: added {}": "密钥已在其他应用中更改：添加 {}",

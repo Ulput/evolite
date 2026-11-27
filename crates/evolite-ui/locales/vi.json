@@ -1,4 +1,9 @@
 {
+  "Spent {} of {} · until {} · {} by the earlier keys": "Đã chi {} trên {} · đến {} · {} bởi các khóa trước",
+  "Spent: checking… of {} · until {} · {} by the earlier keys": "Đã chi: đang kiểm tra… trên {} · đến {} · {} bởi các khóa trước",
+  "Spent {} of {} · until {} · by the earlier keys: not known": "Đã chi {} trên {} · đến {} · bởi các khóa trước: không rõ",
+  "Spent: checking… of {} · until {} · by the earlier keys: not known": "Đã chi: đang kiểm tra… trên {} · đến {} · bởi các khóa trước: không rõ",
+  "The app asks for {}. Your limit before, {}, is selected: more only if you choose it.": "Ứng dụng xin {}. Hạn mức trước của bạn, {}, đang được chọn: nhiều hơn chỉ khi bạn chọn.",
   "noticed {}": "phát hiện lúc {}",
   "Keys changed in another app: added {} · disabled {}": "Khóa đã đổi trong ứng dụng khác: thêm {} · vô hiệu hóa {}",
   "Keys changed in another app: added {}": "Khóa đã đổi trong ứng dụng khác: thêm {}",
