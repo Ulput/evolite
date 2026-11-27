@@ -215,6 +215,20 @@ impl NftSeries {
         })
     }
 
+    /// BUG-337: when evolite opens the wallet, a series with nothing left to send or read again
+    /// is closed — its plate was the last run's news; its line stays in History and «Recent».
+    /// One stopped with writes left keeps its plate («Continue»). How many were closed.
+    pub fn close_finished(&self) -> Result<usize, String> {
+        self.change(|f| {
+            let mut closed = 0;
+            for s in f.series.iter_mut().filter(|s| !s.closed && s.finished()) {
+                s.closed = true;
+                closed += 1;
+            }
+            (closed, closed > 0)
+        })
+    }
+
     fn change<R>(&self, change: impl FnOnce(&mut File) -> (R, bool)) -> Result<R, String> {
         self.store.update(change).map_err(|e| e.to_string())
     }
@@ -292,5 +306,25 @@ mod tests {
         series.close(id).unwrap();
         assert_eq!(series.issued("m"), Some(2));
         assert_eq!(series.issued("other"), None);
+    }
+
+    /// BUG-337: plates of the last run's series did not go after a restart and piled up (4, then
+    /// 6, the model off the first screen). Opened again: the finished ones are closed, done or
+    /// refused; one with writes left stays for «Continue»; the closed stay in the file.
+    #[test]
+    fn finished_series_are_closed_when_the_wallet_opens() {
+        let path = temp("close-finished");
+        let series = NftSeries::new(path.clone());
+        let done = series.start(mint(&[1])).unwrap();
+        series.set(done, 1, State::Done, None, None).unwrap();
+        let refused = series.start(mint(&[2])).unwrap();
+        series.set(refused, 2, State::Refused, None, None).unwrap();
+        let left = series.start(mint(&[3, 4])).unwrap();
+        series.set(left, 3, State::Done, None, None).unwrap();
+        let again = NftSeries::new(path);
+        assert_eq!(again.close_finished(), Ok(2));
+        let closed: Vec<(u64, bool)> = again.all().iter().map(|s| (s.id, s.closed)).collect();
+        assert_eq!(closed, [(done, true), (refused, true), (left, false)]);
+        assert_eq!(again.close_finished(), Ok(0), "once");
     }
 }
