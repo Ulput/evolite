@@ -3257,5 +3257,6 @@
   "Creation of the identity {} from the pool": "إنشاء الهوية {} من المجمّع",
   "Top-up of {} from the pool": "شحن {} من المجمّع",
   "Could not read the contract {}: it may be newer than this version of evolite.": "تعذّرت قراءة العقد {}: ربما يكون أحدث من هذا الإصدار من evolite.",
-  "Could not read the contract {} from Platform.": "تعذّرت قراءة العقد {} من Platform."
+  "Could not read the contract {} from Platform.": "تعذّرت قراءة العقد {} من Platform.",
+  "You sign once: evolite writes the model — 1 record on the network.": "توقّع مرة واحدة: يكتب evolite النموذج — سجل واحد على الشبكة."
 }

@@ -3017,5 +3017,6 @@
   "Creation of the identity {} from the pool": "从私密池创建身份 {}",
   "Top-up of {} from the pool": "从私密池为 {} 充值",
   "Could not read the contract {}: it may be newer than this version of evolite.": "无法读取合约 {}：它可能比此版本的 evolite 更新。",
-  "Could not read the contract {} from Platform.": "无法从 Platform 读取合约 {}。"
+  "Could not read the contract {} from Platform.": "无法从 Platform 读取合约 {}。",
+  "You sign once: evolite writes the model — 1 record on the network.": "只需签名一次：evolite 写入模型——网络上 1 条记录。"
 }

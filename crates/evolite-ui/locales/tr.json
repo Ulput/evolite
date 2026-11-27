@@ -3065,5 +3065,6 @@
   "Creation of the identity {} from the pool": "Havuzdan {} kimliğinin oluşturulması",
   "Top-up of {} from the pool": "Havuzdan {} yüklemesi",
   "Could not read the contract {}: it may be newer than this version of evolite.": "{} sözleşmesi okunamadı: evolite’in bu sürümünden daha yeni olabilir.",
-  "Could not read the contract {} from Platform.": "{} sözleşmesi Platform’dan okunamadı."
+  "Could not read the contract {} from Platform.": "{} sözleşmesi Platform’dan okunamadı.",
+  "You sign once: evolite writes the model — 1 record on the network.": "Bir kez imzalarsınız: evolite modeli yazar — ağda 1 kayıt."
 }

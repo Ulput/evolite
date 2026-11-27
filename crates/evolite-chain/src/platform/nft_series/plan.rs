@@ -110,11 +110,33 @@ pub mod per_write {
     pub const PRICE: u64 = 5_400_000;
     /// A transfer, to another (a gift) or to oneself (off sale): 0.00108447.
     pub const TRANSFER: u64 = 145_000_000;
-    /// A model's «image» document: the probe's 5 000 bytes took 0.0014857 (≈ 29 700 credits a
-    /// byte); estimated as a base and a third over the probe's rate.
-    pub const IMAGE_BASE: u64 = 50_000_000;
-    pub const IMAGE_PER_BYTE: u64 = 40_000;
-    const _: () = assert!(IMAGE_BASE + IMAGE_PER_BYTE * 5_000 >= 148_570_000 * 4 / 3);
+    /// A model's «image» document, a line in its stored bytes (BUG-343), over both protocols the
+    /// build talks to (BUG-259 r2, the architect: a measure is the higher of the two):
+    /// - **14**: the probe's 5 000 bytes took 0.0014857, QA's 446 bytes 0.00031902 (2026-11-27)
+    ///   — ≈ 25 620 credits a byte over a base of ≈ 20 480 000;
+    /// - **15** (PV15, 2026-11-27): 4 930 bytes 0.00146794, 106 bytes 0.00014328 — ≈ 27 460
+    ///   credits a byte over a base of ≈ 11 420 000: dearer a byte, so a large picture costs
+    ///   more at 15.
+    ///
+    /// The estimate: the base of 14, the slope of 15, a third on top of both — down to its largest
+    /// write ([`PARTS_TOTAL`](super::super::image::PARTS_TOTAL)). The base alone was 50 000 000
+    /// before, more than a small picture took in all (an estimate twice the fact).
+    pub const IMAGE_BASE: u64 = 28_000_000;
+    pub const IMAGE_PER_BYTE: u64 = 36_700;
+    /// The network's charge for `bytes` on the line through two measures `(bytes, credits)`.
+    const fn on_line(bytes: u64, from: (u64, u64), to: (u64, u64)) -> u64 {
+        from.1 + (bytes - from.0) * (to.1 - from.1) / (to.0 - from.0)
+    }
+    const AT_14: [(u64, u64); 2] = [(446, 31_902_000), (5_000, 148_570_000)];
+    const AT_15: [(u64, u64); 2] = [(106, 14_328_000), (4_930, 146_794_000)];
+    const LARGEST: u64 = super::super::image::PARTS_TOTAL as u64;
+    // Each measure and the largest picture on each protocol's line, with its third.
+    const _: () = assert!(image(5_000) >= 148_570_000 * 4 / 3);
+    const _: () = assert!(image(446) >= 31_902_000 * 4 / 3);
+    const _: () = assert!(image(4_930) >= 146_794_000 * 4 / 3);
+    const _: () = assert!(image(106) >= 14_328_000 * 4 / 3);
+    const _: () = assert!(image(LARGEST as usize) >= on_line(LARGEST, AT_14[0], AT_14[1]) * 4 / 3);
+    const _: () = assert!(image(LARGEST as usize) >= on_line(LARGEST, AT_15[0], AT_15[1]) * 4 / 3);
 
     /// The «image» write of a picture stored in `bytes`.
     pub const fn image(bytes: usize) -> u64 {
@@ -194,6 +216,33 @@ mod tests {
         assert_eq!(next_serials(None, Some(9), 1, 20), Ok(vec![10]));
         assert_eq!(next_serials(Some(8), None, 3, 10), Err(2));
         assert_eq!(next_serials(Some(10), None, 1, 10), Err(0));
+    }
+
+    /// BUG-343: a picture's estimate is the measures' line and a third — at both sizes the
+    /// network was measured at, never below its fact and never half over it. r2 (PV15): at 15's
+    /// sizes too, never below — the bound of a half is 14's (15's base is lower).
+    #[test]
+    fn a_picture_s_estimate_follows_both_measures() {
+        use super::per_write::image;
+        // BUG-343: at most a half over the network's fact at both sizes measured, never below.
+        for (bytes, fact) in [(446, 31_902_000u64), (5_000, 148_570_000)] {
+            let estimate = image(bytes);
+            assert!(
+                estimate >= fact * 4 / 3,
+                "{bytes}: {estimate} under the fact and a third"
+            );
+            assert!(
+                estimate <= fact * 3 / 2,
+                "{bytes}: {estimate} over half above the fact"
+            );
+        }
+        for (bytes, fact) in [(106, 14_328_000u64), (4_930, 146_794_000)] {
+            let estimate = image(bytes);
+            assert!(
+                estimate >= fact * 4 / 3,
+                "{bytes} at 15: {estimate} under the fact and a third"
+            );
+        }
     }
 
     /// BUG-259 (the architect): a model with no instance yet — issuing 3 is the contract's first

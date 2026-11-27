@@ -1216,3 +1216,26 @@ fn a_main_contract_not_read_keeps_the_fee_and_says_why() {
         "nothing to sign"
     );
 }
+
+/// BUG-343: a model with no copies issued now — no «0 copies · 0.0000» row and «the model — 1
+/// record»; the review says «at most ≈» as the form does.
+#[test]
+fn a_model_alone_says_no_copies_and_at_most() {
+    let (_turn, mut kit) = demo_app("workshop-collection", "en");
+    new_model_with(&mut kit, "pin.png", noisy_png(8));
+    retype(&mut kit, "Issue now · The rest — later.", "0");
+    wait_for(&mut kit, "the plan", |kit| {
+        !button(kit, "Check").accesskit_node().is_disabled()
+    });
+    assert!(!has_words(&kit, "0 copies"), "{:?}", painted_texts(&kit));
+    assert!(has_words(&kit, "the model — 1 record on the network"));
+    button(&kit, "Check").click();
+    wait_for(&mut kit, "the review", |kit| {
+        has_text(kit, "Check the model")
+    });
+    assert!(
+        has_words(&kit, "at most ≈"),
+        "the review's total: {:?}",
+        painted_texts(&kit)
+    );
+}

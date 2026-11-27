@@ -956,13 +956,16 @@ fn summary(
             value.clone(),
         );
         kv_row_fit(ui, &p, tr!("Model"), &about(model_fee), value.clone());
-        kv_row_fit(
-            ui,
-            &p,
-            &crate::text::plural(mint, tr!("copy"), tr!("copies")),
-            &about(copies),
-            value.clone(),
-        );
+        // BUG-343: no copies issued now — no row of «0 copies · 0.0000».
+        if mint > 0 {
+            kv_row_fit(
+                ui,
+                &p,
+                &crate::text::plural(mint, tr!("copy"), tr!("copies")),
+                &about(copies),
+                value.clone(),
+            );
+        }
         crate::components::divider(ui, &p);
         kv_row_fit(ui, &p, tr!("Total"), &about(total), value.clone());
         // FEAT-0057 П3 (R-3.1): the one line «Credits: now › after» for the whole series.
@@ -976,19 +979,19 @@ fn summary(
                 crate::components::Charge::AtMost,
             ),
         );
-        super::super::tokens::para(
-            ui,
-            &format!(
+        let once = if mint > 0 {
+            format!(
                 tr!(
                     "You sign once: evolite writes the model and {} one by one — {} on the network."
                 ),
                 crate::text::plural(mint, tr!("copy"), tr!("copies")),
                 crate::text::plural(mint + 1, tr!("record"), tr!("records"))
-            ),
-            12.0,
-            p.muted,
-            None,
-        );
+            )
+        } else {
+            // BUG-343: the model alone — not «the model and 0 copies».
+            tr!("You sign once: evolite writes the model — 1 record on the network.").to_owned()
+        };
+        super::super::tokens::para(ui, &once, 12.0, p.muted, None);
         crate::components::button_row(ui, |ui| {
             if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
                 *cancel = true;
@@ -1051,7 +1054,8 @@ fn review(
                     ui,
                     &p,
                     tr!("Total"),
-                    &format!("≈ {}", crate::format::amount(plan.total)),
+                    // BUG-343: the margin's estimate, as in the form — «at most».
+                    &super::at_most(Some(plan.total), false),
                     value.clone(),
                 );
                 crate::components::warning(

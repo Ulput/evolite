@@ -3017,5 +3017,6 @@
   "Creation of the identity {} from the pool": "プールからアイデンティティ {} を作成",
   "Top-up of {} from the pool": "プールから {} にチャージ",
   "Could not read the contract {}: it may be newer than this version of evolite.": "コントラクト {} を読み込めませんでした。この evolite のバージョンより新しい可能性があります。",
-  "Could not read the contract {} from Platform.": "コントラクト {} を Platform から読み込めませんでした。"
+  "Could not read the contract {} from Platform.": "コントラクト {} を Platform から読み込めませんでした。",
+  "You sign once: evolite writes the model — 1 record on the network.": "署名は一度だけ: evolite がモデルを書き込みます — ネットワーク上の記録 1 件。"
 }

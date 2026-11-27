@@ -3065,5 +3065,6 @@
   "Creation of the identity {} from the pool": "Erstellung der Identität {} aus dem Pool",
   "Top-up of {} from the pool": "Aufladung von {} aus dem Pool",
   "Could not read the contract {}: it may be newer than this version of evolite.": "Der Vertrag {} konnte nicht gelesen werden: Er ist vielleicht neuer als diese Version von evolite.",
-  "Could not read the contract {} from Platform.": "Der Vertrag {} konnte nicht aus Platform gelesen werden."
+  "Could not read the contract {} from Platform.": "Der Vertrag {} konnte nicht aus Platform gelesen werden.",
+  "You sign once: evolite writes the model — 1 record on the network.": "Sie signieren einmal: evolite schreibt das Modell — 1 Eintrag im Netzwerk."
 }

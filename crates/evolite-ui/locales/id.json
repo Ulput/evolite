@@ -3017,5 +3017,6 @@
   "Creation of the identity {} from the pool": "Pembuatan identitas {} dari pool",
   "Top-up of {} from the pool": "Isi ulang {} dari pool",
   "Could not read the contract {}: it may be newer than this version of evolite.": "Kontrak {} tidak dapat dibaca: mungkin lebih baru dari versi evolite ini.",
-  "Could not read the contract {} from Platform.": "Kontrak {} tidak dapat dibaca dari Platform."
+  "Could not read the contract {} from Platform.": "Kontrak {} tidak dapat dibaca dari Platform.",
+  "You sign once: evolite writes the model — 1 record on the network.": "Anda menandatangani sekali: evolite menulis model — 1 catatan di jaringan."
 }
