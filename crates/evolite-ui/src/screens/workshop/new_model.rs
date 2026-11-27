@@ -258,10 +258,13 @@ fn mismatch(name: &str, bytes: &[u8]) -> Option<(&'static str, String)> {
 fn pick(ctx: &egui::Context) -> Receiver<Option<Chosen>> {
     let (tx, rx) = channel();
     let ctx = ctx.clone();
+    // BUG-344: the window the dialog belongs to, taken on the frame (it is in front now): without
+    // it Windows opened the dialog behind evolite or off the screen.
+    let parent = crate::qr_scan::Parent::now();
     let _ = std::thread::Builder::new()
         .name("workshop-picture".into())
         .spawn(move || {
-            let _ = tx.send(choose());
+            let _ = tx.send(choose(parent));
             ctx.request_repaint();
         });
     rx
@@ -270,9 +273,10 @@ fn pick(ctx: &egui::Context) -> Receiver<Option<Chosen>> {
 #[cfg(test)]
 pub static TEST_PICK: std::sync::Mutex<Option<(String, Vec<u8>)>> = std::sync::Mutex::new(None);
 
-fn choose() -> Option<Chosen> {
+fn choose(parent: crate::qr_scan::Parent) -> Option<Chosen> {
     #[cfg(test)]
     {
+        let _ = parent;
         let (name, bytes) = TEST_PICK.lock().unwrap_or_else(|e| e.into_inner()).take()?;
         Some(Chosen { name, bytes })
     }
@@ -284,6 +288,10 @@ fn choose() -> Option<Chosen> {
                 "PNG, JPEG, GIF, WebP, SVG, GLB",
                 &["png", "jpg", "jpeg", "gif", "webp", "svg", "glb"],
             );
+        #[cfg(windows)]
+        let dialog = dialog.set_parent(&parent);
+        #[cfg(not(windows))]
+        let _ = parent;
         let path = dialog.pick_file()?;
         let file = std::fs::File::open(&path).ok()?;
         let mut bytes = Vec::new();

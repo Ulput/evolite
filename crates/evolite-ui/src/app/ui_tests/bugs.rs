@@ -1484,3 +1484,54 @@ fn the_balance_says_it_may_be_incomplete_during_a_contacts_rescan() {
         "the Core card's line"
     );
 }
+
+/// BUG-344 (the class): every system file dialog the interface opens is given evolite's window
+/// as its parent — «Picture» of «New model» had none and opened behind the window or off the
+/// screen. Each `rfd` dialog made in the sources has its `set_parent` before it is shown.
+#[test]
+fn every_file_dialog_belongs_to_the_window() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = vec![src.clone()];
+    let mut missing = Vec::new();
+    while let Some(path) = files.pop() {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(&path).expect("the sources").flatten() {
+                files.push(entry.path());
+            }
+            continue;
+        }
+        if path.extension().is_none_or(|e| e != "rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).expect("a source");
+        // The words that open one, found in code (not in this test's own text).
+        let opened: Vec<usize> = text
+            .match_indices(concat!("Dialog::", "new()"))
+            .map(|(at, _)| at)
+            .collect();
+        for at in opened {
+            // Shown by `pick_*`/`save_file`/`.show()` (a message dialog, r1) within the next lines;
+            // its parent set before that.
+            let rest = &text[at..];
+            let shown = [
+                "pick_file",
+                "pick_folder",
+                "pick_files",
+                "save_file",
+                ".show()",
+            ]
+            .iter()
+            .filter_map(|w| rest.find(w))
+            .min()
+            .unwrap_or(rest.len());
+            if !rest[..shown].contains("set_parent") {
+                let line = text[..at].lines().count();
+                missing.push(format!("{}:{line}", path.display()));
+            }
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "file dialogs without a parent: {missing:?}"
+    );
+}

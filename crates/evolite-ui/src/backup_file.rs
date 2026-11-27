@@ -74,7 +74,13 @@ pub fn ask(pick: Pick, name: &str) -> Receiver<Option<PathBuf>> {
                     dialog.save_file()
                 }
                 Pick::Open => dialog.pick_file(),
-                Pick::Folder => rfd::FileDialog::new().set_title(&title).pick_folder(),
+                // BUG-344: the folder's dialog over evolite too, not behind it.
+                Pick::Folder => {
+                    let folder = rfd::FileDialog::new().set_title(&title);
+                    #[cfg(windows)]
+                    let folder = folder.set_parent(&parent);
+                    folder.pick_folder()
+                }
             };
             let _ = tx.send(chosen);
         });
