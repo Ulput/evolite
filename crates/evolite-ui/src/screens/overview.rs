@@ -99,9 +99,11 @@ pub fn overview(
         network,
         fund.may_start(wallet),
         cx.snap.sync.contacts_rescan,
+        cx.advanced(),
     ) {
         fund.open();
     }
+    hidden_in_simple(ui, a, cx, wallet);
     quick_actions(ui, a, cx, wallet);
     latest_operations(ui, a, cx, wallet, synced);
     super::activity_mixing::day_window(ui, a, cx);
@@ -216,6 +218,38 @@ fn total_block(
     });
 }
 
+/// FEAT-0050 R-5 (A6): in Simple, money or a task in what is hidden is said — its amount and the
+/// way to it, Settings › «Mode»: credits on the Platform address, a Workshop series under way
+/// or stopped with writes left. An identity already made is shown anyway (R-6), and a stopped
+/// operation's banner in either mode (BUG-248).
+fn hidden_in_simple(ui: &mut Ui, a: &mut Assets, cx: &Ctx, wallet: &evolite_api::Wallet) {
+    if cx.advanced() {
+        return;
+    }
+    let p = a.p;
+    let b = &wallet.balances;
+    let mut lines = Vec::new();
+    if b.platform_address_read && b.platform_address > 0 {
+        lines.push(format!(
+            tr!("The Platform address holds {} — you can manage it in Advanced mode."),
+            crate::format::amount(b.platform_address)
+        ));
+    }
+    if let Some(series) = wallet.series.first() {
+        lines.push(format!(
+            tr!("A Workshop series has {} of {} done — you can manage it in Advanced mode."),
+            series.done, series.total
+        ));
+    }
+    for line in lines {
+        ui.add_space(8.0);
+        crate::components::notice(ui, a, "info", p.muted, &line);
+        if crate::components::text_action(ui, a, "settings", tr!("Change the mode")).clicked() {
+            crate::screens::settings::open_mode(ui.ctx());
+        }
+    }
+}
+
 /// The four balance cards. Whether «Top up from Core ›» on the Platform address tile was
 /// clicked; `may_fund`: it is active (FEAT-0015 stage 2).
 #[allow(
@@ -232,6 +266,7 @@ fn balance_cards(
     network: evolite_api::Network,
     may_fund: bool,
     rescan: bool,
+    advanced: bool,
 ) -> bool {
     let mut fund = false;
     // «Top up from Core ›» only where the network matrix has it (FEAT-0037: not on mainnet).
@@ -352,6 +387,11 @@ fn balance_cards(
     ];
     if let Some((amount, line)) = &mixed {
         cards.insert(1, ("mixed", tr!("Mixed"), *amount, line));
+    }
+    // FEAT-0050: the Platform address is Advanced only; in Simple its money is said under the
+    // cards ([`hidden_in_simple`]).
+    if !advanced {
+        cards.retain(|c| c.0 != "platform-address");
     }
     // Four cards in a row while each is at least a tile wide, else two by two, else one under
     // another (responsive spec R4); five 3 and 2, never 4 and 1 (designer-49). A row's cards are

@@ -397,8 +397,9 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
                         }),
                         None => {}
                     }
-                } else {
-                    // X1 (FEAT-0020): the keys summed up; K1 has them all.
+                } else if cx.advanced() {
+                    // X1 (FEAT-0020): the keys summed up; K1 has them all. FEAT-0050: Advanced
+                    // only.
                     if keys::keys_summary(ui, a, identity, half, cell) {
                         cx.go(Screen::IdentityKeys);
                     }
@@ -642,6 +643,9 @@ fn identity_choice(
         }
     }
     let blocked = new_identity_blocked(wallet, state);
+    // FEAT-0050 R-6: in Simple an identity already made is shown and chosen; a new one is
+    // Advanced only (accepting an invitation is not here).
+    let advanced = cx.advanced();
     let mut picked = crate::components::Picked::default();
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
@@ -652,11 +656,11 @@ fn identity_choice(
             a,
             wallet,
             tr!("Work as"),
-            Some(blocked.is_none()),
+            advanced.then_some(blocked.is_none()),
             None,
         );
         // Why not, in words and without hovering (AC-D2), naming the identity to finish.
-        if let Some(why) = &blocked {
+        if let Some(why) = blocked.as_ref().filter(|_| advanced) {
             ui.add(
                 crate::components::para(why, SMALL.size, SMALL.weight, p.muted)
                     .line_height(SMALL.line),
@@ -667,7 +671,7 @@ fn identity_choice(
         asked.push(Command::ChooseIdentity { id });
         state.created = None;
     }
-    if picked.new_one && blocked.is_none() {
+    if picked.new_one && blocked.is_none() && advanced {
         cx.go(Screen::CreateIdentity);
     }
 }

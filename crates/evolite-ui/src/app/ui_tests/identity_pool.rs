@@ -77,7 +77,9 @@ fn a_long_name_keeps_the_credits_in_the_window() {
 /// second column begins where it does in the row below.
 #[test]
 fn identity_cards_stand_on_one_grid() {
-    let (_turn, kit) = demo_app("identity", "en");
+    let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
+    kit.run_steps(3);
     let profile = profile_name(&kit).left() - NAME_IN_PROFILE;
     let credits = words(&kit, "Platform credits").rect().left() - TITLE_AFTER_ICON;
     let names = words(&kit, "DPNS names").rect().left() - LIST_TITLE;
@@ -471,6 +473,7 @@ fn grid_rows_are_one_height_in_the_first_frame_at_every_width() {
 #[test]
 fn a_wide_amount_takes_a_smaller_font_in_its_tile() {
     let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     let duffs = 23_456_789_012;
     // Four tiles: without the mixed coins (FEAT-0030 adds a fifth).
     with_wallet(&mut kit, |w| {
@@ -504,6 +507,8 @@ fn a_wide_amount_takes_a_smaller_font_in_its_tile() {
 /// label inside it (the title is 13, the detail 12). `core` puts that balance into the wallet.
 fn tile_amounts(core: i64) -> Vec<egui::Rect> {
     let (_turn, mut kit) = demo_app("overview", "en");
+    // Four tiles, the Platform address's among them: Advanced (FEAT-0050).
+    kit.state_mut().settings.set("advanced", true);
     // Four tiles: without the mixed coins (FEAT-0030 adds a fifth).
     with_wallet(&mut kit, |w| {
         w.balances.core = core;
@@ -567,6 +572,7 @@ fn a_four_digit_balance_is_shortened_in_its_tile_and_said_in_full() {
     const CORE: i64 = 123_456_789_012;
     const FULL: &str = "1,234.56789012 DASH";
     let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.set_size(egui::vec2(WINDOW, 800.0));
     with_wallet(&mut kit, |w| {
         w.balances.core = CORE;

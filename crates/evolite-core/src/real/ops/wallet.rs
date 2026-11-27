@@ -488,7 +488,7 @@ impl Real {
 
     /// Seals the pending phrase with the password, saves the vault, starts the wallet's sync.
     /// A restored wallet is scanned from the start (its age is unknown); a new one from the tip.
-    /// BUG-252, FEAT-0041 r1: whether «Features for advanced users» may be on now — the wallet
+    /// BUG-252, FEAT-0041 r1: whether the «Advanced» mode may be on now — the wallet
     /// unlocked, no wallet on this computer yet (the first onboarding: nothing is locked), or a
     /// wallet being added from an open one. Locked wallets, or adding from their choice, keep it
     /// off.

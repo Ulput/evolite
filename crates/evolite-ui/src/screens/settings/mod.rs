@@ -256,8 +256,17 @@ pub struct PasswordChange {
 /// "on close".
 const LOCK_AFTER_SECS: [Option<u64>; 4] = [Some(5 * 60), Some(15 * 60), Some(60 * 60), None];
 
+/// FEAT-0050 R-5: a screen asks for Settings › Advanced, where «Mode» is; `App` opens it.
+pub fn open_mode(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.insert_temp(open_mode_id(), true));
+}
+
+pub(crate) fn open_mode_id() -> egui::Id {
+    egui::Id::new("settings-open-mode")
+}
+
 /// Every switch in Settings, by key: the saved file is read against this list only.
-const TOGGLES: [&str; 15] = [
+const TOGGLES: [&str; 16] = [
     "clipboard",
     "fiat-rate",
     "hide-amounts",
@@ -273,6 +282,8 @@ const TOGGLES: [&str; 15] = [
     "update-check",
     "advanced",
     "workshop",
+    // FEAT-0050 UC-1: «What suits you better?» was answered (asked once per app).
+    "mode-asked",
 ];
 
 impl SettingsState {
@@ -455,9 +466,34 @@ impl SettingsState {
         *self.toggle(key) = on;
     }
 
+    /// FEAT-0050 UC-1, UC-3: «What suits you better?» is still to be asked — never answered, and
+    /// no mode from an earlier version (its «advanced» switch set: an update is not asked).
+    pub fn mode_to_ask(&self) -> bool {
+        !self.toggles.contains_key("mode-asked") && !self.toggles.contains_key("advanced")
+    }
+
+    /// FEAT-0050 A10: a wallet seen — an update or a later run — the mode is the switch as it
+    /// is; never asked, not even after the last wallet is deleted.
+    pub fn mode_known(&mut self) {
+        self.toggles.entry("mode-asked").or_insert(true);
+    }
+
+    /// The first run's answer: the mode (Advanced: «advanced» on), and that it was asked.
+    pub fn choose_mode(&mut self, advanced: bool) {
+        self.toggles.insert("advanced", advanced);
+        self.toggles.insert("mode-asked", true);
+    }
+
     /// A switch by key, with its default when the file had none.
     pub fn is_on(&self, key: &str) -> bool {
         self.toggles.get(key).copied().unwrap_or(false)
+    }
+
+    /// The app's settings as on its very first run: no mode, never asked (FEAT-0050 tests).
+    #[cfg(all(test, demo_core, feature = "dev-tools"))]
+    pub fn as_first_run(&mut self) {
+        self.toggles.remove("mode-asked");
+        self.toggles.remove("advanced");
     }
 
     /// Turns a switch on, for a test of what it shows.
@@ -490,7 +526,7 @@ impl SettingsState {
     }
 
     /// The commands that carry these settings to the core: at the start, and again when a new
-    /// core takes over the folder (after a deletion). Not «Features for advanced users»: that
+    /// core takes over the folder (after a deletion). Not «Mode»: that
     /// one is said only to an open wallet's core (BUG-252, `App`'s `advanced_to_tell`).
     pub fn core_commands(&self) -> [Command; 5] {
         [
@@ -878,7 +914,7 @@ fn section_item(ui: &mut Ui, a: &mut Assets, icon: &str, label: &str, on: bool) 
 mod tests {
     use super::*;
 
-    /// FEAT-0040…0046 (AC-A-X1, X7): «Features for advanced users» is off for a new user, told to
+    /// FEAT-0040…0046 (AC-A-X1, X7): «Mode» is Simple for a new user, told to
     /// the core with the other settings, and the app's own — kept in the app's settings, not a
     /// wallet's.
     #[test]

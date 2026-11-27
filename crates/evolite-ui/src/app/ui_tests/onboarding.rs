@@ -63,6 +63,46 @@ fn adding_a_wallet_the_password_step_has_one_way_back() {
     assert_eq!(backs, ["Back"], "the ways back at the top");
 }
 
+/// FEAT-0050 A1 (UC-1): the very first run — no wallet here or on the other network — asks
+/// «What suits you better?» before «Create / Restore»; «Continue» keeps the choice (Simple unless
+/// Advanced is picked) and the Welcome's ways in follow; it is not asked again.
+#[test]
+fn the_first_run_asks_the_mode_once() {
+    for advanced in [false, true] {
+        let (_turn, mut kit) = demo_app("first-run-mode", "en");
+        kit.state_mut().networks.other_wallets = 0;
+        // The demo has wallets: its first frames knew the mode (A10); a first run knows none.
+        kit.state_mut().settings.as_first_run();
+        let empty = |app: &mut App| {
+            if let Some(s) = app.snapshot.as_mut() {
+                s.wallets.clear();
+            }
+        };
+        show_edited(&mut kit, 2, "the question", empty, |k| {
+            has_text(k, "What suits you better?")
+        });
+        assert!(
+            !has_text(&kit, "Create a wallet"),
+            "asked before the ways in"
+        );
+        if advanced {
+            kit.get_by_role_and_label(Role::RadioButton, "Advanced mode")
+                .click();
+            draw_edited(&mut kit, 2, empty);
+        }
+        kit.get_by_role_and_label(Role::Button, "Continue").click();
+        show_edited(&mut kit, 2, "the ways in", empty, |k| {
+            has_text(k, "Create a wallet")
+        });
+        assert_eq!(
+            kit.state().settings.is_on("advanced"),
+            advanced,
+            "the mode kept"
+        );
+        assert!(!kit.state().settings.mode_to_ask(), "not asked again");
+    }
+}
+
 /// BUG-255 (3), as BUG-270 made `segmented`: the phrase-length radio buttons on «Create» and
 /// «Restore» are named in the interface language for a screen reader — in Russian «12 слов» and
 /// «24 слова», never «12 words». Mutant: the raw key as the name → red.

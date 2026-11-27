@@ -1257,7 +1257,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
 }
 
 thread_local! {
-    /// FEAT-0051: «Features for advanced users» as the app says it each frame (`set_advanced`).
+    /// FEAT-0051: the «Advanced» mode as the app says it each frame (`set_advanced`).
     static ADVANCED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 

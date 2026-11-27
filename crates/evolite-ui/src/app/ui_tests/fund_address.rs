@@ -39,6 +39,7 @@ fn platform_address(kit: &Kit) -> evolite_api::Duffs {
 #[test]
 fn the_tile_opens_the_form_without_a_password() {
     let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     settle(&mut kit);
     assert!(enabled(&kit, "Top up from Core ›"), "the tile's action");
     kit.query_all_by_role_and_label(Role::Button, "Top up from Core ›")
@@ -198,6 +199,7 @@ fn a_stopped_one_is_continued() {
 #[test]
 fn a_failed_continue_does_not_dim_the_tile() {
     let (_turn, mut kit) = demo_app("fund-address-unfinished", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     settle(&mut kit);
     assert!(!enabled(&kit, "Top up from Core ›"), "held back first");
     kit.state_mut().dev.fund_unfinished_preset = false;

@@ -167,7 +167,7 @@ impl Real {
     /// r1 Should 2: whether an identity can be created from the pool now — the build has the
     /// pool, the keys are open, Platform is ready, the pool is connected for the open wallet and
     /// the network takes an exit. Otherwise (UC-6) the creation from Core is the fallback even
-    /// without «Features for advanced users».
+    /// in the «Simple» mode.
     pub(in crate::real) fn pool_creates_identities(&self, fees: &Fees) -> bool {
         let Some(open) = self.unlocked.as_ref() else {
             return false;

@@ -108,6 +108,16 @@ pub fn system(cx: &Ctx, dark: bool, scale: f32) -> System {
                 (scale * 100.0).round()
             ),
         ),
+        // FEAT-0050 (risks: support): where a button is depends on the mode.
+        (
+            tr!("Mode"),
+            crate::i18n::t(if cx.advanced() {
+                tr!("Advanced mode")
+            } else {
+                tr!("Simple mode")
+            })
+            .into_owned(),
+        ),
         (
             tr!("Sync"),
             format!(

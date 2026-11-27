@@ -173,6 +173,7 @@ fn every_amount_field_reads_one_mark_and_refuses_two() {
     let _ = dash;
     for &(preset, set, read, line) in fields {
         let (turn, mut kit) = demo_app(preset, "en");
+        kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
         kit.run_steps(10);
         // DASH: 0.002 is 200 000 duffs. A token of 2 decimals has no 0.002: 0.02 is 2 of its
         // units, and «0,002» there is too many decimals (the token's line).

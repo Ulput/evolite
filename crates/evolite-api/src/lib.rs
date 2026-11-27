@@ -2057,7 +2057,7 @@ pub struct Snapshot {
     /// Р1: the newest release, from a `latest.json` signed by an evolite release key, once
     /// checked; `None`: not checked, off, or nothing believed yet.
     pub update: Option<UpdateInfo>,
-    /// «Features for advanced users» as the core has it now ([`Command::AdvancedFeatures`]).
+    /// «Mode» Advanced (FEAT-0050) as the core has it now ([`Command::AdvancedFeatures`]).
     pub advanced_features: bool,
     /// Whether the core takes «on» now (BUG-252, FEAT-0041 r1): with the wallet unlocked, with no
     /// wallet on this computer yet (the first onboarding), or while a wallet is added from an
@@ -2891,7 +2891,7 @@ pub enum Command {
     CheckUpdate {
         on: bool,
     },
-    /// Settings › Advanced › «Features for advanced users» (FEAT-0040…0046), the app's own
+    /// Settings › Advanced › «Mode» Advanced (FEAT-0050; FEAT-0040…0046), the app's own
     /// switch, off by default. Off, the core refuses what only that switch shows (xpub, message
     /// signing, resending a payment) and applies no saved fee choice: hidden is not quietly on.
     /// The lock turns it off in the core; the app says it again after the unlock (it compares
@@ -3043,7 +3043,7 @@ pub enum Spend {
         /// From Core only: the coins the payment may take, chosen by the person (FEAT-0013);
         /// `None`, the wallet chooses as before (R-2).
         coins: Option<CoinChoice>,
-        /// FEAT-0040: from Core to an address only, with «Features for advanced users» on — the
+        /// FEAT-0040: from Core to an address only, in the «Advanced» mode — the
         /// fee rate in duffs per kB ([`fee_choice`]); `None`, the normal one. Refused before the
         /// password outside [`fee_choice::MIN`]..=[`fee_choice::MAX`]; a contact's payment, a
         /// lock and mixed coins never take it.

@@ -40,7 +40,7 @@ fn note(kit: &mut Kit, key: &str, text: &str) {
 }
 
 /// FEAT-0045 step 2 (the customer, plain-language Q7): the backup file is for every user —
-/// with «Features for advanced users» off too.
+/// in the «Simple» mode too.
 #[test]
 fn the_backup_file_is_for_every_user() {
     let (_turn, mut kit) = demo_app("backup", "en");

@@ -58,6 +58,7 @@ mod missing_keys;
 mod mixed;
 mod mixed_to_platform;
 mod mixing_day;
+mod modes;
 mod mono_addresses;
 mod name_suggest;
 mod name_waiting;

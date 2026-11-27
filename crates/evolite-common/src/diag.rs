@@ -303,7 +303,7 @@ pub enum Record {
         full: u32,
         unknown: u32,
     },
-    /// «Features for advanced users» turned on or off (FEAT-0040…0046): only that, as 1 or 0.
+    /// «Mode» switched to Advanced or Simple (FEAT-0040…0046): only that, as 1 or 0.
     AdvancedFeatures {
         on: bool,
     },

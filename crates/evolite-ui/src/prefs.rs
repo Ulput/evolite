@@ -82,7 +82,7 @@ pub fn wallet_path(data_dir: &Path, id: &str) -> PathBuf {
 }
 
 /// Switches that are the app's, not a wallet's: how amounts look and how evolite connects.
-pub const APP_TOGGLES: [&str; 7] = [
+pub const APP_TOGGLES: [&str; 8] = [
     "fiat-rate",
     "hide-amounts",
     "own-node",
@@ -93,6 +93,8 @@ pub const APP_TOGGLES: [&str; 7] = [
     "advanced",
     // FEAT-0038 W0: an author is a person too; the Workshop shows for every wallet.
     "workshop",
+    // FEAT-0050 UC-1: the mode's question is the app's, asked once.
+    "mode-asked",
 ];
 
 /// The app's part and the wallet's part of `prefs`.

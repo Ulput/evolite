@@ -74,13 +74,11 @@ fn a_collection_is_added_by_id_refused_when_not_of_the_standard_and_removed() {
     wait_for(&mut kit, "removed", |kit| added(kit).is_empty());
 }
 
-/// Only with «Features for advanced users» on (the Advanced fallback, not in «Simple»).
+/// Only in Advanced mode (the Advanced fallback, not in «Simple», FEAT-0050).
 #[test]
 fn add_a_collection_by_id_is_only_for_advanced_users() {
     let (_turn, mut kit) = demo_app("advanced", "en");
-    wait_for(&mut kit, "Advanced", |kit| {
-        has_text(kit, "Features for advanced users")
-    });
+    wait_for(&mut kit, "Advanced", |kit| has_text(kit, "Advanced mode"));
     assert!(!kit.state().settings.is_on("advanced"));
     assert!(!has_text(&kit, "Add a collection by id"));
 }

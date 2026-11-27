@@ -68,6 +68,15 @@ impl KeyChange {
         change
     }
 
+    /// FEAT-0050 A2: whether this change is one Simple mode opens the keys screen for — the
+    /// keys that other apps and wallets need, asked from Contacts or Identity: «Enable DashPay»
+    /// (K1) and «Add the missing keys» (BUG-286, BUG-298: without them signing in to apps and
+    /// NFTs break). Every other key change is Advanced only.
+    pub(crate) fn in_simple(&self) -> bool {
+        matches!(self.kind, ChangeKind::AddMissing)
+            || (matches!(self.kind, ChangeKind::Add) && self.chosen == Some(KeyRequest::DashPay))
+    }
+
     /// BUG-286, BUG-298: «Add the missing keys» for an identity with `keys`.
     pub fn add_missing(keys: &[IdentityKey]) -> Self {
         let mut change = Self::new(ChangeKind::AddMissing);

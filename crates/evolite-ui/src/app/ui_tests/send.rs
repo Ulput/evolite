@@ -135,6 +135,7 @@ fn the_sources_stay_in_one_row_of_equal_columns() {
         ),
     ] {
         let (_turn, mut kit) = demo_app("send", lang);
+        kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
         show_wallet_edited(
             &mut kit,
             5,
@@ -188,6 +189,7 @@ fn every_source_lies_inside_the_from_panel() {
     ];
     for lang in ["ru", "en"] {
         let (_turn, mut kit) = demo_app("send", lang);
+        kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
         let names =
             ["Core", "Credits", "Private pool", "Platform address"].map(crate::i18n::spoken);
         let from = crate::i18n::spoken("From");
@@ -378,6 +380,7 @@ fn the_sources_stay_in_one_row_in_every_language() {
     for lang in crate::i18n::Lang::ALL {
         let code = lang.code();
         let (turn, mut kit) = demo_app("send", code);
+        kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
         show_wallet_edited(
             &mut kit,
             5,

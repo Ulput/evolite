@@ -695,7 +695,14 @@ fn a_long_reason_stays_inside_the_card() {
             }
         }
         let mut texts = Vec::new();
-        for c in &kit.output().shapes {
+        // The menu's shapes only, by their clip — no wider than the menu: in this test's
+        // right-to-left run the page's words can lie at the card's height and place (FEAT-0050's
+        // line of money moved History's down onto it), and they are not the card's.
+        for c in
+            kit.output().shapes.iter().filter(|c| {
+                c.clip_rect.intersects(card) && c.clip_rect.width() < 2.0 * card.width()
+            })
+        {
             walk(&c.shape, &mut texts);
         }
         // The card's own words: what starts inside it, on its rows.

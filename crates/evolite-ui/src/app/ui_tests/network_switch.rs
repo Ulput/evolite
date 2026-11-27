@@ -228,6 +228,7 @@ fn settings_say_what_is_testnet_only() {
 fn the_platform_address_tile_says_paying_is_testnet_only() {
     const LINE: &str = "Paying — testnet only for now";
     let (_turn, mut kit) = demo_app("overview", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.set_size(egui::vec2(1280.0, 800.0));
     let with_money = |network| {
         move |app: &mut crate::app::App| {

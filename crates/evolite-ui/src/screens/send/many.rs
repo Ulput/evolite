@@ -1,6 +1,6 @@
 //! FEAT-0056: one Core payment to several recipients — rows of «To» and «Amount», «All» on one
 //! of them, «Paste a list», the totals, and the last look with one password
-//! ([`evolite_api::Spend::SendMany`]). From Core only, with «Features for advanced users» on;
+//! ([`evolite_api::Spend::SendMany`]). From Core only, in the «Advanced» mode;
 //! a payment to one stays [`evolite_api::Spend::Send`], untouched.
 
 use super::*;

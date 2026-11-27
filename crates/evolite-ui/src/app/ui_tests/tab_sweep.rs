@@ -43,8 +43,14 @@ fn place(kit: &Kit) -> String {
 
 /// What goes wrong with Tab on one screen: each kind once, at its first place. The round stops
 /// where the screen goes on by itself (see [`place`]).
-fn sweep(preset: &str) -> Vec<String> {
+fn sweep(preset: &str, advanced: bool) -> Vec<String> {
     let (_turn, mut kit) = demo_app(preset, "en");
+    // FEAT-0050: every screen in both modes — Advanced shows more Tab stops (a preset of what
+    // only Advanced shows opens in it either way).
+    if advanced {
+        kit.state_mut().settings.set("advanced", true);
+        kit.run_steps(2);
+    }
     // An app's request is the demo core's answer to the preset's link, a moment after the
     // start: the round waits for its dialog (it once came in the middle of «exchange»).
     // The sync screen comes after the wallet is made: the demo core opens it a moment later.
@@ -207,7 +213,16 @@ fn round(kit: &mut Kit, preset: &str, moved: impl Fn(&Kit) -> bool) -> Option<Ve
 
 #[test]
 fn tab_never_loses_the_focus_on_any_screen() {
-    let found: Vec<String> = PRESETS.iter().flat_map(|p| sweep(p)).collect();
+    let found: Vec<String> = PRESETS
+        .iter()
+        .flat_map(|p| {
+            sweep(p, false).into_iter().chain(
+                sweep(p, true)
+                    .into_iter()
+                    .map(|f| format!("Advanced · {f}")),
+            )
+        })
+        .collect();
     println!("Tab sweep, {} presets:", PRESETS.len());
     for f in &found {
         println!("  {f}");

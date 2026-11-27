@@ -5,6 +5,7 @@
 //! as it goes to the core.
 
 mod bip39;
+pub mod mode;
 mod password;
 mod phrase;
 mod restore;

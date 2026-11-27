@@ -120,7 +120,8 @@ pub(super) fn security(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Se
         .identity
         .as_ref()
         .map(crate::screens::identity::identity_named);
-    if let Some(me) = me {
+    // FEAT-0050: an identity's keys are Advanced only.
+    if let Some(me) = me.filter(|_| cx.advanced()) {
         let title = format!(tr!("Keys {}"), me);
         let opened = group(
             ui,

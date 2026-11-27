@@ -983,7 +983,7 @@ impl Real {
         // Below Platform's least lock it would be refused and its DASH stay locked: not made
         // (review r1 must; the form says how much at least).
         let fees = self.fees_now(0).await;
-        // FEAT-0048 r1 Should 2: from Core only with «Features for advanced users», or as the
+        // FEAT-0048 r1 Should 2: from Core only in the «Advanced» mode, or as the
         // fallback while the pool cannot create (FEAT-0040's hidden-is-off).
         if !self.advanced_features && self.pool_creates_identities(&fees) {
             return Err(CoreError::NotAvailable(evolite_common::ADVANCED_OFF.into()));

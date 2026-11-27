@@ -14,6 +14,7 @@ fn ready(kit: &Kit) -> bool {
 #[test]
 fn the_platform_address_is_a_source_that_says_it_is_public() {
     let (_turn, mut kit) = demo_app("send-from-address", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     wait_for(&mut kit, "the form", |kit| {
         has_words(kit, "visible to everyone")
     });
@@ -27,6 +28,7 @@ fn the_platform_address_is_a_source_that_says_it_is_public() {
 #[test]
 fn a_foreign_core_address_is_refused_before_the_last_look() {
     let (_turn, mut kit) = demo_app("address-withdraw-foreign", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     wait_for(&mut kit, "the refusal", |kit| {
         has_words(kit, "only to this wallet's addresses")
     });
@@ -39,6 +41,7 @@ fn a_foreign_core_address_is_refused_before_the_last_look() {
 #[test]
 fn a_withdrawal_that_costs_much_of_its_amount_warns() {
     let (_turn, mut kit) = demo_app("address-withdraw-warning", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     wait_for(&mut kit, "the warning", |kit| {
         has_words(kit, "A withdrawal to Core costs")
     });
@@ -52,6 +55,7 @@ fn a_withdrawal_that_costs_much_of_its_amount_warns() {
 #[test]
 fn a_payment_from_the_addresses_goes_through() {
     let (_turn, mut kit) = demo_app("address-confirm", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     let sign = crate::i18n::spoken("Sign and send");
     wait_for(&mut kit, "the last look", |kit| {
         kit.query_by_label(&sign).is_some()
@@ -89,6 +93,7 @@ fn a_payment_from_the_addresses_goes_through() {
 #[test]
 fn an_empty_platform_address_card_fills_the_address() {
     let (_turn, mut kit) = demo_app("send", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     let empty = |w: &mut evolite_api::Wallet| {
         w.platform_inputs = vec![1_000];
         w.balances.platform_address = 1;
@@ -119,6 +124,8 @@ fn an_empty_platform_address_card_fills_the_address() {
 #[test]
 fn core_to_a_platform_address_offers_the_ways_there() {
     let (_turn, mut kit) = demo_app("core-to-platform-address", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
+    kit.run_steps(3);
     wait_for(&mut kit, "the plate", |kit| {
         has_words(kit, "you can't send to it from Core directly")
     });
@@ -137,6 +144,7 @@ fn core_to_a_platform_address_offers_the_ways_there() {
 #[test]
 fn a_foreign_name_from_the_platform_address_says_what_to_enter() {
     let (_turn, mut kit) = demo_app("address-top-up-foreign", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     wait_for(&mut kit, "the notice", |kit| {
         has_words(kit, "you can only top up your own identity")
     });
@@ -154,6 +162,7 @@ fn a_foreign_name_from_the_platform_address_says_what_to_enter() {
 #[test]
 fn a_transfer_to_the_wallets_own_platform_address_says_it_is_ours() {
     let (_turn, mut kit) = demo_app("send-from-address", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     let own = kit
         .state()
         .snapshot
@@ -274,6 +283,7 @@ fn on_mainnet_core_to_the_own_platform_address_is_not_available_yet() {
 fn to_its_own_funded_address_the_fee_is_the_plans_and_max_is_the_others() {
     use evolite_api::address_plan::{AddressMove, duffs_up};
     let (_turn, mut kit) = demo_app("send-from-address", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     settle(&mut kit);
     let (own, other) = {
         let w = kit

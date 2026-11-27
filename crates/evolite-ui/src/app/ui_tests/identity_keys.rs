@@ -88,6 +88,7 @@ fn every_key_has_a_row_and_the_disabled_one_comes_last() {
 #[test]
 fn identitys_manage_keys_opens_k1_and_goes_back() {
     let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.set_size(egui::vec2(1280.0, 1000.0));
     settle(&mut kit);
     kit.get_by_role_and_label(Role::Button, "Manage keys ›")
@@ -115,6 +116,7 @@ fn identitys_manage_keys_opens_k1_and_goes_back() {
 #[test]
 fn securitys_keys_row_opens_k1_and_goes_back_to_security() {
     let (_turn, mut kit) = demo_app("security", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.set_size(egui::vec2(1280.0, 1000.0));
     settle(&mut kit);
     assert!(has_text(&kit, "Identity keys") || has_words(&kit, "IDENTITY KEYS"));

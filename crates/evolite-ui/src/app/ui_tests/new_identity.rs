@@ -39,6 +39,7 @@ fn on(kit: &Kit, start: &str) -> Option<bool> {
 #[test]
 fn the_new_identity_pill_stands_with_one_identity_and_opens_the_form() {
     let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     with_wallet(&mut kit, |w| w.identities.truncate(1));
     assert!(has_text(&kit, "Work as"), "«Work as» with one identity");
     assert_eq!(on(&kit, NEW), Some(true), "«{NEW}» on");
@@ -54,6 +55,7 @@ fn the_new_identity_pill_stands_with_one_identity_and_opens_the_form() {
 #[test]
 fn the_pill_is_off_with_its_reason_while_a_creation_is_unfinished() {
     let (_turn, mut kit) = demo_app("identity-unfinished", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.run_steps(3);
     assert_eq!(on(&kit, NEW), Some(false), "«{NEW}» off");
     assert!(has_text(
@@ -74,6 +76,7 @@ fn the_pill_is_off_with_its_reason_while_a_creation_is_unfinished() {
 #[test]
 fn the_pill_is_off_while_a_creation_is_under_way() {
     let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     kit.run_steps(3);
     assert_eq!(on(&kit, NEW), Some(true), "«{NEW}» on before");
     kit.state_mut().create_identity.set_waiting(true);
@@ -93,6 +96,7 @@ fn the_pill_is_off_while_a_creation_is_under_way() {
 #[test]
 fn a_stopped_top_up_leaves_the_pill_on() {
     let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     with_wallet(&mut kit, |w| {
         w.unfinished_top_up = Some(evolite_api::UnfinishedTopUp {
             locked: 50_000_000,
@@ -113,6 +117,7 @@ fn a_stopped_top_up_leaves_the_pill_on() {
 #[test]
 fn arrows_go_along_work_as_to_the_new_identity() {
     let (_turn, mut kit) = demo_app("identity", "en");
+    kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
     let first = kit
         .state()
         .snapshot

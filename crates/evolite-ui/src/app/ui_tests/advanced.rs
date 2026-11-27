@@ -1,4 +1,4 @@
-//! FEAT-0040…0046, the shared «Features for advanced users» switch in Settings › Advanced, on the
+//! FEAT-0040…0046, FEAT-0050: the shared «Mode» (Simple / Advanced) in Settings › Advanced, on the
 //! demo core: off for a new user; turned on and off with no password and no restart; the core is
 //! told, and told again when it has the switch otherwise (after the lock, which turns it off there).
 
@@ -11,31 +11,28 @@ fn core_has(kit: &Kit, on: bool) -> bool {
         .is_some_and(|s| s.advanced_features == on)
 }
 
-/// AC-A-X1, X2: the section and its switch, off; on, the core has it; off again, at once.
+/// AC-A-X1, X2; FEAT-0050 UC-2, A2: «Mode» — Simple for a new user; Advanced and back again
+/// at once, with no password, the core told each time.
 #[test]
-fn the_switch_turns_on_and_off_with_no_password() {
+fn the_mode_switches_with_no_password() {
     let (_turn, mut kit) = demo_app("advanced", "en");
     wait_for(&mut kit, "the section", |kit| {
-        has_text(kit, "Features for advanced users")
+        has_text(kit, "Advanced mode")
     });
-    assert!(has_words(&kit, "Most people do not need them."));
-    assert!(has_words(
-        &kit,
-        "money and wallets already made are not touched"
-    ));
+    assert!(has_words(&kit, "You can switch at any time."));
     assert!(
         !kit.state().settings.is_on("advanced"),
-        "off for a new user"
+        "Simple for a new user"
     );
     assert!(core_has(&kit, false));
-    kit.get_by_role_and_label(Role::CheckBox, "Features for advanced users")
+    kit.get_by_role_and_label(Role::RadioButton, "Advanced mode")
         .click();
     kit.run_steps(2);
     assert!(kit.state().settings.is_on("advanced"), "no password asked");
     wait_for(&mut kit, "the core told", |kit| core_has(kit, true));
-    kit.get_by_role_and_label(Role::CheckBox, "Features for advanced users")
+    kit.get_by_role_and_label(Role::RadioButton, "Simple mode")
         .click();
-    wait_for(&mut kit, "off again", |kit| core_has(kit, false));
+    wait_for(&mut kit, "Simple again", |kit| core_has(kit, false));
 }
 
 /// The core has it off while the app has it on (as after the lock): the app says it again, once.

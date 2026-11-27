@@ -20,7 +20,7 @@ fn unshield_goes_to_core_by_default() {
     );
 }
 
-/// Q15: with «Features for advanced users» on, the Platform address is a third place to go.
+/// Q15: in the «Advanced» mode, the Platform address is a third place to go.
 #[test]
 fn the_advanced_level_can_unshield_to_the_platform_address() {
     let (_turn, mut kit) = demo_app("unshield", "en");

@@ -18,11 +18,44 @@ fn workshop_in_menu(kit: &Kit) -> bool {
     kit.query_all_by_label("Workshop").next().is_some()
 }
 
+/// FEAT-0050: in Simple mode neither the Workshop nor its switch, its switch on or not; the
+/// switch keeps its value, and in Advanced the Workshop is back.
+#[test]
+fn simple_mode_has_no_workshop() {
+    let (_turn, mut kit) = demo_app("advanced", "en");
+    kit.state_mut().settings.set("workshop", true);
+    wait_for(&mut kit, "Settings", |kit| has_text(kit, "Advanced mode"));
+    kit.run_steps(2);
+    assert!(
+        !has_text(&kit, "Show the “Workshop”"),
+        "no switch in Simple"
+    );
+    assert!(!workshop_in_menu(&kit), "no menu item in Simple");
+    assert!(kit.state().settings.is_on("workshop"), "its value kept");
+    kit.state_mut().settings.set("advanced", true);
+    wait_for(&mut kit, "the switch", |kit| {
+        has_text(kit, "Show the “Workshop”")
+    });
+    wait_for(&mut kit, "the menu item", workshop_in_menu);
+    // A9: its page open, Simple sends it to the Overview.
+    kit.get_by_label("Workshop").click();
+    wait_for(&mut kit, "the Workshop", |kit| {
+        kit.state().screen == crate::screens::Screen::Workshop
+    });
+    kit.state_mut().settings.set("advanced", false);
+    wait_for(&mut kit, "back to the Overview", |kit| {
+        kit.state().screen == crate::screens::Screen::Overview
+    });
+    assert!(kit.state().settings.is_on("workshop"), "its value kept");
+}
+
 /// AC-A1: no Workshop in the menu by default; «Show the Workshop» in Settings › Advanced shows
 /// it after the rest; off again, it goes, and its open page with it.
 #[test]
 fn the_workshop_is_behind_its_own_switch() {
     let (_turn, mut kit) = demo_app("advanced", "en");
+    // FEAT-0050: the switch is in Advanced mode.
+    kit.state_mut().settings.set("advanced", true);
     wait_for(&mut kit, "W0", |kit| has_text(kit, "Show the “Workshop”"));
     assert!(!kit.state().settings.is_on("workshop"), "off by default");
     assert!(!workshop_in_menu(&kit), "no menu item while off");
@@ -30,10 +63,6 @@ fn the_workshop_is_behind_its_own_switch() {
         .click();
     kit.run_steps(2);
     assert!(kit.state().settings.is_on("workshop"), "no password asked");
-    assert!(
-        !kit.state().settings.is_on("advanced"),
-        "not the shared switch"
-    );
     wait_for(&mut kit, "the menu item", workshop_in_menu);
     kit.get_by_label("Workshop").click();
     wait_for(&mut kit, "W1", |kit| has_text(kit, "NFT collection"));
@@ -360,8 +389,8 @@ fn a_model_page_shows_its_numbers() {
     // BUG-312: the demo model has its picture.
     assert!(!has_words(&kit, "Without a picture"));
     assert!(has_words(&kit, "evolite picks the copy numbers itself"));
-    // W7-7: the contract's id at the advanced level only.
-    assert!(!has_text(&kit, "Contract id"));
+    // W7-7: the contract's id at the advanced level — the Workshop's only one now (FEAT-0050 R-8).
+    assert!(has_text(&kit, "Contract id"));
     // W7-2: back to the collection by its name.
     assert!(has_words(&kit, "Seasons of the city"));
 }

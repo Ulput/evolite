@@ -1594,7 +1594,7 @@ struct Around<'a> {
     identities: &'a [IdentityChoice],
     /// The operation's tax category by its direction and mark (FEAT-0012); `None`: no row.
     tax: Option<crate::csv_export::TaxCategory>,
-    /// «Features for advanced users» on: «Broadcast again» (FEAT-0046).
+    /// The «Advanced» mode: «Broadcast again» (FEAT-0046).
     advanced: bool,
     /// Opened from a day of mixing's card: «Back» to it in place of «Close» (FEAT-0052 UC-3).
     from_day: bool,

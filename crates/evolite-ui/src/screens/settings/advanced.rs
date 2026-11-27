@@ -1,8 +1,8 @@
-//! Settings › Advanced (FEAT-0038 W0, FEAT-0040 «the shared setting»): what most people do not
-//! need. «Features for advanced users» is the app's switch, off by default; on, the screens show
-//! what FEAT-0040…0046 add ([`crate::context::Ctx::advanced`]); off, those are hidden again at
-//! once, and the core refuses what only they would ask. Turning it on or off asks no password and
-//! no restart: it is a view, not a spend.
+//! Settings › Advanced (FEAT-0038 W0, FEAT-0040 «the shared setting», FEAT-0050 «Mode»): Simple
+//! or Advanced, the app's «advanced» switch (Advanced: on), Simple by default. Advanced, the
+//! screens show what FEAT-0040…0046 and FEAT-0050's table add ([`crate::context::Ctx::advanced`]);
+//! Simple, those are hidden again at once, and the core refuses what only they would ask.
+//! Switching asks no password and no restart: it is a view, not a spend.
 //!
 //! «For creators» (FEAT-0038 W0, AC-A1): «Show the Workshop», its own switch, also off by
 //! default. Off, it only hides the menu item and the Workshop's screens: what was made stays on
@@ -24,27 +24,22 @@ pub(super) fn advanced(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             "Features not for every day. Turn them on if you know why."
         )),
     );
+    // FEAT-0050 R-1, UC-2: the mode is the app's «advanced» switch as it was — Advanced is on.
+    // At once, no password, no restart: a view, not a spend.
     let mut on = state.is_on("advanced");
+    let modes = [tr!("Simple mode"), tr!("Advanced mode")];
+    let mut chosen = usize::from(on);
     group(
         ui,
         a,
-        tr!("For advanced users"),
+        tr!("Mode"),
         vec![(
-            tr!("Features for advanced users"),
-            tr!(
-                "Fee choice, a BIP-39 passphrase, the xpub, message signing, a backup file, resending a payment, several recipients. Most people do not need them."
-            ),
-            Control::Toggle(&mut on),
+            tr!("What suits you better?"),
+            tr!("You can switch at any time. Your money and data stay as they are."),
+            Control::Segmented(&modes, &mut chosen),
         )],
     );
-    ui.add(crate::components::para(
-        tr!(
-            "Turning it off only hides these features: money and wallets already made are not touched."
-        ),
-        12.0,
-        Weight::Regular,
-        p.muted,
-    ));
+    on = chosen == 1;
     *state.toggle("advanced") = on;
     // FEAT-0044 (UC-4): «TOOLS», only with the switch on.
     if on {
@@ -72,6 +67,11 @@ pub(super) fn advanced(ui: &mut Ui, a: &mut Assets, state: &mut SettingsState) {
             Some(1) => state.collections.open = true,
             _ => {}
         }
+    }
+    // FEAT-0050: the Workshop and its switch only in Advanced; in Simple it counts as off, its
+    // own switch kept for when the mode is Advanced again.
+    if !on {
+        return;
     }
     ui.add_space(16.0);
     let mut workshop = state.is_on("workshop");

@@ -285,7 +285,7 @@ pub const PRESETS: &[&str] = &[
     "security", "backup", "notifications", "advanced", "advanced-workshop", "own-node", "nodes", "nodes-dapi", "about",
     "about-end", "report", "report-letter", "delete", "resync", "language", "wallets",
     "wallet-rename", "wallet-more", "network-switch",
-    "welcome", "welcome-other", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
+    "welcome", "first-run-mode", "welcome-other", "elsewhere", "forgot", "wallet-unlock", "wallet-add",
     "unlock", "unlock-warn", "unlock-wait", "unlock-wait-end", "wallet-unlock-wait",
     "wallet-switch-wait",
 ];

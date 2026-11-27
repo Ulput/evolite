@@ -107,27 +107,27 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
         ),
         None => tr!("Connect only to the given Core node, e.g. your own dashd.").into(),
     };
-    group(
-        ui,
-        a,
-        tr!("Verification"),
-        vec![
-            (
-                tr!("ChainLock and InstantLock"),
-                tr!("Quorums' BLS signatures are always verified. This cannot be turned off."),
-                Control::Locked,
+    // FEAT-0050: choosing a node and syncing again are Advanced only.
+    let advanced = cx.advanced();
+    let mut rows = vec![
+        (
+            tr!("ChainLock and InstantLock"),
+            tr!("Quorums' BLS signatures are always verified. This cannot be turned off."),
+            Control::Locked,
+        ),
+        (
+            tr!("Proxy (SOCKS5)"),
+            tr!(
+                "Not yet: dash-spv connects to Core nodes only directly, so only part of the traffic would go through a proxy — the IP would still be visible"
             ),
-            (
-                tr!("Proxy (SOCKS5)"),
-                tr!(
-                    "Not yet: dash-spv connects to Core nodes only directly, so only part of the traffic would go through a proxy — the IP would still be visible"
-                ),
-                Control::Text(tr!("unavailable"), false),
-            ),
-            // Last, so that its address field opens right under it (BUG-39 №11).
-            (tr!("Own node"), &own_line, Control::Toggle(&mut own)),
-        ],
-    );
+            Control::Text(tr!("unavailable"), false),
+        ),
+    ];
+    if advanced {
+        // Last, so that its address field opens right under it (BUG-39 №11).
+        rows.push((tr!("Own node"), &own_line, Control::Toggle(&mut own)));
+    }
+    group(ui, a, tr!("Verification"), rows);
     if own && !was_on {
         state.node = Some(NodeForm::default());
     } else if !own && was_on {
@@ -136,7 +136,7 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
             cx.send(Command::CoreNode { address: None });
         }
     }
-    if let Some(form) = &mut state.node {
+    if let Some(form) = state.node.as_mut().filter(|_| advanced) {
         node_form(ui, a, cx, form, saved.as_deref());
         if form.result == Some(Ok(())) {
             state.node = None;
@@ -171,7 +171,11 @@ pub(super) fn network(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Set
         vec![(
             tr!("Disk space"),
             &disk_line,
-            Control::Button(tr!("Sync again"), ButtonKind::Secondary),
+            if advanced {
+                Control::Button(tr!("Sync again"), ButtonKind::Secondary)
+            } else {
+                Control::Text("", false)
+            },
         )],
     );
     if asked.is_some() {

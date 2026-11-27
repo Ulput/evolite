@@ -675,6 +675,11 @@ pub fn send(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut SendForm) {
         crate::format::parse_amount(&form.amount).unwrap_or(0)
     };
     let mut all = sources(cx.wallet(), &typed, for_fee);
+    // FEAT-0050: the Platform address is Advanced only (R-5 says its money on the Overview).
+    if !cx.advanced() {
+        all.retain(|s| s.source != Source::PlatformAddress);
+        form.source = form.source.min(all.len().saturating_sub(1));
+    }
     // FEAT-0040 (R-7): the Core fee at the wallet's rate, everywhere it shows.
     fee::rate_core(&mut all, fee::rate(cx, form, &typed));
     // «Mixed»: the fee of the core's plan for this very amount (FEAT-0030).

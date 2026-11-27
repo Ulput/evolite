@@ -121,7 +121,7 @@ pub struct App {
     vault: Option<VaultState>,
     /// What the core was last told of "New address…" and "Fiat rate".
     core_told: Option<(bool, Option<&'static str>, bool, bool)>,
-    /// «Features for advanced users» last said to the core while its snapshot said otherwise:
+    /// The «Advanced» mode last said to the core while its snapshot said otherwise:
     /// said once, again only when what is wanted changes ([`advanced_to_tell`]).
     advanced_asked: Option<bool>,
     /// When the rate was last asked for because Send or «Request an amount» needed it
@@ -1500,6 +1500,15 @@ impl eframe::App for App {
             });
             self.screen = Screen::Settings;
         }
+        // FEAT-0050 R-5: «Change the mode» from a line of money in what Simple hides.
+        if ui
+            .ctx()
+            .data_mut(|d| d.remove_temp::<bool>(screens::settings::open_mode_id()))
+            .is_some()
+        {
+            self.settings.section = screens::settings::Section::Advanced;
+            self.screen = Screen::Settings;
+        }
         // FEAT-0021 AC-T22, entry 4: a click on a vote's result brings the window forward (from
         // this process) and opens the claim's contest card.
         if let Some((identity, label)) = self.notifier.take_click() {
@@ -1799,12 +1808,29 @@ impl eframe::App for App {
         cx.unfinished_lock = unfinished_lock;
         cx.back = back::back_to(self.back.as_ref(), &here, snapshot.network, self.screen);
         cx.show_advanced(self.settings.is_on("advanced"));
+        // FEAT-0050 A10: with a wallet the mode is known — after deleting the last one, or
+        // adding another, the first run's question is never asked.
+        if !snapshot.wallets.is_empty() {
+            self.settings.mode_known();
+        }
         // FEAT-0038 W0, AC-A1: off, the Workshop is nowhere — its open page goes to the Overview
         // (what it made and a series going on are not touched).
-        let workshop = self.settings.is_on("workshop");
+        // FEAT-0050: only in Advanced — in Simple it counts as off, its own switch kept.
+        let workshop = self.settings.is_on("workshop") && self.settings.is_on("advanced");
         cx.show_workshop(workshop);
         if !workshop && self.screen == Screen::Workshop {
             cx.go(Screen::Overview);
+        }
+        // FEAT-0050 A2: an identity's keys are Advanced only — Simple goes back to the identity;
+        // but «Enable DashPay» and «Add the missing keys» from Contacts and Identity (in both
+        // modes) add their keys there (`KeyChange::in_simple`; review r1, question 3).
+        let in_simple = self
+            .identity_keys
+            .change
+            .as_ref()
+            .is_some_and(|c| c.in_simple());
+        if !cx.advanced() && self.screen == Screen::IdentityKeys && !in_simple {
+            cx.go(Screen::Identity);
         }
         cx.set_fee(self.settings.fee);
         cx.set_keys_not_now(self.settings.keys_not_now.clone());
@@ -2348,7 +2374,7 @@ impl eframe::App for App {
     }
 }
 
-/// What to tell the core of «Features for advanced users», if anything (FEAT-0040…0046,
+/// What to tell the core of the «Advanced» mode, if anything (FEAT-0040…0046,
 /// BUG-252): only to an open wallet's core — locked, the core keeps it off and nothing is said;
 /// open, what the app wants when the core has otherwise, once until that changes (`asked`).
 fn advanced_to_tell(

@@ -995,6 +995,29 @@ impl App {
     pub(super) fn apply_presets(&mut self, ctx: &egui::Context, dev: &DevLaunch, demo: bool) {
         let real_shot = dev.real_shot;
         let preset = |name: &str| dev.preset(name);
+        // FEAT-0050 UC-1: a screen of the mockups is drawn as after the first run's question;
+        // `--screen first-run-mode` shows the question (and `--demo` alone asks, as a first run).
+        if dev.preset.is_some() && !preset("first-run-mode") {
+            self.settings.set("mode-asked", true);
+        }
+        // FEAT-0050: the screens of what only Advanced shows open in Advanced.
+        let advanced_only = [
+            "identity-keys",
+            "identity-key-shown",
+            "identity-keys-no-encryption",
+            "key-disable",
+            "own-node",
+            "resync",
+            "send-from-address",
+            "address-withdraw-warning",
+            "address-withdraw-foreign",
+            "address-top-up",
+            "address-top-up-foreign",
+            "address-confirm",
+        ];
+        if advanced_only.into_iter().any(preset) {
+            self.settings.set("advanced", true);
+        }
         if let Some(link) = dev.example_link {
             self.core.send(Command::OpenAppLink {
                 text: link.into(),
@@ -1836,6 +1859,8 @@ impl App {
         ];
         if workshop.into_iter().any(preset) {
             self.settings.set("workshop", true);
+            // FEAT-0050: the Workshop is in Advanced mode only.
+            self.settings.set("advanced", true);
         }
         // FEAT-0052 A7: the day of mixing in the advanced mode (the app tells the core).
         if preset("activity-mixing-advanced") {

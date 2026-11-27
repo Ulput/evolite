@@ -186,6 +186,8 @@ fn only_the_identity_screen_offers_a_new_identity() {
         ("workshop-identities-long", "NFT collection", false),
     ] {
         let (_turn, mut kit) = demo_app(preset, "en");
+        kit.state_mut().settings.set("advanced", true); // FEAT-0050: Advanced only
+        kit.run_steps(2);
         wait_for(&mut kit, seen, |kit| has_words(kit, seen));
         wait_for(&mut kit, "the list's button", all_pills);
         open_list(&mut kit);

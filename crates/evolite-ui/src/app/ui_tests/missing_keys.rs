@@ -241,6 +241,49 @@ fn the_missing_keys_open_one_dialog_from_contacts() {
     assert!(has_words(&kit, "For DashPay decryption"));
 }
 
+/// FEAT-0050 r1, question 3: in Simple mode «Add the missing keys» opens the keys screen with
+/// its dialog too — the keys screen is otherwise Advanced only, and without the keys signing in
+/// to apps and NFTs break. Mutant: Simple sends every key change back → red.
+#[test]
+fn in_simple_mode_the_missing_keys_still_open_their_dialog() {
+    for preset in ["contacts", "identity"] {
+        let (_turn, mut kit) = demo_app(preset, "en");
+        kit.set_size(egui::vec2(1280.0, 1000.0));
+        kit.state_mut().settings.set("advanced", false);
+        settle(&mut kit);
+        show_edited(&mut kit, 2, "the warning", without_decryption, |k| {
+            has_words(k, NO_DECRYPTION)
+        });
+        button_starting(&kit, "Add the missing keys")
+            .expect("the button")
+            .click();
+        show_edited(&mut kit, 2, "the keys screen", without_decryption, |k| {
+            k.state().screen == Screen::IdentityKeys
+        });
+        // Several frames on: Simple does not send it back.
+        for _ in 0..5 {
+            draw_edited(&mut kit, 1, without_decryption);
+        }
+        assert_eq!(kit.state().screen, Screen::IdentityKeys, "{preset}");
+        assert!(
+            !kit.state().settings.is_on("advanced"),
+            "{preset}: still Simple"
+        );
+        let change = kit
+            .state()
+            .identity_keys
+            .change
+            .as_ref()
+            .expect("the dialog");
+        assert_eq!(
+            change.kind,
+            crate::screens::identity::key_change::ChangeKind::AddMissing,
+            "{preset}"
+        );
+        assert!(has_words(&kit, "For DashPay decryption"), "{preset}");
+    }
+}
+
 /// BUG-298 п. 1: without a sign-in key the Workshop says so in place of «Create NFT», not as an
 /// error after the password. Mutant: `no_sign_in_key` none → the button on.
 #[test]

@@ -51,7 +51,7 @@ pub struct Ctx<'a> {
     pub back: Screen,
     /// [`Self::go_back`] was asked this frame.
     go_back: bool,
-    /// «Features for advanced users» on (FEAT-0040…0046): set by `App` each frame.
+    /// The «Advanced» mode on (FEAT-0050; FEAT-0040…0046): set by `App` each frame.
     advanced: bool,
     /// «Show the Workshop» on (FEAT-0038 W0): set by `App` each frame.
     workshop: bool,
@@ -147,8 +147,8 @@ impl<'a> Ctx<'a> {
         self.fee_chosen.take()
     }
 
-    /// Whether «Features for advanced users» is on (FEAT-0040…0046): the one question a screen
-    /// asks before it shows what only that switch shows. Off by default.
+    /// Whether «Mode» is Advanced (FEAT-0050; FEAT-0040…0046): the one question a screen asks
+    /// before it shows what only that mode shows. Simple by default.
     pub fn advanced(&self) -> bool {
         self.advanced
     }

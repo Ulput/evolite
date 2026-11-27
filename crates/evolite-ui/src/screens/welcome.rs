@@ -18,6 +18,11 @@ pub fn welcome(
     let p = a.p;
     let low = low_window(ui);
     let adding = cx.snap.adding_wallet;
+    // FEAT-0050 UC-1: the very first run asks the mode first.
+    if super::onboarding::mode::to_ask(settings, cx.snap.wallets.len(), other_wallets, adding) {
+        super::onboarding::mode::ask(ui, a, settings, cx.snap.network);
+        return;
+    }
     // An empty network beside one with wallets says where they are (FEAT-0037 AC-A2, L2m);
     // the very first run, with none anywhere, says nothing.
     let elsewhere = !adding && cx.snap.wallets.is_empty() && other_wallets > 0;
