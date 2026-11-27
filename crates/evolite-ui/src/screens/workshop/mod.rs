@@ -146,6 +146,10 @@ pub struct WorkshopState {
     /// BUG-324: each gift series seen — whether it was running and how many it had given — so
     /// that its model's «Given» is read again once it stops.
     gifts_seen: HashMap<u64, (bool, u32)>,
+    /// BUG-324 r2: «Given» read again after a gift series stopped, with what it must show at
+    /// least by then: Platform may not give the transfer yet — read again every
+    /// [`GIVEN_AGAIN`] seconds until it does, at most [`GIVEN_TRIES`] times.
+    given_wait: HashMap<(String, String), GivenWait>,
     /// BUG-314: the identity's sales (DocumentHistory's `purchase`s), asked once a visit:
     /// «Sold» and the sales' History lines are the core's reading of them. A model's counts are
     /// asked once they answered, and again after a first good answer.
@@ -237,6 +241,20 @@ impl WorkshopState {
                 let key = (given.contract.clone(), given.model.clone());
                 if let Some(r) = self.given_asked.get_mut(&key) {
                     r.answered();
+                }
+                // BUG-324 r2: fewer than the gift made — the network does not give it yet.
+                // Past the tries it is read no more, and still shown «at least» (r2 Should): an
+                // older answer is never shown as the fresh one.
+                match self.given_wait.get_mut(&key) {
+                    Some(w) if given_count(&given.count) < w.at_least => {
+                        if w.tries > 0 {
+                            w.tries -= 1;
+                            w.next_at = Some(self.now + GIVEN_AGAIN);
+                        }
+                    }
+                    _ => {
+                        self.given_wait.remove(&key);
+                    }
                 }
                 self.given.insert(key, given.clone());
             }
@@ -331,9 +349,73 @@ impl WorkshopState {
             let gave = before.is_some_and(|(running, done)| running || done != s.done);
             if !s.running && gave {
                 let key = (s.target.contract.clone(), s.target.model.clone());
-                self.given.remove(&key);
+                // BUG-324 r2: what was shown and what this series gave since — the read again
+                // must show at least that.
+                let more = before.map_or(0, |(_, done)| s.done.saturating_sub(done));
+                if let Some(old) = self.given.remove(&key)
+                    && more > 0
+                {
+                    let at_least = given_count(&old.count) + u64::from(more);
+                    // r2 Should: the series' gift is «last» while the network does not show it.
+                    let to = match &s.kind {
+                        SeriesKind::Gift { to, .. } => to.clone(),
+                        _ => String::new(),
+                    };
+                    self.given_wait.insert(
+                        key.clone(),
+                        GivenWait {
+                            at_least,
+                            tries: GIVEN_TRIES,
+                            next_at: None,
+                            last: (chrono::Utc::now().timestamp(), to),
+                            this_computer_only: old.this_computer_only,
+                        },
+                    );
+                }
                 self.given_asked.remove(&key);
             }
+        }
+    }
+
+    /// BUG-324 r2 Should: «Given» as the tile shows it. While the network shows fewer than were
+    /// shown plus the series' gifts (or nothing yet): «at least» that many, «last» the series'
+    /// gift — not the older answer as the fresh one (§8d-2). Else what the network said.
+    pub(super) fn given_shown(
+        &self,
+        key: &(String, String),
+    ) -> Option<evolite_api::workshop::Given> {
+        let read = self.given.get(key);
+        match self.given_wait.get(key) {
+            Some(w) if read.is_none_or(|g| given_count(&g.count) < w.at_least) => {
+                Some(evolite_api::workshop::Given {
+                    contract: key.0.clone(),
+                    model: key.1.clone(),
+                    count: evolite_api::workshop::Count::Counted {
+                        count: w.at_least,
+                        documents: w.at_least,
+                        complete: false,
+                    },
+                    last: Some(w.last.clone()),
+                    this_computer_only: w.this_computer_only,
+                })
+            }
+            _ => read.cloned(),
+        }
+    }
+
+    /// BUG-324 r2: «Given» of `key` waits for the network after a gift: when its pause is
+    /// over it is asked again (its read forgotten); the seconds left while it waits, for the
+    /// frame to come back then.
+    pub(super) fn given_again(&mut self, key: &(String, String), now: f64) -> Option<f64> {
+        let at = self.given_wait.get(key)?.next_at?;
+        if now >= at {
+            if let Some(w) = self.given_wait.get_mut(key) {
+                w.next_at = None;
+            }
+            self.given_asked.remove(key);
+            None
+        } else {
+            Some(at - now)
         }
     }
 
@@ -392,6 +474,7 @@ impl WorkshopState {
         self.given.clear();
         self.given_asked.clear();
         self.gifts_seen.clear();
+        self.given_wait.clear();
         self.forget_sales();
         self.about = false;
         if !self.new.signed() {
@@ -795,6 +878,30 @@ pub(super) fn ask_now<K: std::hash::Hash + Eq + Clone>(
     r.ask(now)
 }
 
+/// BUG-324 r2: the pause between reads of «Given» while the network does not give a gift yet,
+/// and how many such reads at most (QA: a minute was not enough for one read right away).
+pub(super) const GIVEN_AGAIN: f64 = 5.0;
+pub(super) const GIVEN_TRIES: u32 = 6;
+
+/// BUG-324 r2: what «Given» must show at least after a gift; reads left; when the next goes.
+#[derive(Clone, Debug, PartialEq)]
+struct GivenWait {
+    at_least: u64,
+    tries: u32,
+    next_at: Option<f64>,
+    /// r2 Should: the series' gift — when it was seen ended, to whom.
+    last: (evolite_api::Timestamp, String),
+    this_computer_only: bool,
+}
+
+/// The gifts «Given» counts (at least, when not every transfer was read).
+fn given_count(count: &evolite_api::workshop::Count) -> u64 {
+    match count {
+        evolite_api::workshop::Count::Proved(n) => *n,
+        evolite_api::workshop::Count::Counted { count, .. } => *count,
+    }
+}
+
 /// W7: one's copies of a model as read so far, page after page.
 #[derive(Default)]
 struct InstancesRead {
@@ -995,6 +1102,126 @@ mod gift_tests {
 
     fn read_now(state: &WorkshopState) -> bool {
         state.given.contains_key(&("c".to_owned(), "m".to_owned()))
+    }
+
+    /// «Given» read as `count` before the series (the page was open).
+    fn answer_count(state: &mut WorkshopState, count: u64) {
+        state.given.insert(
+            ("c".to_owned(), "m".to_owned()),
+            Given {
+                contract: "c".into(),
+                model: "m".into(),
+                count: Count::Proved(count),
+                last: None,
+                this_computer_only: false,
+            },
+        );
+    }
+
+    /// The page asks «Given» (as `model_page` does), then the core answers `count`.
+    fn answer(state: &mut WorkshopState, count: u64) {
+        let key = ("c".to_owned(), "m".to_owned());
+        assert!(ask_now(&mut state.given_asked, &key, 0.0, false), "asked");
+        state.on_read(
+            &WorkshopAsk::Given {
+                contract: "c".into(),
+                model: "m".into(),
+            },
+            &Ok(WorkshopRead::Given(Given {
+                contract: "c".into(),
+                model: "m".into(),
+                count: Count::Proved(count),
+                last: None,
+                this_computer_only: false,
+            })),
+        );
+    }
+
+    /// BUG-324 r2 (QA, dev-895ba2ea): the read right after the gift still said «2» — the network
+    /// did not give the transfer yet. Fewer than shown + given: read again after a pause, until it
+    /// shows them or the tries are over; never before the pause.
+    #[test]
+    fn given_is_read_again_until_the_network_gives_the_gift() {
+        let key = ("c".to_owned(), "m".to_owned());
+        let mut state = WorkshopState::default();
+        read(&mut state);
+        state.on_series(&[gift(1, true, 0)]);
+        state.on_series(&[gift(1, false, 1)]);
+        assert_eq!(state.given_again(&key, 0.0), None, "asked at once");
+        answer(&mut state, 1);
+        assert!(state.given_again(&key, 1.0).is_some(), "short: waits");
+        assert!(
+            !ask_now(&mut state.given_asked, &key, 1.0, false),
+            "not before the pause"
+        );
+        assert_eq!(state.given_again(&key, GIVEN_AGAIN + 0.1), None);
+        assert!(!state.given_asked.contains_key(&key), "asked again");
+        answer(&mut state, 2);
+        assert!(state.given_wait.is_empty(), "shows the gift: done");
+        assert_eq!(state.given_again(&key, 100.0), None);
+        // The network never gives it: GIVEN_TRIES reads more, then the answer stays.
+        read(&mut state);
+        state.on_series(&[gift(2, true, 0)]);
+        state.on_series(&[gift(2, false, 1)]);
+        for n in 0..GIVEN_TRIES {
+            answer(&mut state, 1);
+            assert!(state.given_wait.contains_key(&key));
+            let at = GIVEN_AGAIN * f64::from(n + 2);
+            assert_eq!(state.given_again(&key, at), None, "its pause over");
+        }
+        answer(&mut state, 1);
+        assert!(
+            state.given_again(&key, 1000.0).is_none(),
+            "tries over: read no more"
+        );
+        assert!(
+            matches!(
+                state.given_shown(&key).map(|g| g.count),
+                Some(Count::Counted {
+                    count: 2,
+                    complete: false,
+                    ..
+                })
+            ),
+            "still «at least 2», not the older «1»"
+        );
+    }
+
+    /// BUG-324 r2 Should (the architect): while the network does not show the gift, the tile is
+    /// «at least 3» with the series' gift as «last», not the older «2 · 13:04»; the network's
+    /// «3» after.
+    #[test]
+    fn given_says_at_least_the_gift_until_the_network_shows_it() {
+        let key = ("c".to_owned(), "m".to_owned());
+        let mut state = WorkshopState::default();
+        read(&mut state);
+        answer_count(&mut state, 2);
+        state.on_series(&[gift(1, true, 0)]);
+        state.on_series(&[gift(1, false, 1)]);
+        let shown = |state: &WorkshopState| state.given_shown(&key).expect("shown");
+        let waiting = shown(&state);
+        assert!(
+            matches!(
+                waiting.count,
+                Count::Counted {
+                    count: 3,
+                    complete: false,
+                    ..
+                }
+            ),
+            "before any answer: {:?}",
+            waiting.count
+        );
+        assert_eq!(waiting.last.map(|(_, to)| to).as_deref(), Some("@bob"));
+        answer(&mut state, 2);
+        assert!(
+            matches!(shown(&state).count, Count::Counted { count: 3, .. }),
+            "the network's older «2» is not shown"
+        );
+        state.given_again(&key, GIVEN_AGAIN + 1.0);
+        answer(&mut state, 3);
+        assert_eq!(shown(&state).count, Count::Proved(3), "the network's «3»");
+        assert!(state.given_wait.is_empty());
     }
 
     /// BUG-324: a gift series that stops — seen running, or with more given than before —

@@ -357,6 +357,11 @@ pub(super) fn page(
         .cloned()
         .collect();
     let who = super::super::tokens::shown_name(&wallet);
+    // BUG-324 r2: after a gift, «Given» again until the network gives it.
+    if let Some(left) = state.given_again(&key, now) {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_secs_f64(left));
+    }
     if super::ask_now(&mut state.given_asked, &key, now, again) {
         cx.send(Command::ReadWorkshop {
             ask: WorkshopAsk::Given {
@@ -365,7 +370,8 @@ pub(super) fn page(
             },
         });
     }
-    let given = state.given.get(&key).cloned();
+    // BUG-324 r2 Should: «at least» the series' gifts while the network does not show them.
+    let given = state.given_shown(&key);
     let numbers = Numbers {
         mine,
         for_sale: counts.as_ref().map(|_| for_sale),
