@@ -496,6 +496,11 @@ pub struct TopUpForm {
     pub suggested: Option<i64>,
     /// What «Top up» signed (BUG-177): shown instead of the form until «Top up again».
     pub signed: Option<SignedTopUp>,
+    /// BUG-346: the source a top-up was sent from — kept while it runs and after its answer. The
+    /// pool's balance drops by the move at once, so «by the order» (the pool only when it holds
+    /// more than a top-up's fee) would turn to Core in the middle of it: Core's words over a
+    /// pool move, and Core's form after it, ready for a second top-up. Chosen by hand: none.
+    pub sent_from: Option<TopUpFrom>,
 }
 
 /// UC-7: where a top-up comes from.
@@ -520,6 +525,10 @@ fn mixed_has(w: &Wallet) -> Duffs {
 /// The source as chosen, or by the order (UC-7): the pool, mixed coins, Core — only one that
 /// holds something.
 pub(super) fn top_up_from(form: &TopUpForm, w: &Wallet) -> TopUpFrom {
+    // BUG-346: a top-up sent stays from where it was sent, whatever its move did to that balance.
+    if let Some(sent) = form.sent_from {
+        return sent;
+    }
     let can = |f: TopUpFrom| match f {
         TopUpFrom::Pool => pool_has(w),
         TopUpFrom::Mixed => mixed_has(w) > 0,
@@ -589,6 +598,7 @@ fn from_rows(
                 let (icon, title, value) = row(f);
                 if crate::components::select_row(ui, a, icon, title, Some(&value)).clicked() {
                     form.from = Some(f);
+                    form.sent_from = None;
                     form.sources_open = false;
                 }
             }
@@ -653,11 +663,14 @@ fn top_up_private_dialog(
                                 mixed_lock::plan_lines(ui, a, &mut form.mixed, MixedTo::TopUp, d);
                             }
                         }
+                        // BUG-319 r3: the fee as the pool's are promised — at most, never a bare
+                        // «≈» the network may beat (it took 0.00111 of a declared 0.0011436); it
+                        // comes from the pool on top, so the identity gets the amount itself.
                         _ => kv_row(
                             ui,
                             &p,
                             tr!("Platform fee"),
-                            &format!("≈ {}", dash(fees.pool_top_up)),
+                            &format!(tr!("up to ≈ {}"), dash(fees.pool_top_up)),
                             value.clone(),
                         ),
                     }
@@ -778,6 +791,8 @@ fn top_up_private_dialog(
         if let Some(command) = flow.command(op, ask, amount) {
             asked.push(command);
             state.top_up_result = None;
+            // BUG-346: from here on, from where it was sent.
+            form.sent_from = Some(from);
         }
     } else if close && !busy {
         state.top_up = None;

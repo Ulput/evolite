@@ -149,3 +149,87 @@ fn a_pool_move_done_is_not_offered_again_on_the_same_amount() {
         drop(turn);
     }
 }
+
+const FROM_POOL: i64 = 100_000;
+
+fn pool_label() -> String {
+    format!("Top up by {}", crate::format::amount(FROM_POOL))
+}
+
+/// BUG-346: a top-up from the pool sent, the pool's balance dropped by it below a top-up's fee —
+/// the window stays the pool's (not «From the Core wallet» with its asset lock words), and once
+/// answered it is not Core's form with the amount, a click from a second top-up. Mutant: the
+/// source by the order again (`sent_from` not kept) → «From the Core wallet».
+#[test]
+fn a_top_up_from_the_pool_stays_the_pools_while_it_runs_and_after() {
+    let (_turn, mut kit) = demo_app("top-up-pool", "en");
+    settle(&mut kit);
+    assert!(has_words(&kit, "From the pool"));
+    if let Some(form) = &mut kit.state_mut().identity.top_up {
+        form.amount = crate::format::input_text(FROM_POOL);
+    }
+    wait_for(&mut kit, "the button with the amount", |kit| {
+        has_text(kit, &pool_label())
+    });
+    button(&kit, &pool_label()).click();
+    kit.run_steps(1);
+    assert_eq!(
+        kit.state()
+            .identity
+            .top_up
+            .as_ref()
+            .and_then(|f| f.sent_from),
+        Some(crate::screens::identity::TopUpFrom::Pool),
+        "sent from the pool"
+    );
+    // The notes taken: the pool holds less than a top-up's fee; no mixed coins either.
+    let drained = |w: &mut evolite_api::Wallet| {
+        w.balances.shielded = w.fees.pool_top_up - 1;
+        w.balances.mixed = None;
+    };
+    show_wallet_edited(&mut kit, 4, "the pool drained", drained, |_| true);
+    assert!(has_words(&kit, "From the pool"), "still the pool's window");
+    assert!(
+        !has_words(&kit, "From the Core wallet"),
+        "not Core's form in the middle of a pool move"
+    );
+    // Answered: it went through (the demo refuses: the answer is the test's). The answer and
+    // «Done» — not Core's form with the amount, a second top-up one click away.
+    kit.state_mut().identity.top_up_result = Some((FROM_POOL, Ok(())));
+    show_wallet_edited(&mut kit, 4, "answered", drained, |_| true);
+    assert!(has_words(&kit, "Credits added"), "the answer");
+    assert!(
+        !has_words(&kit, "From the Core wallet"),
+        "not Core's form after it"
+    );
+    assert!(
+        kit.query_all_by(
+            |n| n.role() == Role::Button && n.label().is_some_and(|l| l.starts_with("Top up by"))
+        )
+        .next()
+        .is_none(),
+        "no «Top up by …» after it"
+    );
+    assert!(has_text(&kit, "Done"));
+}
+
+/// BUG-319 r3: the pool's fee for a top-up is promised as at most — «up to ≈», never a bare «≈»
+/// the network may beat (QA: 0.00111 taken of a declared 0.0011436).
+#[test]
+fn a_top_up_from_the_pool_promises_the_fee_at_most() {
+    let (_turn, mut kit) = demo_app("top-up-pool", "en");
+    settle(&mut kit);
+    if let Some(form) = &mut kit.state_mut().identity.top_up {
+        form.amount = crate::format::input_text(FROM_POOL);
+    }
+    settle(&mut kit);
+    let fee = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.pool_top_up)
+        .expect("a wallet");
+    let up_to = format!("up to ≈ {}", crate::format::amount(fee));
+    assert!(has_words(&kit, &up_to), "«{up_to}»");
+}
