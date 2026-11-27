@@ -5,7 +5,7 @@
 //! "Sell"; the release, without the demo core, shows neither until the real core can do them.
 
 use super::txt;
-use crate::art::ArtCache;
+use crate::art::{ArtCache, Consent};
 use crate::components::{
     Assets, ButtonKind, button, card, chip, divider, inner, kv_row, page_header, pill,
 };
@@ -680,7 +680,9 @@ fn nft_card(
         show = button(&mut child, a, tr!("Show"), ButtonKind::Secondary, None).clicked();
     } else {
         // Drawn by the core's sandboxed renderer at the size of the card, not decoded here.
-        art_cache.paint(ui, &p, &nft.art, art_rect, &mut |c| asked.push(c));
+        art_cache.paint(ui, &p, &nft.art, art_rect, Consent::waits(ask), &mut |c| {
+            asked.push(c)
+        });
     }
     let painter = ui.painter();
     if let Some((badge, galley)) = badge {
@@ -768,16 +770,20 @@ fn card_body(
             trust: trust.then(|| nfts[first].issuer.clone()),
         };
     }
-    group_card(
+    // BUG-282: the group's picture as its tile's — waiting for consent while its copy does
+    // («Always show from …» here too).
+    let trust = group_card(
         ui,
         a,
         (art_cache, asked),
-        nfts,
-        group,
+        (nfts, group, asks),
         (now, page),
         (panel, mine),
     );
-    Picked::default()
+    Picked {
+        gift: false,
+        trust: trust.then(|| nfts[first].issuer.clone()),
+    }
 }
 
 /// BUG-188 §4: the card of copies of one model — what each is, its price, the actions on N.
@@ -785,23 +791,27 @@ fn group_card(
     ui: &mut Ui,
     a: &mut Assets,
     (art_cache, asked): (&mut ArtCache, &mut Vec<Command>),
-    nfts: &[Nft],
-    group: &[usize],
+    (nfts, group, asks): (&[Nft], &[usize], &[bool]),
     (now, page): (chrono::DateTime<chrono::Local>, &mut usize),
     (panel, mine): (bool, bool),
-) {
+) -> bool {
     let p = a.p;
+    let mut trust = false;
     // BUG-309: the copies by their number, those without one last.
     let mut group = group.to_vec();
     group.sort_by_key(|&i| (nfts[i].edition.0.is_none(), nfts[i].edition.0));
     let group = &group[..];
+    // BUG-282: the picture shown is the first copy's: it waits while that one does.
+    let ask = asks[group[0]];
     let nft = &nfts[group[0]];
     let n = group.len();
     ui.spacing_mut().item_spacing.y = 12.0;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 14.0;
         let (pic, _) = ui.allocate_exact_size(vec2(72.0, 72.0), Sense::hover());
-        art_cache.paint(ui, &p, &nft.art, pic, &mut |c| asked.push(c));
+        art_cache.paint(ui, &p, &nft.art, pic, Consent::waits(ask), &mut |c| {
+            asked.push(c)
+        });
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             if panel {
@@ -832,6 +842,24 @@ fn group_card(
             );
         });
     });
+    // BUG-282: a picture that waits for consent — the issuer trusted from here, as on one copy's
+    // card (the tile has its «Show»).
+    if ask {
+        trust = button(
+            ui,
+            a,
+            &format!(tr!("Always show from {}"), nft.issuer),
+            ButtonKind::Ghost,
+            None,
+        )
+        .on_hover_text(
+            crate::i18n::t(tr!(
+                "Pictures from this issuer will be drawn without asking"
+            ))
+            .into_owned(),
+        )
+        .clicked();
+    }
     let prices: Vec<Duffs> = group.iter().filter_map(|&i| nfts[i].price).collect();
     let summary = copies_summary(n, &prices);
     ui.add(crate::components::para(
@@ -934,6 +962,7 @@ fn group_card(
             p.muted,
         ));
     }
+    trust
 }
 
 /// BUG-308: how much of itself a button not there yet shows, on any ground.
@@ -1621,6 +1650,51 @@ mod tests {
             "the second row cut after whole words: {text:?}"
         );
         assert!(!laid.elided, "nothing left for egui to cut: {text:?}");
+    }
+
+    /// BUG-282 (the class): every picture the Collection paints says whether it may be drawn,
+    /// computed from the consent check — the tile's and the group card's alike; none passes
+    /// «given» as a constant. Mutant: the group card's paint without it is red.
+    #[test]
+    fn every_picture_painted_says_its_consent() {
+        let file = include_str!("collection.rs");
+        let body = &file[..file.find("#[cfg(test)]").unwrap_or(file.len())];
+        let calls: Vec<&str> = body
+            .match_indices("art_cache.paint(")
+            .map(|(at, _)| &body[at..at + body[at..].find(");").unwrap_or(0)])
+            .collect();
+        assert_eq!(calls.len(), 2, "the tile and the group card");
+        for call in &calls {
+            assert!(call.contains("Consent::waits("), "{call}");
+        }
+        assert!(
+            !body.contains("Consent::Given") && !body.contains("Consent::Own"),
+            "no constant consent"
+        );
+        // r1 (Should): every other picture of the app says its consent too — the Workshop's
+        // are the person's own, `Own`; `paint_or_tell` as `paint`.
+        for (file, text) in [
+            (
+                "workshop/model_page.rs",
+                include_str!("workshop/model_page.rs"),
+            ),
+            (
+                "workshop/collection_page.rs",
+                include_str!("workshop/collection_page.rs"),
+            ),
+            (
+                "workshop/new_model.rs",
+                include_str!("workshop/new_model.rs"),
+            ),
+        ] {
+            for (at, _) in text
+                .match_indices(".paint(ui")
+                .chain(text.match_indices(".paint_or_tell("))
+            {
+                let call = &text[at..at + text[at..].find(";").unwrap_or(0)];
+                assert!(call.contains("Consent::"), "{file}: {call}");
+            }
+        }
     }
 
     #[test]

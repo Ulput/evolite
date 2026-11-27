@@ -619,7 +619,8 @@ fn picture(
         (tr!("Without a picture").to_owned(), false)
     } else {
         let mut send = |c: Command| cx.send(c);
-        match art.paint_or_tell(ui, &model.art, rect, &mut send) {
+        // BUG-282: the identity's own model.
+        match art.paint_or_tell(ui, &model.art, rect, crate::art::Consent::Own, &mut send) {
             crate::art::Drawn::Ready => return,
             crate::art::Drawn::Waiting => (tr!("The picture is loading…").to_owned(), false),
             crate::art::Drawn::Failed(why) => (

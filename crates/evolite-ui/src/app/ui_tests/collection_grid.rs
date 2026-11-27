@@ -146,6 +146,71 @@ fn the_filters_follow_the_collection_tab_and_turn_off_again() {
     assert_eq!(tiles(&kit).len(), all, "off again: all of it");
 }
 
+/// BUG-282: a group of copies from an issuer nobody trusted — its card (the window at 1024, the
+/// panel at 1280) draws no picture and never asks the core for it, and offers «Always show from
+/// …» as one copy's card does.
+#[test]
+fn a_strangers_group_card_draws_no_picture_until_asked() {
+    for (w, h) in [(1024.0, 1100.0), (1280.0, 1000.0)] {
+        let (_turn, mut kit) = demo_app("collection", "en");
+        wait_for(&mut kit, "the tiles", |kit| tiles(kit).len() > 5);
+        let art = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .and_then(|w| w.nfts.iter().find(|n| n.name == "Djembe"))
+            .map(|n| n.art.clone())
+            .expect("Djembe");
+        let stranger = |w: &mut evolite_api::Wallet| {
+            for n in w.nfts.iter_mut().filter(|n| n.name == "Djembe") {
+                n.issuer = "stranger".into();
+                n.chosen = false;
+            }
+        };
+        show_wallet_edited(&mut kit, 3, "Djembe from a stranger", stranger, |_| true);
+        kit.set_size(egui::vec2(w, h));
+        kit.run_steps(2);
+        // At 1024 a click opens the card's window; at 1280 the panel shows the first group
+        // (Djembe) already — and a click there would land on the tile's own «Show».
+        if w < 1280.0 {
+            kit.get_by_role_and_label(Role::Button, "Djembe · ×3")
+                .click();
+        }
+        wait_for(&mut kit, "the group's card", |kit| has_text(kit, "COPIES"));
+        // In a frame drawn with the stranger's copies (a demo snapshot between frames is
+        // jembe's, trusted, and may draw it): «Always show from …», and no picture painted at
+        // the card's 72 × 72 — not even marked as one.
+        let _ = &art;
+        show_wallet_edited(&mut kit, 3, "the stranger's card", stranger, |kit| {
+            has_text(kit, "Always show from stranger")
+        });
+        assert!(
+            picture_marks(&kit)
+                .iter()
+                .all(|r| (r.width() - 72.0).abs() > 1.0),
+            "{w}: the group's picture painted before consent: {:?}",
+            picture_marks(&kit)
+        );
+    }
+}
+
+/// The pictures painted in the last frame ([`crate::art::PICTURE_MARK`]): their rects.
+fn picture_marks(kit: &Kit) -> Vec<egui::Rect> {
+    fn walk(shape: &egui::Shape, out: &mut Vec<egui::Rect>) {
+        match shape {
+            egui::Shape::Rect(r) if r.blur_width == crate::art::PICTURE_MARK => out.push(r.rect),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for c in &kit.output().shapes {
+        walk(&c.shape, &mut out);
+    }
+    out
+}
+
 /// QA's kestrel7: a model issued by an identity without a name, its copies listed newest first.
 const ISSUER: &str = "6yGSpSLh8tRoffdQFnnKKutfJDYMqonrZRip39Wt9rso";
 

@@ -557,7 +557,7 @@ fn picture_card(
                 .filter(|a| !a.is_empty());
             if let Some(key) = shown {
                 let mut send = |c: Command| cx.send(c);
-                art.paint(ui, &p, &key, rect, &mut send);
+                art.paint(ui, &p, &key, rect, crate::art::Consent::Own, &mut send);
             }
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 4.0;
@@ -682,7 +682,7 @@ fn fit_offer(
         ui.painter()
             .rect_filled(rect, egui::CornerRadius::same(10), p.raised);
         let mut send = |c: Command| cx.send(c);
-        art.paint(ui, &p, &copy.art, rect, &mut send);
+        art.paint(ui, &p, &copy.art, rect, crate::art::Consent::Own, &mut send);
         ui.label(txt(
             &format!(
                 tr!("Original file: {}×{}, {}"),

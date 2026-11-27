@@ -189,7 +189,8 @@ fn model_tile(
         );
     } else {
         let mut send = |c: Command| cx.send(c);
-        art.paint(ui, &p, &m.art, picture, &mut send);
+        // BUG-282: the identity's own collection's model.
+        art.paint(ui, &p, &m.art, picture, crate::art::Consent::Own, &mut send);
     }
     let issued = counts
         .and_then(|c| c.issued)

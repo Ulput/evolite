@@ -56,6 +56,24 @@ pub fn side_for(points: f32, pixels_per_point: f32) -> u32 {
     pixels.div_ceil(STEP).saturating_mul(STEP).min(MAX_SIDE)
 }
 
+/// BUG-282: whether a picture of the Collection may be drawn — from a source the person chose,
+/// an issuer kept as trusted, or asked to see (FEAT-0054 r1) — or waits for «Show». Every
+/// [`ArtCache::paint`] says which, computed from the same check, never a constant.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Consent {
+    Given,
+    Waits,
+    /// The person's own picture — the Workshop's models and the one being made.
+    Own,
+}
+
+impl Consent {
+    /// From `CollectionState::waits_for_consent`'s answer.
+    pub fn waits(waits: bool) -> Self {
+        if waits { Self::Waits } else { Self::Given }
+    }
+}
+
 impl ArtCache {
     /// Some picture asked for has not come back yet, or not whole (a screenshot waits).
     #[cfg(any(feature = "dev-tools", test))]
@@ -158,15 +176,21 @@ impl ArtCache {
     }
 
     /// Paints `art` into `rect`, asking the core for it at this size when it has not been
-    /// drawn yet. Until then, the same picture at another size, or a placeholder.
+    /// drawn yet. Until then, the same picture at another size, or a placeholder. BUG-282: a
+    /// picture that waits for consent is not asked for nor drawn — a plain square in its place.
     pub fn paint(
         &mut self,
         ui: &mut Ui,
         p: &Palette,
         art: &str,
         rect: Rect,
+        consent: Consent,
         send: &mut impl FnMut(Command),
     ) {
+        if consent == Consent::Waits {
+            placeholder(ui, p, rect, "", "");
+            return;
+        }
         picture_mark(ui, rect);
         match self.texture(ui, art, rect, send) {
             Prepared::Failed(why) => placeholder(ui, p, rect, tr!("Could not show it"), &why),
@@ -192,8 +216,14 @@ impl ArtCache {
         ui: &mut Ui,
         art: &str,
         rect: Rect,
+        consent: Consent,
         send: &mut impl FnMut(Command),
     ) -> Drawn {
+        // BUG-282 r1 (Should): as [`Self::paint`] — a picture that waits for consent is not
+        // asked for nor drawn; the page says it is not shown yet.
+        if consent == Consent::Waits {
+            return Drawn::Waiting;
+        }
         picture_mark(ui, rect);
         match self.texture(ui, art, rect, send) {
             Prepared::Failed(why) => Drawn::Failed(why),
