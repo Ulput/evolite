@@ -478,3 +478,168 @@ fn a_payment_to_several_is_found_and_counted_by_any_recipient() {
     let own = crate::csv_export::Own::default();
     assert_eq!(crate::csv_export::lines([&act], &own), 3);
 }
+
+/// FEAT-0057 П7, A7.5 (А-3): an IntoMixing, a CoinJoin round and a payment — at «All» the totals
+/// are the wallet's change (only the fees of the moves between its own places go), at «Core»
+/// Core's (the whole IntoMixing goes: the mixed coins are not Core's, BUG-121).
+#[test]
+fn the_totals_are_the_balance_s_change() {
+    let mut into = line(
+        ActivityKind::IntoMixing,
+        1,
+        -(1_000 + 10),
+        Proof::ChainLock,
+        layer::CORE | layer::MIXED,
+        Flow::Between,
+    );
+    into.fee = Some(10);
+    let round = line(
+        ActivityKind::Mixing { fee: 5 },
+        2,
+        -5,
+        Proof::ChainLock,
+        layer::MIXED,
+        Flow::Between,
+    );
+    let paid = line(
+        ActivityKind::Received { from: None },
+        3,
+        2_000,
+        Proof::ChainLock,
+        layer::CORE,
+        Flow::In,
+    );
+    let all = [&into, &round, &paid];
+    let t = totals(&all, 0).expect("DASH");
+    assert_eq!((t.came, t.went), (2_000, 15), "the fees only");
+    assert_eq!(t.came - t.went, 2_000 - 10 - 5, "the wallet's change");
+    let core: Vec<&Activity> = all
+        .iter()
+        .copied()
+        .filter(|a| a.layers & layer::CORE != 0)
+        .collect();
+    let t = totals(&core, 1).expect("DASH");
+    assert_eq!((t.came, t.went), (2_000, 1_010));
+    assert_eq!(t.came - t.went, 2_000 - 1_010, "Core's change");
+}
+
+/// FEAT-0057 П7, A7.2–A7.3 (R-7.2): a pending line is not added — only counted; a send's fee is
+/// in its amount; «Tokens» has no DASH totals.
+#[test]
+fn pending_lines_are_counted_apart() {
+    let sent = line(
+        ActivityKind::Sent {
+            to: "yPayee".into(),
+        },
+        1,
+        -(3_000 + 226),
+        Proof::ChainLock,
+        layer::CORE,
+        Flow::Out,
+    );
+    let waiting = line(
+        ActivityKind::Received { from: None },
+        2,
+        12_000,
+        Proof::Mempool,
+        layer::CORE,
+        Flow::In,
+    );
+    let t = totals(&[&sent, &waiting], 1).expect("DASH");
+    assert_eq!(
+        t,
+        Totals {
+            came: 0,
+            went: 3_226,
+            estimated: 0,
+            went_estimated: 0,
+            pending: 1,
+            counted: 1
+        }
+    );
+    assert_eq!(totals(&[&sent], TOKENS_LAYER), None, "tokens are not DASH");
+}
+
+/// The architect on R-7.1: a top-up from Core in the place it came to — «Identity» — adds what
+/// Platform credited when the line knows it (exactly); without it, what left Core less the Core
+/// fee, counted as an estimate. «Core»: the whole of what left. «All»: the Core fee, and
+/// Platform's when what arrived is known.
+#[test]
+fn a_move_counts_by_the_side_of_the_place_chosen() {
+    let top_up = |credited: Option<Duffs>| {
+        let mut act = line(
+            ActivityKind::TopUp {
+                identity: "@me".into(),
+                creates: false,
+                credits: Credits::Added,
+            },
+            1,
+            -(100_000 + 226),
+            Proof::ChainLock,
+            layer::CORE | layer::IDENTITY,
+            Flow::Between,
+        );
+        act.fee = Some(226);
+        act.detail = Some(Box::new(evolite_api::Detail {
+            credits_added: credited,
+            ..Default::default()
+        }));
+        act
+    };
+    let identity = 5;
+    assert_eq!(LAYERS[identity], layer::IDENTITY);
+    let known = top_up(Some(99_000));
+    let t = totals(&[&known], identity).expect("DASH");
+    assert_eq!((t.came, t.estimated), (99_000, 0), "credited: exactly");
+    let guessed = top_up(None);
+    let t = totals(&[&guessed], identity).expect("DASH");
+    assert_eq!(
+        (t.came, t.estimated),
+        (100_000, 1),
+        "the most that came, an estimate"
+    );
+    let t = totals(&[&guessed], 1).expect("DASH");
+    assert_eq!(
+        (t.came, t.went, t.estimated),
+        (0, 100_226, 0),
+        "Core: all that left"
+    );
+    let t = totals(&[&guessed], 0).expect("DASH");
+    assert_eq!((t.came, t.went), (0, 226), "All: the Core fee");
+    let t = totals(&[&known], 0).expect("DASH");
+    assert_eq!(t.went, 100_226 - 99_000, "All: Core's fee and Platform's");
+}
+
+/// FEAT-0057 П7 r1 Must: what is not known is never added silently — a write whose cost is not
+/// known (BUG-176) and, at «All», a move whose Core fee is not known count in `went_estimated`.
+#[test]
+fn what_is_not_known_is_counted_as_an_estimate() {
+    let mut write = line(
+        ActivityKind::ProfileSaved,
+        1,
+        0,
+        Proof::Proved,
+        layer::IDENTITY,
+        Flow::Out,
+    );
+    write.detail = Some(Box::new(evolite_api::Detail {
+        cost_unknown: true,
+        ..Default::default()
+    }));
+    let t = totals(&[&write], 0).expect("DASH");
+    assert_eq!((t.went, t.went_estimated), (0, 1), "not known: an estimate");
+    let to_self = line(
+        ActivityKind::SelfTransfer { moved: 0 },
+        2,
+        -226,
+        Proof::ChainLock,
+        layer::CORE,
+        Flow::Between,
+    );
+    let t = totals(&[&to_self], 0).expect("DASH");
+    assert_eq!((t.went, t.went_estimated), (0, 1), "no fee known: said");
+    let mut paid = to_self.clone();
+    paid.fee = Some(226);
+    let t = totals(&[&paid], 0).expect("DASH");
+    assert_eq!((t.went, t.went_estimated), (226, 0), "its fee: exact");
+}

@@ -149,7 +149,16 @@ pub fn activity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, h: &mut History) {
         }
         // The filters on, each with its cross, and how many lines they leave (UC-5).
         let chips = h.filters.chips();
-        chips_row(ui, a, h, &chips, &shown, total);
+        // FEAT-0057 R-7.5, §8d: History still filling (the sync not done), the Platform part
+        // not read (its journal set aside) — the totals say so.
+        let partial = Partial {
+            loading: cx.snap.sync.stage != evolite_api::SyncStage::Done,
+            platform_unread: wallet
+                .set_aside
+                .iter()
+                .any(|s| s.file == evolite_api::LocalFile::Journal),
+        };
+        chips_row(ui, a, h, &chips, &shown, &wallet.activity, partial);
         if on_tokens {
             token_picker(ui, a, cx, h);
         }
@@ -633,9 +642,26 @@ fn chips_row(
     h: &mut History,
     chips: &[activity_filters::Chip],
     shown: &[usize],
-    total: usize,
+    activity: &[evolite_api::Activity],
+    partial: Partial,
 ) {
     let p = a.p;
+    let total = activity.len();
+    // FEAT-0057 П7: what the lines shown brought and took, after «Shown N of M».
+    let lines: Vec<&evolite_api::Activity> =
+        shown.iter().filter_map(|i| activity.get(*i)).collect();
+    let pill = h.filters.layer;
+    let sums = activity_filters::totals(&lines, pill).map(|t| {
+        // «Platform not read» where the layer has Platform in it: «All», «Platform», «Identity».
+        let platform = partial.platform_unread
+            && activity_filters::LAYERS
+                .get(pill)
+                .is_some_and(|l| *l == 0 || l & evolite_api::layer::IDENTITY != 0);
+        totals_words(t, h.filters.flow, partial.loading, platform)
+    });
+    // A7.4: the totals on the row when they fit beside «Shown N of M», else on a row of their own
+    // under it, wrapping between their parts — never cut, a number never broken.
+    let mut below = false;
     if !chips.is_empty() || shown.len() < total {
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
@@ -650,14 +676,179 @@ fn chips_row(
                     h.filters.layer = 0;
                     h.query.clear();
                 }
-                ui.label(txt(
-                    &shown_of(shown.len(), total),
-                    13.0,
-                    Weight::Regular,
-                    p.muted,
-                ));
+                let count = shown_of(shown.len(), total);
+                let fits = sums.as_ref().is_none_or(|w| {
+                    let width = |s: &str, font| {
+                        ui.painter()
+                            .layout_no_wrap(s.to_owned(), font, p.text)
+                            .size()
+                            .x
+                    };
+                    let all = width(&count, sans(13.0, Weight::Regular))
+                        + width(" · ", sans(13.0, Weight::Regular))
+                        + width(&w.sums, mono(13.0, Weight::Medium))
+                        + width(&w.tail, sans(13.0, Weight::Regular))
+                        + 3.0 * ui.spacing().item_spacing.x;
+                    all <= ui.available_width()
+                });
+                below = !fits;
+                if let Some(w) = sums.as_ref().filter(|_| fits) {
+                    if !w.tail.is_empty() {
+                        let said = ui.label(txt(&w.tail, 13.0, Weight::Regular, p.muted));
+                        estimate_hint(said, w);
+                    }
+                    ui.label(
+                        egui::RichText::new(w.sums.clone())
+                            .font(mono(13.0, Weight::Medium))
+                            .color(p.text),
+                    );
+                    ui.label(txt(" · ", 13.0, Weight::Regular, p.muted));
+                }
+                ui.label(txt(&count, 13.0, Weight::Regular, p.muted));
             });
         });
+    }
+    if let Some(w) = sums.as_ref().filter(|_| below) {
+        // Each part whole, the dots between them where the line breaks.
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            let mut first = true;
+            for part in w.sums.split(" · ") {
+                if !first {
+                    ui.label(txt(" · ", 13.0, Weight::Regular, p.muted));
+                }
+                first = false;
+                ui.label(
+                    egui::RichText::new(part)
+                        .font(mono(13.0, Weight::Medium))
+                        .color(p.text),
+                );
+            }
+            for part in w.tail.split(" · ").filter(|s| !s.is_empty()) {
+                ui.label(txt(" · ", 13.0, Weight::Regular, p.muted));
+                let said = ui.label(txt(part, 13.0, Weight::Regular, p.muted));
+                estimate_hint(said, w);
+            }
+        });
+    }
+}
+
+/// FEAT-0057 R-7.5, §8d: what the totals may not hold yet.
+#[derive(Clone, Copy, Default)]
+struct Partial {
+    /// The sync is not done: History may still get older lines.
+    loading: bool,
+    /// The Platform part of History did not read (its journal set aside).
+    platform_unread: bool,
+}
+
+/// The words of the totals: the sums (mono), what is said after them (muted) and whether that
+/// holds an estimate (its hint).
+pub(crate) struct TotalsWords {
+    pub sums: String,
+    pub tail: String,
+    pub estimated: bool,
+    /// r1 Must: «went» holds what is not known exactly.
+    pub went_estimated: bool,
+}
+
+/// The architect on R-7.1 and r1: «k estimated» says on hover why — what came, what went.
+fn estimate_hint(said: egui::Response, w: &TotalsWords) {
+    let mut why = Vec::new();
+    if w.estimated {
+        why.push(crate::i18n::t(tr!(
+            "The Platform fee is not known: a little less came in"
+        )));
+    }
+    if w.went_estimated {
+        why.push(crate::i18n::t(tr!(
+            "Some costs are not known: what went out is an estimate"
+        )));
+    }
+    if !why.is_empty() {
+        said.on_hover_text(why.join("\n"));
+    }
+}
+
+/// FEAT-0057 П7 (UC-7.1, R-7.2, R-7.4): «in +5.7978 DASH · out −0.0102 DASH» — by the direction
+/// chosen, only «in» or only «out» — and «· 1 estimated · without 1 pending» after it, muted;
+/// «in ≈ +…» when «in» holds an estimate (the architect on R-7.1), never without its «≈» nor the
+/// «≈» without an estimate. Dots under «Hide amounts», the count stays. Each piece translated
+/// whole before it is joined (BUG-307). Whether the tail says «estimated» (its hint).
+pub(crate) fn totals_words(
+    t: activity_filters::Totals,
+    flow: Option<evolite_api::Flow>,
+    loading: bool,
+    platform_unread: bool,
+) -> TotalsWords {
+    use evolite_api::Flow;
+    let lang = crate::i18n::current();
+    let money = |d: evolite_api::Duffs| {
+        let shown = crate::format::signed_amount(d);
+        if crate::format::display().hide {
+            crate::format::mask(&shown)
+        } else {
+            shown
+        }
+    };
+    let mut parts = Vec::new();
+    let shows_in = flow != Some(Flow::Out);
+    let estimated = shows_in && t.estimated > 0;
+    if shows_in {
+        let words = if estimated {
+            tr!("in ≈ {}")
+        } else {
+            tr!("in {}")
+        };
+        parts.push(crate::i18n::t_in(lang, words).replacen("{}", &money(t.came), 1));
+    }
+    // r1 Must: «went» holds an estimate — its own «≈», counted with the others.
+    let shows_out = flow != Some(Flow::In);
+    let went_estimated = shows_out && t.went_estimated > 0;
+    if shows_out {
+        let words = if went_estimated {
+            tr!("out ≈ {}")
+        } else {
+            tr!("out {}")
+        };
+        parts.push(crate::i18n::t_in(lang, words).replacen("{}", &money(-t.went), 1));
+    }
+    let mut tail = String::new();
+    let guesses =
+        if estimated { t.estimated } else { 0 } + if went_estimated { t.went_estimated } else { 0 };
+    if guesses > 0 {
+        let words = text::plural_in(guesses, tr!("{} estimated"), tr!("{} estimated"));
+        tail.push_str(" · ");
+        tail.push_str(crate::i18n::t_in(lang, &words).as_ref());
+    }
+    if t.pending > 0 {
+        let words = text::plural_in(
+            t.pending,
+            tr!("without {} pending"),
+            tr!("without {} pending"),
+        );
+        tail.push_str(" · ");
+        tail.push_str(crate::i18n::t_in(lang, &words).as_ref());
+    }
+    // R-7.5, §8d: History still filling — «so far by n operations»; the Platform part not read.
+    if loading {
+        let words = text::plural_in(
+            t.counted,
+            tr!("so far by {} operation"),
+            tr!("so far by {} operations"),
+        );
+        tail.push_str(" · ");
+        tail.push_str(crate::i18n::t_in(lang, &words).as_ref());
+    }
+    if platform_unread {
+        tail.push_str(" · ");
+        tail.push_str(crate::i18n::t_in(lang, tr!("Platform not read")).as_ref());
+    }
+    TotalsWords {
+        sums: parts.join(" · "),
+        tail,
+        estimated,
+        went_estimated,
     }
 }
 

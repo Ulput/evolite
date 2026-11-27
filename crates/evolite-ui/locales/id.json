@@ -2994,5 +2994,21 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Satu salinan dapat Anda hadiahkan atau jual di halaman model di «Bengkel».",
   "This is not a Dash address or @name": "Ini bukan alamat Dash maupun @nama",
   "Model “{}” created": "Model “{}” dibuat",
-  "at most ≈ {}": "paling banyak ≈ {}"
+  "at most ≈ {}": "paling banyak ≈ {}",
+  "in {}": "masuk {}",
+  "out {}": "keluar {}",
+  "without {} pending|without {} pending": {
+    "other": "tanpa {} yang tertunda"
+  },
+  "in ≈ {}": "masuk ≈ {}",
+  "The Platform fee is not known: a little less came in": "Biaya Platform tidak diketahui: yang masuk sedikit lebih kecil",
+  "{} estimated|{} estimated": {
+    "other": "{} perkiraan"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "other": "sejauh ini dari {} operasi"
+  },
+  "Platform not read": "Platform belum terbaca",
+  "out ≈ {}": "keluar ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Sebagian biaya tidak diketahui: yang keluar adalah perkiraan"
 }

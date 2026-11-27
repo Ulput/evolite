@@ -2994,5 +2994,21 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "사본 하나는 «워크숍»의 모델 페이지에서 선물하거나 판매에 올릴 수 있습니다.",
   "This is not a Dash address or @name": "Dash 주소도 @이름도 아닙니다",
   "Model “{}” created": "모델 “{}” 생성됨",
-  "at most ≈ {}": "최대 ≈ {}"
+  "at most ≈ {}": "최대 ≈ {}",
+  "in {}": "들어옴 {}",
+  "out {}": "나감 {}",
+  "without {} pending|without {} pending": {
+    "other": "대기 중 {}건 제외"
+  },
+  "in ≈ {}": "들어옴 ≈ {}",
+  "The Platform fee is not known: a little less came in": "Platform 수수료를 알 수 없어 실제로는 조금 덜 들어왔습니다",
+  "{} estimated|{} estimated": {
+    "other": "{}건 추정"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "other": "지금까지 {}건 기준"
+  },
+  "Platform not read": "Platform 읽지 못함",
+  "out ≈ {}": "나감 ≈ {}",
+  "Some costs are not known: what went out is an estimate": "일부 비용을 알 수 없어 나간 금액은 추정입니다"
 }

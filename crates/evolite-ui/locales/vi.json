@@ -2994,5 +2994,21 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Bạn có thể tặng hoặc rao bán một bản trên trang của mẫu trong «Xưởng».",
   "This is not a Dash address or @name": "Đây không phải địa chỉ Dash hay @tên",
   "Model “{}” created": "Đã tạo mẫu “{}”",
-  "at most ≈ {}": "tối đa ≈ {}"
+  "at most ≈ {}": "tối đa ≈ {}",
+  "in {}": "vào {}",
+  "out {}": "ra {}",
+  "without {} pending|without {} pending": {
+    "other": "không gồm {} đang chờ"
+  },
+  "in ≈ {}": "vào ≈ {}",
+  "The Platform fee is not known: a little less came in": "Chưa biết phí Platform: số vào thực tế ít hơn một chút",
+  "{} estimated|{} estimated": {
+    "other": "{} ước tính"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "other": "tạm tính theo {} giao dịch"
+  },
+  "Platform not read": "Chưa đọc được Platform",
+  "out ≈ {}": "ra ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Một số chi phí chưa biết: số ra là ước tính"
 }

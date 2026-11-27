@@ -3039,5 +3039,24 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Bir kopyayı «Atölye»deki modelin sayfasında hediye edebilir veya satışa koyabilirsiniz.",
   "This is not a Dash address or @name": "Bu bir Dash adresi ya da @ad değil",
   "Model “{}” created": "“{}” modeli oluşturuldu",
-  "at most ≈ {}": "en fazla ≈ {}"
+  "at most ≈ {}": "en fazla ≈ {}",
+  "in {}": "gelen {}",
+  "out {}": "giden {}",
+  "without {} pending|without {} pending": {
+    "one": "{} bekleyen hariç",
+    "other": "{} bekleyen hariç"
+  },
+  "in ≈ {}": "gelen ≈ {}",
+  "The Platform fee is not known: a little less came in": "Platform ücreti bilinmiyor: biraz daha az geldi",
+  "{} estimated|{} estimated": {
+    "one": "{} tahmini",
+    "other": "{} tahmini"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "one": "şimdilik {} işleme göre",
+    "other": "şimdilik {} işleme göre"
+  },
+  "Platform not read": "Platform okunamadı",
+  "out ≈ {}": "giden ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Bazı maliyetler bilinmiyor: giden tutar tahminidir"
 }

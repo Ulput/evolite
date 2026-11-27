@@ -3129,5 +3129,30 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарувати або виставити на продаж один примірник можна на сторінці моделі в «Майстерні».",
   "This is not a Dash address or @name": "Це не адреса Dash і не @ім’я",
   "Model “{}” created": "Створено модель «{}»",
-  "at most ≈ {}": "не більше ≈ {}"
+  "at most ≈ {}": "не більше ≈ {}",
+  "in {}": "надійшло {}",
+  "out {}": "пішло {}",
+  "without {} pending|without {} pending": {
+    "one": "без {} очікуваної",
+    "few": "без {} очікуваних",
+    "many": "без {} очікуваних",
+    "other": "без {} очікуваних"
+  },
+  "in ≈ {}": "надійшло ≈ {}",
+  "The Platform fee is not known: a little less came in": "Плата Platform невідома: надійшло трохи менше",
+  "{} estimated|{} estimated": {
+    "one": "{} з оцінкою",
+    "few": "{} з оцінкою",
+    "many": "{} з оцінкою",
+    "other": "{} з оцінкою"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "one": "поки за {} операцією",
+    "few": "поки за {} операціями",
+    "many": "поки за {} операціями",
+    "other": "поки за {} операціями"
+  },
+  "Platform not read": "Platform не прочитано",
+  "out ≈ {}": "пішло ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Плата за частину операцій невідома: «пішло» — оцінка"
 }

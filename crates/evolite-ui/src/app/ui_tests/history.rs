@@ -1266,3 +1266,134 @@ fn a_change_of_keys_made_elsewhere_is_a_line_without_a_sum() {
         wait_for(&mut kit, "the card, noticed", |kit| has_words(kit, noticed));
     }
 }
+
+/// FEAT-0057 П7, A7.1, A7.3: no filter, no totals; «Core» — both; «Incoming» — only «in»;
+/// «Tokens» — none; «Hide amounts» — dots, the count stays. In Russian the words are the
+/// catalog's, whole («пришло», not «in»).
+#[test]
+fn the_totals_of_the_lines_shown() {
+    let (_turn, mut kit) = demo_app("activity", "en");
+    wait_for(&mut kit, "the list", |kit| {
+        kit.state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.as_ref())
+            .is_some_and(|w| !w.activity.is_empty())
+    });
+    kit.run_steps(2);
+    assert!(!says(&kit, "Shown "), "no filter: no line");
+    assert!(!has_words(&kit, "in +"));
+    kit.state_mut().history.filters.layer = 1;
+    kit.run_steps(3);
+    assert!(has_words(&kit, "in +"), "Core: in");
+    // r1 Must: a fee not known among them — «out ≈ −».
+    let out = |kit: &Kit| has_words(kit, "out −") || has_words(kit, "out ≈ −");
+    assert!(out(&kit), "and out");
+    kit.state_mut().history.filters.flow = Some(evolite_api::Flow::In);
+    kit.run_steps(3);
+    assert!(has_words(&kit, "in +"));
+    assert!(!out(&kit), "Incoming: only in");
+    kit.state_mut().history.filters.flow = None;
+    kit.state_mut().history.filters.layer = crate::screens::activity_filters::TOKENS_LAYER;
+    kit.run_steps(3);
+    assert!(!has_words(&kit, "in +"), "tokens are not DASH");
+}
+
+/// FEAT-0057 П7 (R-7.2, R-7.4): the words — «in», «out», «without 1 pending» — in the language
+/// on screen, dots under «Hide amounts».
+#[test]
+fn the_totals_words() {
+    use crate::screens::activity_filters::Totals;
+    let t = Totals {
+        came: 579_784_947,
+        went: 1_020_000,
+        estimated: 0,
+        went_estimated: 0,
+        pending: 1,
+        counted: 3,
+    };
+    let words = crate::screens::activity::totals_words;
+    crate::i18n::set(crate::i18n::Lang::Ru);
+    let w = words(t, None, false, false);
+    assert!(w.sums.starts_with("пришло +5,"), "{}", w.sums);
+    assert!(w.sums.contains(" · ушло −0,0102"), "{}", w.sums);
+    assert_eq!(w.tail, " · без 1 ожидающей", "no estimate: no «с оценкой»");
+    assert!(!w.sums.contains('≈'), "no estimate: no «≈»");
+    let only_in = words(t, Some(evolite_api::Flow::In), false, false).sums;
+    assert!(!only_in.contains("ушло"), "{only_in}");
+    // The architect on R-7.1: an estimate in «came» — «≈» and «1 с оценкой», before «pending».
+    let guess = Totals { estimated: 1, ..t };
+    let w = words(guess, None, false, false);
+    assert!(w.sums.starts_with("пришло ≈ +5,"), "{}", w.sums);
+    assert_eq!(w.tail, " · 1 с оценкой · без 1 ожидающей");
+    assert!(w.estimated);
+    let w = words(guess, Some(evolite_api::Flow::Out), false, false);
+    assert!(
+        !w.sums.contains('≈') && !w.tail.contains("оценк"),
+        "no «in»: no estimate said"
+    );
+    // r1 Must: «went» holds what is not known — «ушло ≈» and counted with the estimates.
+    let unknown = Totals {
+        went_estimated: 2,
+        ..t
+    };
+    let w = words(unknown, None, false, false);
+    assert!(w.sums.contains(" · ушло ≈ −0,0102"), "{}", w.sums);
+    assert!(!w.sums.contains("пришло ≈"), "{}", w.sums);
+    assert_eq!(w.tail, " · 2 с оценкой · без 1 ожидающей");
+    assert!(w.went_estimated);
+    let both = Totals {
+        estimated: 1,
+        ..unknown
+    };
+    assert_eq!(
+        words(both, None, false, false).tail,
+        " · 3 с оценкой · без 1 ожидающей"
+    );
+    assert_eq!(
+        words(unknown, Some(evolite_api::Flow::In), false, false).tail,
+        " · без 1 ожидающей",
+        "«in» only: the estimates of «out» not said"
+    );
+    // R-7.5, §8d: still loading, the Platform part not read — said after the rest.
+    let w = words(t, None, true, true);
+    assert_eq!(
+        w.tail,
+        " · без 1 ожидающей · пока по 3 операциям · Platform не прочитана"
+    );
+    crate::i18n::set(crate::i18n::Lang::En);
+}
+
+/// FEAT-0057 П7, A7.4: at 1024 and at 800 × 440 the totals are never cut — on the row when they
+/// fit, else on their own row under it, every part inside the window.
+#[test]
+fn the_totals_stay_in_the_window_when_narrow() {
+    for (w, h) in [(1024.0, 768.0), (800.0, 440.0)] {
+        let (_turn, mut kit) = demo_app("activity", "de");
+        kit.set_size(egui::vec2(w, h));
+        wait_for(&mut kit, "the list", |kit| {
+            kit.state()
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .is_some_and(|w| !w.activity.is_empty())
+        });
+        kit.run_steps(2);
+        kit.state_mut().history.filters.layer = 1;
+        kit.run_steps(4);
+
+        let said = |word: &'static str| {
+            kit.query_all_by(move |n| {
+                n.label().is_some_and(|l| l.contains(word))
+                    || n.value().is_some_and(|v| v.contains(word))
+            })
+            .map(|n| n.rect())
+            .collect::<Vec<egui::Rect>>()
+        };
+        let (came, went) = (said("Eingang"), said("Ausgang"));
+        assert!(!came.is_empty() && !went.is_empty(), "both totals at {w}");
+        for r in came.iter().chain(&went) {
+            assert!(r.left() >= 0.0 && r.right() <= w + 0.5, "cut at {w}: {r:?}");
+        }
+    }
+}

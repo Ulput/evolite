@@ -3039,5 +3039,24 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Eine Kopie können Sie auf der Seite des Modells in der «Werkstatt» verschenken oder zum Verkauf anbieten.",
   "This is not a Dash address or @name": "Das ist keine Dash-Adresse und kein @Name",
   "Model “{}” created": "Modell „{}“ erstellt",
-  "at most ≈ {}": "höchstens ≈ {}"
+  "at most ≈ {}": "höchstens ≈ {}",
+  "in {}": "Eingang {}",
+  "out {}": "Ausgang {}",
+  "without {} pending|without {} pending": {
+    "one": "ohne {} ausstehenden Vorgang",
+    "other": "ohne {} ausstehende Vorgänge"
+  },
+  "in ≈ {}": "Eingang ≈ {}",
+  "The Platform fee is not known: a little less came in": "Die Platform-Gebühr ist nicht bekannt: Es ist etwas weniger eingegangen",
+  "{} estimated|{} estimated": {
+    "one": "{} geschätzt",
+    "other": "{} geschätzt"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "one": "bisher aus {} Vorgang",
+    "other": "bisher aus {} Vorgängen"
+  },
+  "Platform not read": "Platform nicht gelesen",
+  "out ≈ {}": "Ausgang ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Einige Kosten sind nicht bekannt: Der Ausgang ist geschätzt"
 }

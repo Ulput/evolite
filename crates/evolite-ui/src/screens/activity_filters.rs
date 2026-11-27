@@ -5,7 +5,7 @@
 use crate::text;
 use chrono::{DateTime, Datelike, Days, NaiveDate, TimeZone};
 use evolite_api::layer;
-use evolite_api::{Activity, ActivityKind, Credits, Flow, Proof, SavedAddress};
+use evolite_api::{Activity, ActivityKind, Credits, Duffs, Flow, Proof, SavedAddress};
 
 /// The layer pills, in their order: «All», «Core», «Platform» (everything on Platform: the
 /// identity and the Platform address), «Private pool», «Identity», «Tokens» (FEAT-0019 T-1,
@@ -437,6 +437,116 @@ impl History {
         }
         self.cache.as_ref().map_or(&[], |(_, shown)| shown)
     }
+}
+
+/// FEAT-0057 П7: what came in and went out over the lines shown, in duffs, how many of the
+/// lines in «came» are an estimate (what came to the place a move went is not on the line), and
+/// how many were left out as pending (R-7.2). `None` on «Tokens» (R-7.3: tokens are not DASH).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Totals {
+    pub came: Duffs,
+    pub went: Duffs,
+    pub estimated: u32,
+    /// FEAT-0057 П7 r1 Must: the lines whose part in «went» is not exact — a write whose cost is
+    /// not known (its amount an estimate or 0), a move whose Core fee is not known.
+    pub went_estimated: u32,
+    pub pending: u32,
+    /// The lines added (pending ones not): «so far by {n} operations» while History loads.
+    pub counted: u32,
+}
+
+/// The layer a move between the wallet's own places left (its amount is what left it, fees
+/// included); `None` for one within a single place (a send to oneself, a CoinJoin round), where
+/// only its fee leaves.
+fn source_of(act: &Activity) -> Option<u8> {
+    use ActivityKind::*;
+    match &act.kind {
+        TopUp { .. } if act.chain == evolite_api::Chain::Platform => Some(layer::PLATFORM_ADDRESS),
+        TopUp { .. } | IntoMixing | AddressFunded => Some(layer::CORE),
+        Shielded { .. } => Some(act.layers & !layer::POOL).filter(|l| *l != 0),
+        PoolToCore { .. } => Some(layer::POOL),
+        AddressWithdrawal { .. } => Some(layer::PLATFORM_ADDRESS),
+        _ => None,
+    }
+}
+
+/// What a line's own fee is: a CoinJoin round's is its whole amount (the denominations stay,
+/// А-3); else the Core fee the wallet paid, `None` when not known.
+fn fee_of(act: &Activity) -> Option<Duffs> {
+    match act.kind {
+        ActivityKind::Mixing { fee } => Some(fee),
+        _ => act.fee,
+    }
+}
+
+/// The architect on R-7.1: what came to the place a move went, when the line knows it — a
+/// top-up's credits Platform added (`credits_added`).
+fn arrived_of(act: &Activity) -> Option<Duffs> {
+    act.detail.as_ref()?.credits_added
+}
+
+/// FEAT-0057 П7, R-7.1–R-7.3 (А-3, the architect on R-7.1): the totals of `shown` in the layer
+/// pill `layer_pill` (an index into [`LAYERS`]). With fees: an incoming line adds its amount to
+/// «came», an outgoing one its amount to «went». A move between the wallet's own places:
+/// - at «All» only its fees go — Core's, and Platform's when what arrived is known (the money
+///   stays the wallet's);
+/// - in the place it left, its whole amount goes (IntoMixing at «Core»: the mixed coins are not
+///   Core's, BUG-121);
+/// - in the place it came to: what arrived when the line knows it, else its amount less its Core
+///   fee — the most that can have come, counted in `estimated`;
+/// - within one place, only its fee.
+///
+/// Pending lines are counted apart, not added (they are not in the balance yet).
+pub fn totals(shown: &[&Activity], layer_pill: usize) -> Option<Totals> {
+    if layer_pill == TOKENS_LAYER {
+        return None;
+    }
+    let pill = LAYERS.get(layer_pill).copied().unwrap_or(0);
+    let mut t = Totals::default();
+    for act in shown {
+        if status_of(act) == Status::Pending {
+            t.pending += 1;
+            continue;
+        }
+        t.counted += 1;
+        let size = act.amount.abs();
+        match act.flow {
+            Flow::In => t.came += size,
+            Flow::Out => {
+                t.went += size;
+                // r1 Must: what it cost is not known (BUG-176) — never added as exact.
+                if act.detail.as_ref().is_some_and(|d| d.cost_unknown) {
+                    t.went_estimated += 1;
+                }
+            }
+            Flow::Between => match source_of(act) {
+                Some(from) if pill != 0 && pill & from != 0 => t.went += size,
+                Some(_) if pill != 0 => match arrived_of(act) {
+                    Some(arrived) => t.came += arrived,
+                    None => {
+                        // The most that can have come: what left, less the Core fee when it
+                        // is known (Platform's own is not).
+                        t.came += match fee_of(act) {
+                            Some(fee) => size - fee,
+                            None => size,
+                        };
+                        t.estimated += 1;
+                    }
+                },
+                // «All»: the fees only. What arrived known: Platform's too (what left less
+                // what came).
+                Some(_) if arrived_of(act).is_some() => {
+                    t.went += arrived_of(act).map_or(0, |arrived| (size - arrived).max(0));
+                }
+                // r1 Must: a fee not known adds nothing — and says so.
+                _ => match fee_of(act) {
+                    Some(fee) => t.went += fee,
+                    None => t.went_estimated += 1,
+                },
+            },
+        }
+    }
+    Some(t)
 }
 
 #[cfg(test)]

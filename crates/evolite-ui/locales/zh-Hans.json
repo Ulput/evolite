@@ -2994,5 +2994,21 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "单个副本可在「工坊」中该模型的页面上赠送或出售。",
   "This is not a Dash address or @name": "这不是 Dash 地址，也不是 @名称",
   "Model “{}” created": "已创建模型“{}”",
-  "at most ≈ {}": "最多 ≈ {}"
+  "at most ≈ {}": "最多 ≈ {}",
+  "in {}": "收入 {}",
+  "out {}": "支出 {}",
+  "without {} pending|without {} pending": {
+    "other": "不含 {} 笔待处理"
+  },
+  "in ≈ {}": "收入 ≈ {}",
+  "The Platform fee is not known: a little less came in": "Platform 费用未知：实际收入略少",
+  "{} estimated|{} estimated": {
+    "other": "{} 笔为估计"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "other": "目前按 {} 笔计算"
+  },
+  "Platform not read": "Platform 未读取",
+  "out ≈ {}": "支出 ≈ {}",
+  "Some costs are not known: what went out is an estimate": "部分费用未知：支出为估计值"
 }

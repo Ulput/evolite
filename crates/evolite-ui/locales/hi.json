@@ -3039,5 +3039,24 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "एक प्रति आप «वर्कशॉप» में मॉडल के पेज पर उपहार में दे सकते हैं या बिक्री पर रख सकते हैं।",
   "This is not a Dash address or @name": "यह न Dash पता है, न @नाम",
   "Model “{}” created": "मॉडल “{}” बनाया गया",
-  "at most ≈ {}": "अधिकतम ≈ {}"
+  "at most ≈ {}": "अधिकतम ≈ {}",
+  "in {}": "आया {}",
+  "out {}": "गया {}",
+  "without {} pending|without {} pending": {
+    "one": "{} लंबित के बिना",
+    "other": "{} लंबित के बिना"
+  },
+  "in ≈ {}": "आया ≈ {}",
+  "The Platform fee is not known: a little less came in": "Platform का शुल्क ज्ञात नहीं: थोड़ा कम आया",
+  "{} estimated|{} estimated": {
+    "one": "{} अनुमानित",
+    "other": "{} अनुमानित"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "one": "अभी तक {} लेन-देन से",
+    "other": "अभी तक {} लेन-देन से"
+  },
+  "Platform not read": "Platform पढ़ा नहीं गया",
+  "out ≈ {}": "गया ≈ {}",
+  "Some costs are not known: what went out is an estimate": "कुछ लागतें ज्ञात नहीं: जो गया वह अनुमान है"
 }

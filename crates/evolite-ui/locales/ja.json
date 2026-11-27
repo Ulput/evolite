@@ -2994,5 +2994,21 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "1 部ずつなら「ワークショップ」のモデルのページで贈ったり販売に出したりできます。",
   "This is not a Dash address or @name": "Dash アドレスでも @名前 でもありません",
   "Model “{}” created": "モデル「{}」を作成しました",
-  "at most ≈ {}": "最大 ≈ {}"
+  "at most ≈ {}": "最大 ≈ {}",
+  "in {}": "入金 {}",
+  "out {}": "出金 {}",
+  "without {} pending|without {} pending": {
+    "other": "保留中の {} 件を除く"
+  },
+  "in ≈ {}": "入金 ≈ {}",
+  "The Platform fee is not known: a little less came in": "Platform の手数料が不明なため、実際の入金はやや少なめです",
+  "{} estimated|{} estimated": {
+    "other": "{} 件は推定"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "other": "現時点で {} 件分"
+  },
+  "Platform not read": "Platform 未読み込み",
+  "out ≈ {}": "出金 ≈ {}",
+  "Some costs are not known: what went out is an estimate": "一部の費用が不明なため、出金は推定です"
 }

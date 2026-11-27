@@ -3091,5 +3091,30 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "Подарить или выставить на продажу один экземпляр можно на странице модели в «Мастерской».",
   "This is not a Dash address or @name": "Это не адрес Dash и не @имя",
   "Model “{}” created": "Создана модель «{}»",
-  "at most ≈ {}": "не больше ≈ {}"
+  "at most ≈ {}": "не больше ≈ {}",
+  "in {}": "пришло {}",
+  "out {}": "ушло {}",
+  "without {} pending|without {} pending": {
+    "one": "без {} ожидающей",
+    "few": "без {} ожидающих",
+    "many": "без {} ожидающих",
+    "other": "без {} ожидающих"
+  },
+  "in ≈ {}": "пришло ≈ {}",
+  "The Platform fee is not known: a little less came in": "Плата Platform неизвестна: на деле пришло чуть меньше",
+  "{} estimated|{} estimated": {
+    "one": "{} с оценкой",
+    "few": "{} с оценкой",
+    "many": "{} с оценкой",
+    "other": "{} с оценкой"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "one": "пока по {} операции",
+    "few": "пока по {} операциям",
+    "many": "пока по {} операциям",
+    "other": "пока по {} операциям"
+  },
+  "Platform not read": "Platform не прочитана",
+  "out ≈ {}": "ушло ≈ {}",
+  "Some costs are not known: what went out is an estimate": "Плата за часть операций неизвестна: «ушло» — оценка"
 }

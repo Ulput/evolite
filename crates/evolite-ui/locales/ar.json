@@ -3219,5 +3219,36 @@
   "You can give or put up for sale one copy on the model's page in the Workshop.": "يمكنك إهداء نسخة واحدة أو عرضها للبيع من صفحة النموذج في «الورشة».",
   "This is not a Dash address or @name": "هذا ليس عنوان Dash ولا ‎@اسمًا",
   "Model “{}” created": "تم إنشاء النموذج «{}»",
-  "at most ≈ {}": "بحد أقصى ≈ {}"
+  "at most ≈ {}": "بحد أقصى ≈ {}",
+  "in {}": "وارد {}",
+  "out {}": "صادر {}",
+  "without {} pending|without {} pending": {
+    "zero": "دون {} عملية معلّقة",
+    "one": "دون {} عملية معلّقة",
+    "two": "دون عمليتين معلّقتين",
+    "few": "دون {} عمليات معلّقة",
+    "many": "دون {} عملية معلّقة",
+    "other": "دون {} عملية معلّقة"
+  },
+  "in ≈ {}": "وارد ≈ {}",
+  "The Platform fee is not known: a little less came in": "رسوم Platform غير معروفة: الوارد أقل قليلًا",
+  "{} estimated|{} estimated": {
+    "zero": "{} عملية تقديرية",
+    "one": "{} عملية تقديرية",
+    "two": "عمليتان تقديريتان",
+    "few": "{} عمليات تقديرية",
+    "many": "{} عملية تقديرية",
+    "other": "{} عملية تقديرية"
+  },
+  "so far by {} operation|so far by {} operations": {
+    "zero": "حتى الآن من {} عملية",
+    "one": "حتى الآن من {} عملية",
+    "two": "حتى الآن من عمليتين",
+    "few": "حتى الآن من {} عمليات",
+    "many": "حتى الآن من {} عملية",
+    "other": "حتى الآن من {} عملية"
+  },
+  "Platform not read": "لم تُقرأ Platform",
+  "out ≈ {}": "صادر ≈ {}",
+  "Some costs are not known: what went out is an estimate": "بعض التكاليف غير معروفة: الصادر تقديري"
 }
