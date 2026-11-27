@@ -342,3 +342,43 @@ fn the_open_list_asks_for_the_credits_once() {
     kit.run_steps(10);
     assert_eq!(asked() - before, 2, "opened again: one more");
 }
+
+/// BUG-340: in each `*-identities-long` preset the identity chosen is the one shown — its card,
+/// credits and tokens under its long name, never the demo's @satoshi beside it.
+#[test]
+fn the_long_presets_show_the_identity_chosen() {
+    for preset in crate::app::dev::LONG_IDENTITIES {
+        let (_turn, mut kit) = demo_app(preset, "en");
+        wait_for(&mut kit, "the long identities", |kit| {
+            kit.state()
+                .snapshot
+                .as_ref()
+                .and_then(|s| s.wallet.as_ref())
+                .is_some_and(|w| w.identities.len() == 10)
+        });
+        kit.run_steps(3);
+        let wallet = kit
+            .state()
+            .snapshot
+            .as_ref()
+            .and_then(|s| s.wallet.clone())
+            .expect("the wallet");
+        let chosen = wallet.identities[0].name.clone().expect("a name");
+        let tokens_owner = crate::screens::tokens::shown_name(&wallet);
+        let identity = wallet.identity.expect("the identity");
+        let primary = identity.names.iter().find(|n| n.primary).expect("its name");
+        assert_eq!(
+            primary.label, chosen,
+            "{preset}: the card's name is the one chosen"
+        );
+        assert!(
+            identity.profile.is_none_or(|p| p.display.is_none()),
+            "{preset}: no other display name"
+        );
+        assert_eq!(
+            tokens_owner,
+            format!("@{chosen}"),
+            "{preset}: the tokens' owner"
+        );
+    }
+}

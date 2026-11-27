@@ -694,6 +694,17 @@ impl App {
             && w.identities.len() != 10
         {
             w.identities = long_identities(first);
+            // BUG-340: the identity shown is the one chosen — its card, credits and tokens
+            // under its own long name, not the demo's @satoshi.
+            let chosen = w.identities[0].name.clone();
+            if let Some(identity) = w.identity.as_mut() {
+                for name in identity.names.iter_mut().filter(|n| n.primary) {
+                    name.label = chosen.clone().unwrap_or_default();
+                }
+                if let Some(profile) = identity.profile.as_mut() {
+                    profile.display = None;
+                }
+            }
             // FEAT-0055: the NFTs spread over them, so the Collection's filter has something
             // in each identity's.
             for (k, nft) in w.nfts.iter_mut().enumerate() {

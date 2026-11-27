@@ -129,6 +129,10 @@ pub(super) fn identity_list(
     );
     let mut button_rect = Rect::NOTHING;
     let mut button_id = None;
+    // BUG-340: the words on the right on the row only when they fit beside the smallest button;
+    // else on a line of their own under it, wrapping — never over the count (800 × 440, a long
+    // name in «Credits @…»).
+    let mut aside_below = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 8.0;
         let font = crate::theme::style(crate::theme::type_scale::UI.weight(Weight::Medium));
@@ -148,6 +152,12 @@ pub(super) fn identity_list(
         let aside_w = aside.map_or(0.0, |s| {
             text_width(ui, s, sans(13.0, Weight::Regular)) + 16.0
         });
+        let aside_w = if ui.available_width() - count_w - aside_w < 120.0 {
+            aside_below = aside;
+            0.0
+        } else {
+            aside_w
+        };
         let room = (ui.available_width() - count_w - aside_w).clamp(120.0, BUTTON_MAX);
         let resp = list_button(
             ui,
@@ -172,12 +182,20 @@ pub(super) fn identity_list(
             state.focused = false;
         }
         ui.label(txt(&count, 13.0, Weight::Regular, p.muted));
-        if let Some(aside) = aside {
+        if let Some(aside) = aside.filter(|_| aside_below.is_none()) {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(txt(aside, 13.0, Weight::Regular, p.muted))
             });
         }
     });
+    if let Some(aside) = aside_below {
+        ui.add(crate::components::para(
+            aside,
+            13.0,
+            Weight::Regular,
+            p.muted,
+        ));
+    }
     // А-1, r1 (Must): every identity's credits when the list opens, and once a minute while it
     // stays open — not every frame (the core reads them all at most once a minute anyway).
     let now = ui.input(|i| i.time);
