@@ -1184,7 +1184,10 @@ mod tests {
     #[test]
     fn an_unknown_apps_spending_is_the_key_number_only() {
         let line = Record::AppSpentUnknown { key: 9 }.line(UNIX_EPOCH);
-        assert!(line.contains(r#""k":"app_spent_unknown","key":9"#), "{line}");
+        assert!(
+            line.contains(r#""k":"app_spent_unknown","key":9"#),
+            "{line}"
+        );
     }
 
     /// FEAT-0019 T-1.8: a page of a token's history is journaled as counts only — no token,
