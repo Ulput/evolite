@@ -977,6 +977,65 @@ fn the_found_dashpay_wallets_identity_row_is_translated() {
     );
 }
 
+/// BUG-348: «We found your DashPay wallet» — the identity's id ends before the amount on its
+/// row: shortened in its middle («8rd3…J38R») when the row has no room for it whole. It ran under
+/// «1,2000 DASH» at 1024 × 768. The rows are painted: read from the painted texts' rects.
+#[test]
+fn the_found_identitys_id_ends_before_its_amount() {
+    fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+        match shape {
+            egui::Shape::Text(t) => out.push((
+                t.galley.text().to_owned(),
+                t.galley.rect.translate(t.pos.to_vec2()),
+            )),
+            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+            _ => {}
+        }
+    }
+    for (lang, title) in [("en", "Identity "), ("ru", "Личность "), ("de", "")] {
+        for size in [egui::vec2(1024.0, 768.0), egui::vec2(800.0, 440.0)] {
+            let (_turn, mut kit) = demo_app("dashpay", lang);
+            kit.set_size(size);
+            wait_for(&mut kit, "the found wallet", |kit| {
+                painted_texts(kit).iter().any(|t| t.contains("DIP-13"))
+            });
+            kit.run_steps(2);
+            let mut painted = Vec::new();
+            for c in &kit.output().shapes {
+                texts(&c.shape, &mut painted);
+            }
+            // The id's row: its title, just above the «DIP-13» line under it.
+            let sub = painted
+                .iter()
+                .find(|(t, _)| t.contains("DIP-13"))
+                .map(|(_, r)| *r)
+                .unwrap();
+            let (id_title, id) = painted
+                .iter()
+                .filter(|(t, r)| {
+                    t.starts_with(title)
+                        && (r.left() - sub.left()).abs() < 1.0
+                        && (r.bottom() - sub.top()).abs() < 8.0
+                })
+                .map(|(t, r)| (t.clone(), *r))
+                .next()
+                .unwrap_or_else(|| panic!("{lang}: {painted:?}"));
+            // Its amount: the right-most text on the same row.
+            let amount = painted
+                .iter()
+                .filter(|(_, r)| r.left() > id.left() && (r.center().y - sub.top()).abs() < 12.0)
+                .filter(|(t, _)| *t != id_title)
+                .map(|(_, r)| *r)
+                .max_by(|a, b| a.right().total_cmp(&b.right()))
+                .unwrap_or_else(|| panic!("{lang}: no amount: {painted:?}"));
+            assert!(
+                id.right() < amount.left(),
+                "{lang} {size:?}: «{id_title}» {id:?} runs under the amount {amount:?}"
+            );
+        }
+    }
+}
+
 /// BUG-127: «Which wallet to open?» in the smallest window (800×440): the wheel brings «Open»,
 /// «Add wallet» and the foot into the window. The screen did not scroll, and they stayed below
 /// its edge — the password could only be sent with Enter, and no wallet added. On mainnet: under

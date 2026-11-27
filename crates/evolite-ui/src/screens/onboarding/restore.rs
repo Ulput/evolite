@@ -576,12 +576,39 @@ pub(super) fn found(ui: &mut Ui, a: &mut Assets, o: &mut Onboarding) {
             let boxr = Rect::from_min_size(pos2(rect.left() + 18.0, cy - 18.0), vec2(36.0, 36.0));
             crate::components::paint_icon_box(ui, a, boxr, 10, icon, 18.0, p.text);
             let x = boxr.right() + 14.0;
-            // An identity's id in the monospace font (BUG-154).
+            // BUG-348: the identity's id ends before the amount — shortened in its middle to
+            // what is left of the row («8rd3…J38R» at the least), as in the identity lists.
+            let title = match (*icon, &scan.identity_id) {
+                ("identity", Some(id)) => {
+                    // r1 nit: the width of the very text painted at the right — `t(v)`, laid out
+                    // as it is drawn below.
+                    let value_w = value.as_ref().map_or(0.0, |v| {
+                        ui.painter()
+                            .layout_no_wrap(
+                                crate::i18n::t(v).into_owned(),
+                                mono(14.0, Weight::Medium),
+                                p.text,
+                            )
+                            .size()
+                            .x
+                    });
+                    let room = rect.right() - 20.0 - value_w - 16.0 - x;
+                    let short = crate::components::fit_id(id, &|s: &str| {
+                        crate::components::text_width(
+                            ui,
+                            &format!(tr!("Identity {}"), s),
+                            sans(14.0, Weight::SemiBold),
+                        ) <= room
+                    });
+                    format!(tr!("Identity {}"), crate::text::whole(&short))
+                }
+                _ => title.clone(),
+            };
             crate::components::paint_text(
                 ui,
                 pos2(x, cy - 1.0),
                 Align2::LEFT_BOTTOM,
-                title,
+                &title,
                 sans(14.0, Weight::SemiBold),
                 p.text,
             );
