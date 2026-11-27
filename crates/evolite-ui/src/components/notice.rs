@@ -19,6 +19,46 @@ pub fn notice(ui: &mut Ui, a: &mut Assets, icon: &str, icon_color: Color32, text
         });
 }
 
+/// BUG-316: a [`notice()`] with its action inside — a link under the text (13 SemiBold in
+/// `accent`, a button for the screen reader), not a line of its own with an icon of its own
+/// that reads as a second warning. Whether the link was clicked.
+pub fn notice_with_action(
+    ui: &mut Ui,
+    a: &mut Assets,
+    icon: &str,
+    icon_color: Color32,
+    text: &str,
+    action: &str,
+) -> bool {
+    let p = a.p;
+    let mut clicked = false;
+    Frame::new()
+        .fill(p.raised)
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.add(a.icons.icon(icon, icon_color, &p, 18.0));
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    ui.add(para(text, 13.0, Weight::Regular, p.text).line_height(18.0));
+                    let link = ui
+                        .add(
+                            egui::Label::new(txt(action, 13.0, Weight::SemiBold, p.accent))
+                                .selectable(false)
+                                .sense(Sense::click()),
+                        )
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    crate::components::named(&link, egui::WidgetType::Button, true, action);
+                    clicked = link.clicked();
+                });
+            });
+        });
+    clicked
+}
+
 /// What the person did with a [`notice_closable`] this frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct NoticeAnswer {

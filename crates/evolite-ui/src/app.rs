@@ -1969,18 +1969,24 @@ impl eframe::App for App {
                                         if let Some((line, to_setting)) =
                                             screens::settings::auto_backup_notice(cx.wallet())
                                         {
-                                            crate::components::notice(
-                                                ui, a, "warning", a.p.danger, &line,
-                                            );
-                                            if to_setting
-                                                && crate::components::text_action(
+                                            // BUG-316: the link inside the notice, one
+                                            // warning with its action, not two.
+                                            let open = if to_setting {
+                                                crate::components::notice_with_action(
                                                     ui,
                                                     a,
                                                     "warning",
+                                                    a.p.danger,
+                                                    &line,
                                                     tr!("Open the backup settings ›"),
                                                 )
-                                                .clicked()
-                                            {
+                                            } else {
+                                                crate::components::notice(
+                                                    ui, a, "warning", a.p.danger, &line,
+                                                );
+                                                false
+                                            };
+                                            if open {
                                                 self.settings.section =
                                                     screens::settings::Section::Backup;
                                                 cx.go(Screen::Settings);

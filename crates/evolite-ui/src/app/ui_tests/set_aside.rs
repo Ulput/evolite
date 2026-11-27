@@ -74,6 +74,26 @@ fn a_backup_setting_set_aside_is_said_on_overview() {
     button(&kit, "Try again");
 }
 
+/// BUG-316: «Open the backup settings ›» is the notice's own action — under its text, where the
+/// text starts (past the notice's icon), not a line of its own with a second warning icon that
+/// reads as another warning.
+#[test]
+fn the_backup_link_is_inside_its_notice() {
+    let (_turn, mut kit) = demo_app("backup-set-aside", "en");
+    let line = "The weekly copy is not being made: its setting could not be read";
+    wait_for(&mut kit, "the line on Overview", |kit| has_words(kit, line));
+    let text = words(&kit, line).rect();
+    let link = button(&kit, "Open the backup settings ›").rect();
+    assert!(
+        (link.left() - text.left()).abs() < 1.0,
+        "aligned with the text, past the icon: {link:?} under {text:?}"
+    );
+    assert!(
+        link.top() >= text.bottom() && link.top() - text.bottom() < 12.0,
+        "right under the text, in the notice: {link:?} under {text:?}"
+    );
+}
+
 /// AC-A6: the banner names the file set aside and never its folder.
 #[test]
 fn the_banner_names_the_file_not_the_folder() {
