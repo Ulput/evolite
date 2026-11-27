@@ -3058,5 +3058,10 @@
   },
   "Platform not read": "Platform okunamadı",
   "out ≈ {}": "giden ≈ {}",
-  "Some costs are not known: what went out is an estimate": "Bazı maliyetler bilinmiyor: giden tutar tahminidir"
+  "Some costs are not known: what went out is an estimate": "Bazı maliyetler bilinmiyor: giden tutar tahminidir",
+  "up to ≈ {}": "en fazla ≈ {}",
+  "at least ≈ {}": "en az ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "Kesin ücret ağın yüküne bağlıdır; gelen tutar Geçmiş’te.",
+  "Creation of the identity {} from the pool": "Havuzdan {} kimliğinin oluşturulması",
+  "Top-up of {} from the pool": "Havuzdan {} yüklemesi"
 }

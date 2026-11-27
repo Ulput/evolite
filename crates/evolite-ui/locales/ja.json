@@ -3010,5 +3010,10 @@
   },
   "Platform not read": "Platform 未読み込み",
   "out ≈ {}": "出金 ≈ {}",
-  "Some costs are not known: what went out is an estimate": "一部の費用が不明なため、出金は推定です"
+  "Some costs are not known: what went out is an estimate": "一部の費用が不明なため、出金は推定です",
+  "up to ≈ {}": "最大 ≈ {}",
+  "at least ≈ {}": "少なくとも ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "正確な手数料はネットワークの負荷によります。届いた額は「履歴」にあります。",
+  "Creation of the identity {} from the pool": "プールからアイデンティティ {} を作成",
+  "Top-up of {} from the pool": "プールから {} にチャージ"
 }

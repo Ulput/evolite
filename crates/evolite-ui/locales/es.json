@@ -3099,5 +3099,10 @@
   },
   "Platform not read": "Platform sin leer",
   "out ≈ {}": "salió ≈ {}",
-  "Some costs are not known: what went out is an estimate": "Algunos costes no se conocen: lo que salió es una estimación"
+  "Some costs are not known: what went out is an estimate": "Algunos costes no se conocen: lo que salió es una estimación",
+  "up to ≈ {}": "hasta ≈ {}",
+  "at least ≈ {}": "al menos ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "La comisión exacta depende de la carga de la red; lo que llegó está en el Historial.",
+  "Creation of the identity {} from the pool": "Creación de la identidad {} desde el pool",
+  "Top-up of {} from the pool": "Recarga de {} desde el pool"
 }

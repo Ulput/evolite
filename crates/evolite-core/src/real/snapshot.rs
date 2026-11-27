@@ -211,14 +211,39 @@ fn describe_pool_lines(history: &mut [Activity]) {
             ActivityKind::PoolSent => true,
             ActivityKind::PoolReceived
             | ActivityKind::Shielded { .. }
-            | ActivityKind::PoolToCore { .. } => false,
+            | ActivityKind::PoolToCore { .. }
+            | ActivityKind::PoolToIdentity { .. } => false,
             _ => continue,
         };
+        // BUG-319 p. 3: a creation whose credits were not read — its cost is not known.
+        let cost_unknown = matches!(act.kind, ActivityKind::PoolToIdentity { creates: true, .. })
+            && act.fee.is_none();
         if act.chain == evolite_api::Chain::Platform {
             act.detail = Some(Box::new(Detail {
                 incomplete,
+                cost_unknown,
                 ..Detail::default()
             }));
+        }
+    }
+}
+
+/// BUG-320: a line from the pool into an identity of ours names it by its `@name`, as a top-up
+/// from Core does (one with no name keeps its id), and its card opens it. After
+/// [`describe_pool_lines`]: the identity goes on the detail it gave.
+fn name_pool_identities(history: &mut [Activity], identities: &[IdentityChoice]) {
+    for act in history.iter_mut() {
+        let ActivityKind::PoolToIdentity { identity, .. } = &mut act.kind else {
+            continue;
+        };
+        let Some(ours) = identity_ref(identities, identity) else {
+            continue;
+        };
+        if let Some(name) = &ours.name {
+            *identity = format!("@{name}");
+        }
+        if let Some(detail) = act.detail.as_deref_mut() {
+            detail.identity = Some(ours);
         }
     }
 }
@@ -603,6 +628,7 @@ impl Real {
             history.extend(self.pool_history.kept());
         }
         describe_pool_lines(&mut history);
+        name_pool_identities(&mut history, &identities);
         // BUG-275: the payouts' origins as the network proved them, on any copy.
         {
             let (spent, by_operation) = pool
@@ -1309,7 +1335,14 @@ impl Real {
         // What the scan lost after a restart (a top-up from the pool as 0), put back.
         let pool = pool.map(|mut p| {
             own_pool_withdrawals(&mut p.operations, own_core);
-            p.operations = self.pool_history.merge(std::mem::take(&mut p.operations));
+            // BUG-320 p. 2: by id, then by the notes' tags; the old empty lines go once the scan
+            // gave all.
+            p.operations = self.pool_history.merge_scan(
+                std::mem::take(&mut p.operations),
+                &p.tags,
+                p.keyed,
+                p.complete,
+            );
             p
         });
         (pool, unfinished_shield, connecting_pool)
@@ -1828,7 +1861,7 @@ impl Real {
     /// and what this data folder last really paid for each kind of write. One place, so what a
     /// form promises is what the core charges (BUG-54).
     pub(super) async fn fees_now(&self, coins: usize) -> Fees {
-        fees_from(&self.chain, &self.journal, coins).await
+        fees_from(&self.chain, &self.journal, &self.pool_fees, coins).await
     }
 
     /// Reads the wallet's history from the store again when the wallet in memory has new
@@ -2823,13 +2856,28 @@ mod shown_pin_tests {
     }
 }
 
+/// BUG-319: the fee of an identity from the pool, «up to ≈»: the floor × the highest ratio this
+/// network was measured to take × 1.15 (× 2.5 with none). Without a floor, as it was set.
+pub(super) fn measured_pool_fee(fees: &mut Fees, ratios: &[u32]) {
+    if fees.pool_identity_create_floor > 0 {
+        fees.pool_identity_create =
+            evolite_local::pool_fees::upper(fees.pool_identity_create_floor, ratios);
+    }
+}
+
 /// [`Real::fees_now`] from the chain and the journal alone, for a task that outlives the call
 /// (BUG-236: App Connect's price is the same as every other form's, not the defaults).
-pub(super) async fn fees_from(chain: &Chain, journal: &journal::Journal, coins: usize) -> Fees {
+pub(super) async fn fees_from(
+    chain: &Chain,
+    journal: &journal::Journal,
+    pool_fees: &evolite_local::pool_fees::PoolFees,
+    coins: usize,
+) -> Fees {
     let mut fees = fees(coins);
     let mainnet = crate::network::current() == evolite_api::Network::Mainnet;
     if let Ok(sdk) = chain.sdk().await {
         pool::set_fees(&mut fees, sdk.version());
+        measured_pool_fee(&mut fees, &pool_fees.ratios());
         platform_fees(&mut fees, sdk.version(), journal);
         evolite_chain::convert::contest_times(&mut fees, sdk.version(), mainnet);
         fees.lock_inputs_max = evolite_chain::convert::lock_inputs_max(sdk.version());
@@ -2839,4 +2887,35 @@ pub(super) async fn fees_from(chain: &Chain, journal: &journal::Journal, coins: 
         evolite_chain::convert::contest_times(&mut fees, latest, mainnet);
     }
     fees
+}
+
+#[cfg(test)]
+mod pool_fee_tests {
+    use super::*;
+
+    /// BUG-319: the fee shown for an identity from the pool is above every ratio this network
+    /// was measured to take (1.66 and 2.17: × 2.17 × 1.15), × 2.5 before any — the old constant
+    /// × 1.8 is red here (the mutant); without a floor it stays as set.
+    #[test]
+    fn the_pool_creation_fee_is_above_what_was_measured() {
+        let floor = 155_140;
+        let mut fees = evolite_chain::convert::fees(0);
+        fees.pool_identity_create_floor = floor;
+        measured_pool_fee(&mut fees, &[1_660, 2_170]);
+        assert!(
+            fees.pool_identity_create as f64 >= floor as f64 * 2.17 * 1.15,
+            "{}",
+            fees.pool_identity_create
+        );
+        measured_pool_fee(&mut fees, &[]);
+        assert_eq!(
+            fees.pool_identity_create, 387_850,
+            "× 2.5 with none measured"
+        );
+        assert!(fees.pool_identity_create > (floor * 18 + 9) / 10);
+        let mut unknown = evolite_chain::convert::fees(0);
+        let before = unknown.pool_identity_create;
+        measured_pool_fee(&mut unknown, &[2_170]);
+        assert_eq!(unknown.pool_identity_create, before, "no floor: as set");
+    }
 }

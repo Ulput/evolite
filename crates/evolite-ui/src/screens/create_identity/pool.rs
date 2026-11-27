@@ -27,6 +27,12 @@ use evolite_api::{CoreError, Duffs, MixedTo, NameCheck, Spend, UnfinishedPoolIde
 pub const EXIT: Duffs = 3_000_000;
 /// The exit for a contested name (И5): 0.25 DASH.
 pub const EXIT_CONTESTED: Duffs = 25_000_000;
+/// BUG-319 r1: what the pool must hold to create an identity with `exit` — the exit itself (the
+/// fee is taken out of it, not from other notes).
+pub(crate) fn pool_needs(exit: Duffs) -> Duffs {
+    exit
+}
+
 /// What «First put DASH into the pool» puts in (R-6): more than the exit, not equal to it (И2).
 pub const INTO_POOL: Duffs = 10_000_000;
 /// The proof's timer at its cap (the lead): from here Platform is awaited, not the proof.
@@ -234,7 +240,12 @@ fn draw_path(
     let exit = exit_for(fees, name.claim.is_some());
     let fee = fees.pool_identity_create;
     let in_pool = wallet.balances.shielded;
-    let needed = exit.saturating_add(fee);
+    // BUG-319 r1 Must: the pool needs the exit itself, nothing on top. platform-wallet reserves
+    // notes covering the denomination only («NOT denomination + fee — the fee is metered FROM
+    // the denomination at execution»: `wallet/shielded/operations.rs`,
+    // `identity_create_from_shielded_pool` → `reserve_unspent_notes_for_denomination`), and the
+    // identity gets the exit less the fee. `fee` is only the promise «at least ≈» below.
+    let needed = pool_needs(exit);
     let enough = in_pool >= needed;
     // Step 2 (path M, И6–И8): the exit from fully mixed coins when there are some; asked once
     // for each exit, sent after the screen is drawn.
@@ -338,11 +349,12 @@ fn draw_path(
                         let value = mono(13.0, Weight::Medium);
                         kv_row(ui, &p, tr!("In the pool"), &dash(in_pool), value.clone());
                         kv_row(ui, &p, tr!("From the pool"), &dash(exit), value.clone());
+                        // BUG-319: an upper estimate — the network may take less, never shown less.
                         kv_row(
                             ui,
                             &p,
                             tr!("Platform fee"),
-                            &format!("≈ {}", dash(fee)),
+                            &format!(tr!("up to ≈ {}"), dash(fee)),
                             value,
                         );
                     }
@@ -1039,20 +1051,30 @@ fn review(
                     &dash(plan.exit),
                     value.clone(),
                 );
+                // BUG-319: promised the safe way — the fee at most, the credits at least.
                 kv_row(
                     ui,
                     &p,
                     tr!("Platform fee"),
-                    &format!("≈ {}", dash(plan.fee)),
+                    &format!(tr!("up to ≈ {}"), dash(plan.fee)),
                     value.clone(),
                 );
                 kv_row(
                     ui,
                     &p,
                     tr!("Into credits"),
-                    &format!("≈ {}", dash(plan.exit.saturating_sub(plan.fee))),
+                    &format!(
+                        tr!("at least ≈ {}"),
+                        dash(plan.exit.saturating_sub(plan.fee))
+                    ),
                     value,
                 );
+                ui.add(crate::components::para(
+                    tr!("The exact fee depends on the network's load; what came in is in History."),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
                 form.flow.password.summary_tick(ui, &p);
                 return false;
             }

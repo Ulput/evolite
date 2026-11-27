@@ -3010,5 +3010,10 @@
   },
   "Platform not read": "Platform belum terbaca",
   "out ≈ {}": "keluar ≈ {}",
-  "Some costs are not known: what went out is an estimate": "Sebagian biaya tidak diketahui: yang keluar adalah perkiraan"
+  "Some costs are not known: what went out is an estimate": "Sebagian biaya tidak diketahui: yang keluar adalah perkiraan",
+  "up to ≈ {}": "hingga ≈ {}",
+  "at least ≈ {}": "setidaknya ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "Biaya pastinya bergantung pada beban jaringan; yang masuk ada di Riwayat.",
+  "Creation of the identity {} from the pool": "Pembuatan identitas {} dari pool",
+  "Top-up of {} from the pool": "Isi ulang {} dari pool"
 }

@@ -3058,5 +3058,10 @@
   },
   "Platform not read": "Platform पढ़ा नहीं गया",
   "out ≈ {}": "गया ≈ {}",
-  "Some costs are not known: what went out is an estimate": "कुछ लागतें ज्ञात नहीं: जो गया वह अनुमान है"
+  "Some costs are not known: what went out is an estimate": "कुछ लागतें ज्ञात नहीं: जो गया वह अनुमान है",
+  "up to ≈ {}": "अधिकतम ≈ {}",
+  "at least ≈ {}": "कम से कम ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "सटीक शुल्क नेटवर्क के लोड पर निर्भर करता है; कितना आया, यह इतिहास में है।",
+  "Creation of the identity {} from the pool": "पूल से पहचान {} का निर्माण",
+  "Top-up of {} from the pool": "पूल से {} का टॉप-अप"
 }

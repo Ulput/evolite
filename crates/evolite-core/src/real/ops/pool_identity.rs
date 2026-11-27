@@ -340,6 +340,8 @@ impl Real {
         let chain = self.chain.clone();
         let pending = self.pending_names();
         let unclear = self.unclear.clone();
+        let pool_fees = self.pool_fees.clone();
+        let pool_history = self.pool_history.clone();
         self.pool_job(
             "identity-from-pool",
             async move {
@@ -409,12 +411,26 @@ impl Real {
                         .await;
                     let identity_id = match created {
                         Ok((identity_id, credits)) => {
+                            // BUG-319 p. 3: what it cost, on its line in History and in the
+                            // price record; credits not read — not known, never 0.
+                            pool_history.creation_cost(
+                                &identity_id,
+                                credits.map(|c| exit.saturating_sub(identity::credits_as_duffs(c))),
+                                now(),
+                            );
                             // r1 Should 1: the fee really taken, to tune the one shown.
                             if let Some(credits) = credits {
+                                let fee = exit.saturating_sub(identity::credits_as_duffs(credits));
                                 crate::diag::record(crate::diag::Record::IdentityFromPoolFee {
                                     exit,
-                                    fee: exit.saturating_sub(identity::credits_as_duffs(credits)),
+                                    fee,
                                 });
+                                // BUG-319: measured, for the next fee shown.
+                                if let Err(e) =
+                                    pool_fees.record(fee, fees.pool_identity_create_floor)
+                                {
+                                    crate::diag::platform_failed("pool_fees", &e);
+                                }
                             }
                             identity_id
                         }

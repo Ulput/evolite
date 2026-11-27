@@ -185,6 +185,8 @@ fn direction(a: &Activity, own: &Own) -> Option<Line> {
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::IdentityTransfer { .. }
         | ActivityKind::TopUp { .. }
+        // BUG-320: from the pool into an identity of ours: only its fee is spent.
+        | ActivityKind::PoolToIdentity { .. }
         | ActivityKind::Shielded { .. }
         | ActivityKind::AddressFunded => true,
         ActivityKind::Withdrawal { to, .. }

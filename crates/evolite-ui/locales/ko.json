@@ -3010,5 +3010,10 @@
   },
   "Platform not read": "Platform 읽지 못함",
   "out ≈ {}": "나감 ≈ {}",
-  "Some costs are not known: what went out is an estimate": "일부 비용을 알 수 없어 나간 금액은 추정입니다"
+  "Some costs are not known: what went out is an estimate": "일부 비용을 알 수 없어 나간 금액은 추정입니다",
+  "up to ≈ {}": "최대 ≈ {}",
+  "at least ≈ {}": "최소 ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "정확한 수수료는 네트워크 부하에 따라 다릅니다. 들어온 금액은 기록에 있습니다.",
+  "Creation of the identity {} from the pool": "풀에서 아이덴티티 {} 생성",
+  "Top-up of {} from the pool": "풀에서 {} 충전"
 }

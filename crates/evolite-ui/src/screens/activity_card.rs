@@ -774,6 +774,8 @@ fn platform_sides(act: &Activity, detail: &Detail) -> (Vec<Side>, Vec<Side>) {
                 .map_or_else(Vec::new, |a| one(Side::own(a))),
         ),
         ActivityKind::PoolReceived => (Vec::new(), one(pool())),
+        // BUG-320: into an identity of this wallet.
+        ActivityKind::PoolToIdentity { .. } => (one(pool()), mine()),
         ActivityKind::Shielded { from } => {
             let source = if detail.identity.is_some() {
                 mine()

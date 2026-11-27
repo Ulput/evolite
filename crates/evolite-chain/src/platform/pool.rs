@@ -32,6 +32,16 @@ pub struct PoolView {
     /// BUG-275: each operation's spent nullifiers as its entry keeps them (a restored spend's
     /// are the links of our change), by the operation's id: the row a proved withdrawal is.
     pub spent_by_operation: std::collections::HashMap<u64, Vec<[u8; 32]>>,
+    /// BUG-320 p. 2: each operation's note tags (`evolite_local::pool_history::tag`), by its id
+    /// — never the notes' commitments themselves. Empty before the pool was connected this run.
+    pub tags: std::collections::HashMap<u64, Vec<evolite_local::pool_history::Tag>>,
+    /// BUG-320 p. 2: the tags are there — the key was (the wallet unlocked since the pool
+    /// connected); without it the pool's history ties lines by id only.
+    pub keyed: bool,
+    /// BUG-320 p. 2: the operations are every one of the pool's, from a pass of the scan that
+    /// ended in this run (not the last lines of a busy store, not cut at the shown limit), with
+    /// the tags: what the pool's history may drop the old empty lines by.
+    pub complete: bool,
 }
 
 /// How many failed passes in a row say the pool cannot be read, not «not yet» (BUG-240 r2).
@@ -511,6 +521,14 @@ mod imp {
                     .await
                     .map_err(|e| e.to_string())?;
             }
+            // BUG-320 p. 2: the key of the note tags, while the seed is here.
+            self.pool_tag_keys
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(
+                    wallet.wallet_id(),
+                    evolite_local::pool_history::tag_key(seed),
+                );
             let sync = manager.shielded_sync_arc();
             if !sync.is_running() {
                 sync.set_interval(std::time::Duration::from_secs(60));
@@ -552,6 +570,15 @@ mod imp {
             );
             let id = SubwalletId::new(wallet.wallet_id(), ACCOUNT);
             let mut unspent: Option<(u32, u64)> = None;
+            let tag_key = self
+                .pool_tag_keys
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&wallet.wallet_id())
+                .cloned();
+            let keyed = tag_key.is_some();
+            let mut tags = std::collections::HashMap::new();
+            let mut complete = false;
             let last = || {
                 let (notes, operations) = super::last_lines(&self.last_pool, &wallet.wallet_id());
                 let (spent, by_operation) = super::last_spent(&self.last_pool, &wallet.wallet_id());
@@ -587,6 +614,22 @@ mod imp {
                                     .insert(u64::from_le_bytes(key), e.spent_nullifiers.clone());
                             }
                         }
+                        // BUG-320 p. 2: the notes' tags by operation; all of them only from a
+                        // pass that ended and a list not cut at the shown limit.
+                        if let Some(key) = tag_key.as_deref() {
+                            for e in &entries {
+                                let mut short = [0u8; 8];
+                                short.copy_from_slice(&e.id[..8]);
+                                tags.insert(
+                                    u64::from_le_bytes(short),
+                                    e.note_cmxs
+                                        .iter()
+                                        .map(|cmx| evolite_local::pool_history::tag(key, cmx))
+                                        .collect::<Vec<_>>(),
+                                );
+                            }
+                            complete = checked_at.is_some() && entries.len() < SHOWN_OPERATIONS;
+                        }
                         // BUG-240: the same read's count and sum, for the journal.
                         unspent = Some((
                             found.len() as u32,
@@ -613,7 +656,19 @@ mod imp {
                 failing,
                 spent,
                 spent_by_operation,
+                tags,
+                keyed,
+                complete,
             })
+        }
+
+        /// BUG-320 p. 2: the note tags' keys go with the lock (and so with a wallet's removal,
+        /// which locks first): wiped as they drop.
+        pub fn forget_pool_tags(&self) {
+            self.pool_tag_keys
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         }
 
         /// Shields `credits` from the identity the interface shows (its TRANSFER key signs);
@@ -1063,6 +1118,20 @@ mod imp {
                 (ActivityKind::Shielded { from: None }, duffs)
             }
             (_, ShieldedDirection::In) => (ActivityKind::PoolReceived, duffs),
+            // BUG-320: into an identity of ours — its creation or a top-up, by its id.
+            (
+                ShieldedActivityKind::IdentityCreate { identity_id }
+                | ShieldedActivityKind::IdentityTopUp { identity_id },
+                _,
+            ) => (
+                ActivityKind::PoolToIdentity {
+                    identity: dpp::prelude::Identifier::from(*identity_id)
+                        .to_string(dpp::platform_value::string_encoding::Encoding::Base58),
+                    creates: matches!(entry.kind, ShieldedActivityKind::IdentityCreate { .. }),
+                },
+                // default-ok: a live entry knows its fee; without one only what moved
+                -(duffs + fee.unwrap_or(0)),
+            ),
             // To our own private address: only the fee leaves.
             (_, ShieldedDirection::SelfTransfer) => (
                 ActivityKind::SelfTransfer { moved: 0 },
@@ -1287,6 +1356,8 @@ impl Chain {
         Err(NO_POOL.into())
     }
 
+    pub fn forget_pool_tags(&self) {}
+
     pub async fn pool_view(&self, _: &PlatformWallet) -> Option<PoolView> {
         None
     }
@@ -1410,14 +1481,6 @@ impl Chain {
     }
 }
 
-/// FEAT-0048 r1 Should 1: the fee shown for an identity created from the pool, as tenths of the
-/// formula's floor: Drive charges the new identity's processing and storage on top, which
-/// depends on load and version. Testnet T-1 (2026-11-21): 257,687 duffs taken against a floor of
-/// 155,140, ×1.66; shown ×1.8. Each creation's real fee goes to the journal
-/// (`identity_from_pool_fee`) to tune it.
-#[cfg(feature = "pool")]
-const IDENTITY_CREATE_TENTHS: evolite_api::Duffs = 18;
-
 /// The pool's fees, in duffs, from Platform's own formulas at `version` — the ones its builders
 /// carve from the notes and its consensus checks — for a bundle of two Orchard actions (one or
 /// two notes spent). Shielding from addresses is metered by Platform; its formula gives the floor.
@@ -1462,7 +1525,10 @@ pub fn set_fees(fees: &mut evolite_api::Fees, version: &dpp::version::PlatformVe
         crate::identity::NEW_IDENTITY_KEY_COUNT,
         version,
     )) {
-        fees.pool_identity_create = (fee * IDENTITY_CREATE_TENTHS + 9) / 10;
+        // BUG-319: the floor, and the upper estimate with nothing measured; the core puts the
+        // network's measurements in (`evolite_local::pool_fees`).
+        fees.pool_identity_create_floor = fee;
+        fees.pool_identity_create = evolite_local::pool_fees::upper(fee, &[]);
     }
     fees.pool_identity_exits = version
         .drive_abci
@@ -1504,8 +1570,9 @@ pub fn set_fees(_: &mut evolite_api::Fees, _: &dpp::version::PlatformVersion) {}
 mod tests {
     use super::*;
 
-    /// FEAT-0048 T-1, r1 Should 1: the fee shown for an identity from the pool is 1.8 times the
-    /// formula's floor, and not below what testnet really took (257,687 duffs).
+    /// FEAT-0048 T-1, BUG-319: the floor is the formula's, and the fee shown with nothing
+    /// measured is 2.5 times it — above what testnet took (257,687 on T-1, 336,000 on
+    /// 2026-11-25).
     #[test]
     fn the_identity_from_the_pool_fee_covers_what_testnet_took() {
         let version = dpp::version::PlatformVersion::latest();
@@ -1518,9 +1585,10 @@ mod tests {
         )
         .unwrap()
         .div_ceil(1000) as evolite_api::Duffs;
-        assert_eq!(fees.pool_identity_create, (floor * 18 + 9) / 10);
+        assert_eq!(fees.pool_identity_create_floor, floor);
+        assert_eq!(fees.pool_identity_create, (floor * 25 + 9) / 10);
         assert!(
-            fees.pool_identity_create >= 257_687,
+            fees.pool_identity_create >= 336_000,
             "{}",
             fees.pool_identity_create
         );
@@ -1568,6 +1636,9 @@ mod tests {
             failing: None,
             spent: Vec::new(),
             spent_by_operation: Default::default(),
+            tags: Default::default(),
+            keyed: false,
+            complete: false,
         }
     }
 
@@ -1876,6 +1947,67 @@ mod pending_create_tests {
             rearm_create(&mut store, id(), &pending()).unwrap(),
             0,
             "once"
+        );
+    }
+}
+
+#[cfg(all(test, feature = "pool"))]
+mod to_identity_tests {
+    use super::imp::operations;
+    use evolite_api::ActivityKind;
+    use platform_wallet::wallet::shielded::{
+        ShieldedActivityEntry, ShieldedActivityKind, ShieldedActivityStatus, ShieldedDirection,
+    };
+
+    fn out(kind: ShieldedActivityKind) -> ShieldedActivityEntry {
+        ShieldedActivityEntry {
+            id: [7; 32],
+            kind,
+            direction: ShieldedDirection::Out,
+            amount: 2_770_720_000,
+            fee: Some(229_280_000),
+            counterparty: None,
+            memo: None,
+            block_height: Some(739_352),
+            status: ShieldedActivityStatus::Confirmed,
+            created_at_ms: 1_795_608_049_000,
+            min_note_position: None,
+            note_cmxs: Vec::new(),
+            spent_nullifiers: Vec::new(),
+        }
+    }
+
+    /// BUG-320: an identity's creation and top-up from the pool name the identity (by its id,
+    /// base58), not «Sent privately»; what left the pool is the exit, the fee in it.
+    #[test]
+    fn into_an_identity_names_it() {
+        let id = [3u8; 32];
+        let base58 = dpp::prelude::Identifier::from(id)
+            .to_string(dpp::platform_value::string_encoding::Encoding::Base58);
+        let created = operations(vec![out(ShieldedActivityKind::IdentityCreate {
+            identity_id: id,
+        })]);
+        assert_eq!(
+            created[0].kind,
+            ActivityKind::PoolToIdentity {
+                identity: base58.clone(),
+                creates: true
+            }
+        );
+        assert_eq!(created[0].amount, -3_000_000);
+        let topped = operations(vec![out(ShieldedActivityKind::IdentityTopUp {
+            identity_id: id,
+        })]);
+        assert_eq!(
+            topped[0].kind,
+            ActivityKind::PoolToIdentity {
+                identity: base58,
+                creates: false
+            }
+        );
+        assert_eq!(
+            topped[0].layers,
+            evolite_api::layer::POOL | evolite_api::layer::IDENTITY
         );
     }
 }

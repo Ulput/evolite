@@ -102,6 +102,10 @@ pub struct Chain {
     /// The pool as last read, with its wallet: shown while a read has to wait (BUG-105).
     #[cfg(feature = "pool")]
     pub(crate) last_pool: Mutex<Option<(WalletId, crate::platform::pool::PoolView)>>,
+    /// BUG-320 p. 2: each connected wallet's key of its note tags
+    /// (`evolite_local::pool_history::tag_key`), from the seed at the connection; in memory only.
+    #[cfg(feature = "pool")]
+    pub(crate) pool_tag_keys: Mutex<HashMap<WalletId, zeroize::Zeroizing<[u8; 32]>>>,
     /// BUG-240 r4 (R3): told after a pool pass that failed on something passing; the pool's
     /// task makes one early pass (`connect_pool`).
     pub(crate) pool_retry: Arc<tokio::sync::Notify>,
@@ -212,6 +216,8 @@ impl Default for Chain {
             store_open: AtomicBool::new(false),
             #[cfg(feature = "pool")]
             last_pool: Mutex::new(None),
+            #[cfg(feature = "pool")]
+            pool_tag_keys: Mutex::new(HashMap::new()),
             pool_retry: Arc::new(tokio::sync::Notify::new()),
             retired: AtomicBool::new(false),
             status: Arc::new(Mutex::new(SyncStatus {

@@ -286,6 +286,14 @@ pub enum ActivityKind {
     PoolToCore {
         arrived: bool,
     },
+    /// BUG-320: out of the pool into an identity's credits — its creation (`creates`) or a
+    /// top-up of it. `identity`: `@name` or its id, as [`ActivityKind::TopUp`]. A creation's
+    /// fee is what the network took — the exit less the credits that came in (BUG-319 p. 3);
+    /// `None` and [`Detail::cost_unknown`] when the credits were not read.
+    PoolToIdentity {
+        identity: String,
+        creates: bool,
+    },
     /// Credits withdrawn to a Core address (paid out by Platform later). `status`: how far its
     /// document on Platform got, once read from there (BUG-58); `None` before.
     Withdrawal {
@@ -1685,9 +1693,13 @@ pub struct Fees {
     /// Out of the pool to the identity's credits.
     pub pool_top_up: Duffs,
     /// FEAT-0048: the fee of creating an identity from the pool (its six keys, two actions),
-    /// taken from the exit: Platform's floor at this protocol plus what Drive charged on top on
-    /// testnet (T-1). An estimate: the identity's credits are read after.
+    /// taken from the exit. BUG-319: an upper estimate — the floor × the highest ratio this
+    /// network was measured to take × 1.15 (× 2.5 before any): «up to ≈». The identity's
+    /// credits say the real one after.
     pub pool_identity_create: Duffs,
+    /// BUG-319: Platform's formula for it at this protocol, the floor the real fee is measured
+    /// against; 0: not known (no SDK yet).
+    pub pool_identity_create_floor: Duffs,
     /// FEAT-0048: the exits an identity may be created from the pool with at this protocol,
     /// smallest first (v13+: 0.03, 0.1, 0.25, 0.5, 1 DASH). Empty: not offered by the network.
     pub pool_identity_exits: Vec<Duffs>,
@@ -3773,6 +3785,7 @@ mod tests {
             shield_from_core: 0,
             pool_top_up: 0,
             pool_identity_create: 0,
+            pool_identity_create_floor: 0,
             pool_identity_exits: Vec::new(),
             credit_withdrawal: 0,
             credit_withdrawal_reserve: 0,

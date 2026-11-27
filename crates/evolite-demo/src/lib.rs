@@ -1945,6 +1945,35 @@ impl Mock {
             profile: None,
             slot,
         });
+        // BUG-320: the pool's line names the new identity, its fee what the network took.
+        let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
+        let kind = ActivityKind::PoolToIdentity {
+            identity: label.as_ref().map_or(id.clone(), |l| format!("@{l}")),
+            creates: true,
+        };
+        let (layers, flow) = evolite_common::layers::of(&kind, Chain::Platform);
+        wallet.activity.insert(
+            0,
+            Activity {
+                id: line,
+                kind,
+                chain: Chain::Platform,
+                at: now(),
+                amount: -exit,
+                proof: Proof::Proved,
+                txid: None,
+                fee: Some(wallet.fees.pool_identity_create),
+                block: None,
+                address: None,
+                layers,
+                flow,
+                key: format!("demo:{line}"),
+                note: None,
+                rate: None,
+                detail: None,
+                tax_transfer: false,
+            },
+        );
         let credits = exit - wallet.fees.pool_identity_create;
         wallet.identities.push(IdentityChoice {
             id,

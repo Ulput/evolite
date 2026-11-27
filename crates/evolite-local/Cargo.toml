@@ -28,12 +28,13 @@ tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"
 # Р1: the update check's signature (minisign, Ed25519), verify only, no dependencies; pinned
 # exactly (review REL-verify-design r1; the customer allowed the download 2026-11-20).
 minisign-verify = "=0.3.0"
+# BUG-320 p. 2: the pool history's note tags (keyed BLAKE2b); already in the lock (dpp, the tests).
+blake2b_simd = "=1.0.5"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
 # Р1 tests sign their own minisign files (both already in the lock, through dpp and dash-spv).
 ed25519-dalek = "=2.2.0"
-blake2b_simd = "=1.0.5"
 
 [lints]
 workspace = true

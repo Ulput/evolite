@@ -33,6 +33,9 @@ enum Line {
     AppConnect,
     AppDisconnect,
     TokenSent,
+    /// BUG-319 p. 3: an identity created from the pool — its cost is in the pool's history,
+    /// not in the journal.
+    PoolIdentity,
 }
 
 impl Line {
@@ -53,6 +56,7 @@ impl Line {
             Spend::ApproveApp { .. } => Some(Line::AppConnect),
             Spend::DisconnectApp { .. } => Some(Line::AppDisconnect),
             Spend::SendToken { .. } => Some(Line::TokenSent),
+            Spend::CreateIdentityFromPool { .. } => Some(Line::PoolIdentity),
             Spend::Shield {
                 from: ShieldSource::Credits | ShieldSource::PlatformAddress,
                 ..
@@ -108,6 +112,8 @@ struct Watch {
 pub(super) struct PriceWatch {
     watch: Arc<std::sync::Mutex<Watch>>,
     journal: Arc<journal::Journal>,
+    /// BUG-319 p. 3: where a creation from the pool keeps what it cost.
+    pool: Arc<pool_history::PoolHistory>,
 }
 
 /// What the newest of this spend's lines since it `started` cost above what it moved; `None`
@@ -122,10 +128,14 @@ fn cost_in_history(entries: &[Entry], line: Line, started: Timestamp) -> Option<
 }
 
 impl PriceWatch {
-    pub(super) fn new(journal: Arc<journal::Journal>) -> Self {
+    pub(super) fn new(
+        journal: Arc<journal::Journal>,
+        pool: Arc<pool_history::PoolHistory>,
+    ) -> Self {
         Self {
             watch: Default::default(),
             journal,
+            pool,
         }
     }
 
@@ -208,6 +218,10 @@ impl PriceWatch {
             (Some(_), ..) => None,
             // A payment's own answer knows its fee.
             (None, true, _) => Some(fee),
+            // BUG-319 p. 3: the same cost its line in History shows; not read — none.
+            (None, false, Some(Line::PoolIdentity)) => {
+                self.pool.cost_since(spend.started).flatten()
+            }
             (None, false, Some(line)) => {
                 cost_in_history(&self.journal.entries(), line, spend.started)
             }
@@ -245,7 +259,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let journal = Arc::new(journal::Journal::new(dir.join("history.json")));
-        (PriceWatch::new(journal), dir)
+        let pool = Arc::new(pool_history::PoolHistory::new(
+            dir.join("pool-history.json"),
+        ));
+        (PriceWatch::new(journal, pool), dir)
     }
 
     fn seen_by(watch: &PriceWatch, balance: Duffs) {
@@ -653,6 +670,36 @@ mod tests {
         watch.begin(&unshield, 6);
         watch.ended(&unshield.clone().refused(CoreError::NotEnough));
         assert_eq!(watch.lock().waiting.last().map(|w| w.started), Some(6));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// BUG-319 p. 3: an identity created from the pool — its actual price is the cost its line in
+    /// History shows (the pool's history), not nothing; credits not read — none, not 0.
+    #[test]
+    fn a_creation_from_the_pool_is_priced_by_its_cost() {
+        let (watch, dir) = watch();
+        seen_by(&watch, 10_000_000);
+        let create = Spend::CreateIdentityFromPool {
+            name: None,
+            exit: 3_000_000,
+        };
+        let done = || Event::Done {
+            what: DoneWhat::Identity,
+            result: Ok(()),
+            ask: None,
+        };
+        watch.begin(&create, 1_000);
+        watch.pool.creation_cost("G1cAid", Some(336_000), 1_010);
+        let Some(Record::Price { actual, .. }) = watch.ended(&done()) else {
+            panic!("no record");
+        };
+        assert_eq!(actual, Some(336_000));
+        watch.begin(&create, 2_000);
+        watch.pool.creation_cost("H2dBid", None, 2_010);
+        let Some(Record::Price { actual, .. }) = watch.ended(&done()) else {
+            panic!("no record");
+        };
+        assert_eq!(actual, None, "credits not read");
         let _ = std::fs::remove_dir_all(dir);
     }
 }

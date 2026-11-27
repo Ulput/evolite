@@ -104,7 +104,9 @@ pub fn kind_of(a: &Activity) -> u8 {
         ContactRequest { .. } | ContactRequestIn { .. } | ProfileSaved | ContactsResent { .. } => {
             kind::CONTACTS
         }
-        Shielded { .. } | PoolReceived | PoolSent | PoolToCore { .. } => kind::POOL,
+        Shielded { .. } | PoolReceived | PoolSent | PoolToCore { .. } | PoolToIdentity { .. } => {
+            kind::POOL
+        }
         // BUG-145: what apps did with their keys and budgets; a token sent is the identity's.
         AppSignIn { .. } | AppRenewed { .. } | AppDisconnected { .. } | AppSpent { .. } => {
             kind::APPS

@@ -3010,5 +3010,10 @@
   },
   "Platform not read": "Platform 未读取",
   "out ≈ {}": "支出 ≈ {}",
-  "Some costs are not known: what went out is an estimate": "部分费用未知：支出为估计值"
+  "Some costs are not known: what went out is an estimate": "部分费用未知：支出为估计值",
+  "up to ≈ {}": "最多 ≈ {}",
+  "at least ≈ {}": "至少 ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "确切费用取决于网络负载；实际到账见“历史”。",
+  "Creation of the identity {} from the pool": "从私密池创建身份 {}",
+  "Top-up of {} from the pool": "从私密池为 {} 充值"
 }

@@ -309,6 +309,9 @@ impl Real {
         }
         self.credits_checked.store(false, Ordering::Relaxed);
         self.credits_failed.store(false, Ordering::Relaxed);
+        // BUG-320 p. 2: the key of the pool's note tags goes with the keys (and with a removal,
+        // which locks first); until the next unlock the pool's history ties lines by id only.
+        self.chain.forget_pool_tags();
         // The names searched in this session go with the wallet (FEAT-0039, architect §3).
         self.name_search
             .lock()

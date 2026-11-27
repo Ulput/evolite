@@ -3116,5 +3116,10 @@
   },
   "Platform not read": "Platform не прочитана",
   "out ≈ {}": "ушло ≈ {}",
-  "Some costs are not known: what went out is an estimate": "Плата за часть операций неизвестна: «ушло» — оценка"
+  "Some costs are not known: what went out is an estimate": "Плата за часть операций неизвестна: «ушло» — оценка",
+  "up to ≈ {}": "до ≈ {}",
+  "at least ≈ {}": "не меньше ≈ {}",
+  "The exact fee depends on the network's load; what came in is in History.": "Точная плата зависит от нагрузки сети; сколько пришло — в Истории.",
+  "Creation of the identity {} from the pool": "Создание личности {} из пула",
+  "Top-up of {} from the pool": "Пополнение {} из пула"
 }

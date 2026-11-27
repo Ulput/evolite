@@ -714,7 +714,10 @@ struct Real {
     nft_series: Arc<nft_series::NftSeries>,
     series_run: Arc<ops::series::SeriesRun>,
     /// The pool's operations with the amounts the scan loses after a restart.
-    pool_history: pool_history::PoolHistory,
+    pool_history: Arc<pool_history::PoolHistory>,
+    /// BUG-319: what this network took to create an identity from the pool, against the floor
+    /// (one file per network beside the wallets): the fee shown is above them.
+    pool_fees: Arc<evolite_local::pool_fees::PoolFees>,
     /// The open wallet's payment notes, decrypted, with their key (FEAT-0003): opened with the
     /// wallet, `None` once it locks (a lock, a switch, "Add a wallet"). Shared with the sends
     /// in flight, which keep their note once the network takes them.

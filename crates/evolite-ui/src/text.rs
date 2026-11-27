@@ -966,6 +966,18 @@ pub fn activity_title(a: &Activity) -> String {
         ActivityKind::PoolSent => tr!("Sent privately").into(),
         // FEAT-0049 r1 Must: out of the pool to one of the wallet's own Core addresses.
         ActivityKind::PoolToCore { .. } => tr!("From the pool to your Core balance").into(),
+        // BUG-320: into an identity of ours, named as a creation or a top-up from Core is.
+        ActivityKind::PoolToIdentity {
+            identity,
+            creates: true,
+        } => format!(
+            tr!("Creation of the identity {identity} from the pool"),
+            identity = identity_in_line(identity)
+        ),
+        ActivityKind::PoolToIdentity { identity, .. } => format!(
+            tr!("Top-up of {identity} from the pool"),
+            identity = identity_in_line(identity)
+        ),
         ActivityKind::Withdrawal { to, .. } => {
             format!(tr!("Credit withdrawal to {}"), to.to_string())
         }
@@ -1211,7 +1223,7 @@ pub fn activity_icon(a: &Activity) -> &'static str {
         | ActivityKind::ModelCreated { .. }
         | ActivityKind::NftSeries { .. } => "nft",
         ActivityKind::Sent { .. } | ActivityKind::PoolSent => "send",
-        ActivityKind::TopUp { .. } => "top-up",
+        ActivityKind::TopUp { .. } | ActivityKind::PoolToIdentity { .. } => "top-up",
         ActivityKind::KeysChanged { .. } => "key",
         ActivityKind::SelfTransfer { .. }
         | ActivityKind::IdentityTransfer { .. }
@@ -2052,6 +2064,31 @@ mod lock_tests {
         assert_eq!(activity_title(&line), "Transfer between own addresses");
         line.flow = Flow::Out;
         assert_eq!(activity_title(&line), "Sent from the Platform address");
+    }
+
+    /// BUG-320: out of the pool into an identity of ours is named as from Core — a creation or a
+    /// top-up, with the identity — not «Sent privately»; one without a name by its id, whole.
+    #[test]
+    fn into_an_identity_from_the_pool_is_named() {
+        let line = |identity: &str, creates| Activity {
+            kind: ActivityKind::PoolToIdentity {
+                identity: identity.into(),
+                creates,
+            },
+            chain: Chain::Platform,
+            ..lock(Credits::Added)
+        };
+        assert_eq!(
+            activity_title(&line("@kestrel7", false)),
+            "Top-up of @kestrel7 from the pool"
+        );
+        let id = "G1cA8rd3Ux7pQfAbCdEfkV2mkezP";
+        assert_eq!(
+            activity_title(&line(id, true)),
+            // FEAT-0051 R-5: the id whole; the row shortens it to its room.
+            format!("Creation of the identity {id} from the pool")
+        );
+        assert_eq!(activity_icon(&line("@kestrel7", true)), "top-up");
     }
 
     /// FEAT-0038 R-15: «Sold “{model}” no. {n} · @{name}»; without the number, or the model,

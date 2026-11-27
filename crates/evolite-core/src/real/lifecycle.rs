@@ -62,7 +62,11 @@ impl Real {
                 error: "write",
             });
         }
-        let pool_history = pool_history::PoolHistory::new(paths.pool_history.clone());
+        let pool_history = Arc::new(pool_history::PoolHistory::new(paths.pool_history.clone()));
+        let pool_fees = Arc::new(evolite_local::pool_fees::PoolFees::new(
+            &paths.root,
+            crate::network::name(),
+        ));
         let paths_apps = paths.connected_apps.clone();
         let password_each_send = security::load(&paths.root, &wallet);
         let large_spend = security::load_large(&paths.root, &wallet);
@@ -95,7 +99,7 @@ impl Real {
             attach: None,
             attach_failed: None,
             birth_hint: None,
-            prices: prices::PriceWatch::new(journal.clone()),
+            prices: prices::PriceWatch::new(journal.clone(), pool_history.clone()),
             journal,
             history_busy: Arc::new(AtomicBool::new(false)),
             lock_status: Arc::new(evolite_chain::lock_status::LockStatuses::new(
@@ -119,6 +123,7 @@ impl Real {
             nft_series,
             series_run: Default::default(),
             pool_history,
+            pool_fees,
             address_book: address_book::AddressBook::new(paths.address_book.clone()),
             added_collections: evolite_local::json_file::Store::new(paths.collections.clone()),
             nft_search: Arc::new(evolite_local::json_file::Store::new(

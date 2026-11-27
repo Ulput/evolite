@@ -3250,5 +3250,10 @@
   },
   "Platform not read": "لم تُقرأ Platform",
   "out ≈ {}": "صادر ≈ {}",
-  "Some costs are not known: what went out is an estimate": "بعض التكاليف غير معروفة: الصادر تقديري"
+  "Some costs are not known: what went out is an estimate": "بعض التكاليف غير معروفة: الصادر تقديري",
+  "up to ≈ {}": "حتى ≈ {}",
+  "at least ≈ {}": "≈ {} على الأقل",
+  "The exact fee depends on the network's load; what came in is in History.": "تعتمد الرسوم الدقيقة على حمل الشبكة؛ وما وصل فعلًا تجده في السجل.",
+  "Creation of the identity {} from the pool": "إنشاء الهوية {} من المجمّع",
+  "Top-up of {} from the pool": "شحن {} من المجمّع"
 }

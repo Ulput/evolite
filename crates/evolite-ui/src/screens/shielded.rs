@@ -1690,6 +1690,7 @@ pub(crate) mod tests {
             shield_from_core: 164_140,
             pool_top_up: 114_360,
             pool_identity_create: 157_000,
+            pool_identity_create_floor: 0,
             pool_identity_exits: vec![3_000_000, 10_000_000, 25_000_000, 50_000_000, 100_000_000],
             credit_withdrawal: 400_000,
             credit_withdrawal_reserve: 400_000,

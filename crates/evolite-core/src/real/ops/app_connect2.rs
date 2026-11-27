@@ -473,11 +473,12 @@ impl Real {
     ) -> Result<(), CoreError> {
         let text = text.to_owned();
         let (id, keys) = self.dashpay_ready()?;
-        let (chain, requests, apps, journal) = (
+        let (chain, requests, apps, journal, pool_fees) = (
             self.chain.clone(),
             self.app_requests.clone(),
             self.apps.clone(),
             self.journal.clone(),
+            self.pool_fees.clone(),
         );
         let reads = self.app_reads.clone();
         let request_id = self.next_app_request.fetch_add(1, Ordering::Relaxed) + 1;
@@ -485,7 +486,7 @@ impl Real {
             let result = async {
                 // BUG-236: the fees every other form shows (measured by the journal), not the
                 // defaults — the request's price is not below the keys screen's for the same keys.
-                let fees = crate::real::snapshot::fees_from(&chain, &journal, 0).await;
+                let fees = crate::real::snapshot::fees_from(&chain, &journal, &pool_fees, 0).await;
                 let wallet = loaded(&chain, &id).await?;
                 let who = chain
                     .sign_in_identity(&wallet, &keys)

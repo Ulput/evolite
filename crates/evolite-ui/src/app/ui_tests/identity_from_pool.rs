@@ -52,6 +52,67 @@ fn an_identity_is_made_from_the_pool_and_nothing_moves_on_core() {
     assert_eq!(pool - pool_after, 3_000_000, "the 0.03 exit left the pool");
 }
 
+/// BUG-319: the fee promised the safe way — «up to ≈» on the form and in the review, the
+/// credits «at least ≈», and where the exact sum is said; never a bare «≈» the network may beat.
+#[test]
+fn the_pool_creation_promises_the_fee_at_most_and_the_credits_at_least() {
+    let (_turn, mut kit) = demo_app("create-identity-pool", "en");
+    settle(&mut kit);
+    let fee = kit
+        .state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.as_ref())
+        .map(|w| w.fees.pool_identity_create)
+        .expect("a wallet");
+    let up_to = format!("up to ≈ {}", crate::format::balance(fee));
+    assert!(has_words(&kit, &up_to), "the form: «{up_to}»");
+    button(&kit, "Create privately").click();
+    kit.run_steps(4);
+    assert!(has_words(&kit, &up_to), "the review: «{up_to}»");
+    let at_least = format!("at least ≈ {}", crate::format::balance(3_000_000 - fee));
+    assert!(has_words(&kit, &at_least), "«{at_least}»");
+    assert!(has_words(
+        &kit,
+        "The exact fee depends on the network's load; what came in is in History."
+    ));
+}
+
+/// BUG-319 r1 Must: the pool holding the exit itself is enough — the fee is taken out of the
+/// exit, not from other notes (the mutant: exit + fee needed, red here).
+#[test]
+fn the_exit_itself_in_the_pool_is_enough() {
+    let (_turn, mut kit) = demo_app("create-identity-pool", "en");
+    settle(&mut kit);
+    show_wallet_edited(
+        &mut kit,
+        2,
+        "the pool holding the exit",
+        |w| w.balances.shielded = 3_000_000,
+        |_| true,
+    );
+    assert!(
+        !has_words(&kit, "Not enough in the pool"),
+        "the exit is enough"
+    );
+    let create = kit
+        .query_all_by_role_and_label(Role::Button, "Create privately")
+        .next()
+        .expect("«Create privately»");
+    assert!(
+        !create.accesskit_node().is_disabled(),
+        "on with the exit in the pool"
+    );
+    show_wallet_edited(
+        &mut kit,
+        2,
+        "one duff short",
+        |w| w.balances.shielded = 2_999_999,
+        |_| true,
+    );
+    assert!(has_words(&kit, "Not enough in the pool"), "below the exit");
+}
+
 /// R-2 (И5): 0.03 for an ordinary name or none, 0.25 for a contested one; the nearest the
 /// network offers when it does not offer that one.
 #[test]
@@ -169,8 +230,9 @@ fn core_short_too_says_how_much_more_and_offers_receive() {
     show_wallet_edited(&mut kit, 2, "0.01 in Core", core_of(1_000_000), |_| true);
     assert!(has_words(&kit, "Core has only "), "Core's shortfall said");
     assert!(has_words(&kit, "more is needed. Receive DASH to Core"));
-    // r1 Must: «… more» is what Core must still receive — the pool's shortfall, the fee taken
-    // out of the amount on its way and Core's own payment, less what Core has.
+    // r1 Must: «… more» is what Core must still receive — the pool's shortfall (BUG-319:
+    // by `pool_needs`, the exit itself), the fee taken out of the amount on its way and Core's
+    // own payment, less what Core has.
     let w = kit
         .state()
         .snapshot
@@ -178,7 +240,7 @@ fn core_short_too_says_how_much_more_and_offers_receive() {
         .and_then(|s| s.wallet.clone())
         .expect("a wallet");
     let exit = crate::screens::create_identity::pool::exit_for(&w.fees, false);
-    let short = exit + w.fees.pool_identity_create - w.balances.shielded;
+    let short = crate::screens::create_identity::pool::pool_needs(exit) - w.balances.shielded;
     let more = short + w.fees.shield_from_core + w.fees.core_payment - 1_000_000;
     assert!(
         has_words(

@@ -76,6 +76,8 @@ pub fn of(kind: &ActivityKind, chain: Chain) -> (u8, Flow) {
         PoolSent => (POOL, Flow::Out),
         // FEAT-0049 r1: between the wallet's own places, the pool and Core.
         PoolToCore { .. } => (POOL | CORE, Flow::Between),
+        // BUG-320: between the wallet's own places, the pool and an identity.
+        PoolToIdentity { .. } => (POOL | IDENTITY, Flow::Between),
         // Paid in credits by the identity; the payout is a line of its own (Core, received).
         Withdrawal { .. } | CreditTransfer { .. } => (IDENTITY, Flow::Out),
         // BUG-145: App Connect, a token sent, an app's own writes: credits leave the identity.

@@ -289,7 +289,9 @@ async fn the_pools_lines_do_not_wait_for_the_pool() {
         tax_transfer: false,
     };
     pool_history::PoolHistory::new(core.paths.pool_history.clone()).merge(vec![line]);
-    core.pool_history = pool_history::PoolHistory::new(core.paths.pool_history.clone());
+    core.pool_history = Arc::new(pool_history::PoolHistory::new(
+        core.paths.pool_history.clone(),
+    ));
     let shown = core.snapshot().await.wallet.expect("open").activity;
     assert_eq!(shown.iter().map(|a| a.id).collect::<Vec<_>>(), vec![7]);
 }
