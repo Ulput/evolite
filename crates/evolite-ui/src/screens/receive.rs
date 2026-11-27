@@ -91,6 +91,8 @@ pub struct ReceiveForm {
     /// kept for the session; the text typed in it.
     pub in_currency: bool,
     pub fiat: String,
+    /// FEAT-0057 П6: «A label for the request», the link's `label` (R-6.1); not kept (UC-6.3).
+    pub label: String,
     /// «Earlier addresses» show what is left on each, from the wallet's coins (BUG-201): the
     /// answer to Receive's last `ListCoins`, none until it comes.
     pub coins: Option<Vec<Coin>>,
@@ -123,6 +125,8 @@ impl ReceiveForm {
     pub fn leave(&mut self) {
         self.amount.clear();
         self.fiat.clear();
+        // FEAT-0057 П6 (UC-6.3): the label goes with the amount.
+        self.label.clear();
     }
 
     /// Asks the core for the wallet's coins again when a payment in or out may have moved them:
@@ -169,23 +173,96 @@ fn copy_id(what: &str) -> egui::Id {
     egui::Id::new("receive-copy").with(what)
 }
 
-/// BIP21: `dash:<address>?amount=0.25`, the amount with a dot and without trailing zeros.
-pub fn payment_uri(address: &str, duffs: Option<i64>) -> String {
-    match duffs {
-        Some(d) if d > 0 => {
-            let mut fraction = format!("{:08}", d % DUFFS_PER_DASH);
-            while fraction.ends_with('0') {
-                fraction.pop();
-            }
-            let whole = d / DUFFS_PER_DASH;
-            if fraction.is_empty() {
-                format!("dash:{address}?amount={whole}")
-            } else {
-                format!("dash:{address}?amount={whole}.{fraction}")
-            }
+/// BIP21: `dash:<address>?amount=0.25&label=…`, the amount with a dot and without trailing
+/// zeros; the label (FEAT-0057 П6, R-6.1) as a link reads it back ([`payment_uri::clean_note`]),
+/// percent-encoded; blank — no parameter.
+pub fn payment_uri(address: &str, duffs: Option<i64>, label: &str) -> String {
+    let mut query = Vec::new();
+    if let Some(d) = duffs.filter(|d| *d > 0) {
+        let mut fraction = format!("{:08}", d % DUFFS_PER_DASH);
+        while fraction.ends_with('0') {
+            fraction.pop();
         }
-        _ => format!("dash:{address}"),
+        let whole = d / DUFFS_PER_DASH;
+        query.push(if fraction.is_empty() {
+            format!("amount={whole}")
+        } else {
+            format!("amount={whole}.{fraction}")
+        });
     }
+    let label = crate::payment_uri::clean_note(label);
+    if !label.is_empty() {
+        query.push(format!("label={}", crate::payment_uri::encode(&label)));
+    }
+    if query.is_empty() {
+        format!("dash:{address}")
+    } else {
+        format!("dash:{address}?{}", query.join("&"))
+    }
+}
+
+/// FEAT-0057 П6: «A label for the request (optional)» with its count, the example inside and,
+/// under it, who sees it (R-6.3: the example goes when typing, the warning stays).
+fn label_field(ui: &mut Ui, p: &crate::theme::Palette, label: &mut String) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 6.0;
+        ui.horizontal(|ui| {
+            field_label(ui, p, tr!("A label for the request (optional)"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(txt(
+                    &format!(
+                        "{} / {}",
+                        label.chars().count(),
+                        crate::payment_uri::LABEL_CHARS
+                    ),
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            });
+        });
+        crate::components::text_field(
+            ui,
+            p,
+            "receive-label",
+            label,
+            tr!("For example, invoice No. 14"),
+            crate::components::FieldKind::Text,
+            |_| {},
+        );
+        // R-6.2: what cannot be in a label is not typed into it.
+        let typed = crate::payment_uri::label_typed(label);
+        if typed != *label {
+            // r1 (the architect): the cursor stays after what was typed — moved back by what
+            // was dropped before it (a bidi mark in a paste), not left where it was.
+            let id = ui.make_persistent_id("receive-label");
+            if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id)
+                && let Some(range) = state.cursor.char_range()
+            {
+                let kept = |at: egui::text::CCursor| {
+                    let before: String = label.chars().take(at.index.into()).collect();
+                    egui::text::CCursor::new(
+                        crate::payment_uri::label_typed(&before).chars().count(),
+                    )
+                };
+                let mut range = range;
+                range.primary = kept(range.primary);
+                range.secondary = kept(range.secondary);
+                state.cursor.set_char_range(Some(range));
+                state.store(ui.ctx(), id);
+            }
+            *label = typed;
+        }
+        ui.add(
+            crate::components::para(
+                tr!("The payer and anyone with the link or the QR code will see it"),
+                12.0,
+                Weight::Regular,
+                p.muted,
+            )
+            .line_height(18.0),
+        );
+    });
 }
 
 /// «Request an amount» with, while «Fiat rate» is on, the unit switch and by which rate
@@ -289,7 +366,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
             let t = &all[form.target];
             let rate = crate::fiat_lines::Rate::now(cx.now.timestamp());
             let amount = form.requested(rate.as_ref());
-            let uri = payment_uri(&t.value, amount);
+            let uri = payment_uri(&t.value, amount, &form.label);
             // No address yet (the keys are being read): no QR and nothing to copy — a QR without
             // its address says nothing of what it holds (BUG-74 №1).
             let ready = !t.value.trim().is_empty();
@@ -429,6 +506,7 @@ pub fn receive(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, form: &mut ReceiveForm
                                 ));
                             }
                         });
+                        label_field(ui, &p, &mut form.label);
                     }
                     notice(ui, a, t.note_icon, p.muted, t.note);
                     ui.add(
@@ -641,8 +719,31 @@ pub(crate) fn qr_side(height: f32) -> f32 {
     (height - 300.0).clamp(QR_LEAST, QR_MOST)
 }
 
+/// FEAT-0057 П6: the code's quiet zone, in modules each side (the designer, 2026-11-27).
+const QUIET: usize = 4;
+
+/// FEAT-0057 П6: the fewest physical pixels a module is drawn with — at one a camera (and our
+/// own scanner) loses the code.
+const MODULE_LEAST_PX: f32 = 2.0;
+
+/// The side of a code of `modules` (its quiet zone included) in a window `height` points high,
+/// `ppp` pixels a point: [`qr_side`], and never so small that a module is under
+/// [`MODULE_LEAST_PX`] — a dense code (a request with a long label) is drawn larger in a low
+/// window, and its page scrolls.
+pub(crate) fn qr_side_for(height: f32, modules: usize, ppp: f32) -> f32 {
+    qr_side(height).max(MODULE_LEAST_PX * modules as f32 / ppp)
+}
+
 pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
-    let side = qr_side(ui.ctx().content_rect().height());
+    let code = qrcode::QrCode::with_error_correction_level(payload, qrcode::EcLevel::M).ok();
+    // FEAT-0057 П6 (the designer): a quiet zone of four modules each side — without it a
+    // scanner may not find the code's edges.
+    let quiet = QUIET;
+    let ppp = ui.ctx().pixels_per_point();
+    let height = ui.ctx().content_rect().height();
+    let side = code.as_ref().map_or(qr_side(height), |c| {
+        qr_side_for(height, c.width() + 2 * quiet, ppp)
+    });
     let (rect, _) = ui.allocate_exact_size(vec2(side + 40.0, side + 40.0), Sense::hover());
     note_qr_rect(ui, rect);
     // Right to left the card moves, the code is not mirrored: a mirrored QR may not scan.
@@ -655,14 +756,12 @@ pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
         Stroke::new(1.0, p.line),
         StrokeKind::Inside,
     );
-    let Ok(code) = qrcode::QrCode::with_error_correction_level(payload, qrcode::EcLevel::M) else {
+    let Some(code) = code else {
         return;
     };
     let n = code.width();
     let colors = code.to_colors();
     // Whole physical pixels per module keep the edges sharp; the rest is centred.
-    let quiet = 2;
-    let ppp = ui.ctx().pixels_per_point();
     let module = ((side * ppp / (n + 2 * quiet) as f32).floor()).max(1.0) / ppp;
     let drawn = module * (n + 2 * quiet) as f32;
     let origin = rect.center() - vec2(drawn, drawn) / 2.0 + vec2(module, module) * quiet as f32;
@@ -686,7 +785,7 @@ pub(crate) fn qr_card(ui: &mut Ui, p: &crate::theme::Palette, payload: &str) {
 mod tests {
 
     /// BUG-249 (A9, the architect's condition 6): the code at its smallest side, laid out as
-    /// `qr_card` lays it out on a plain screen (whole pixels per module, a quiet zone of two),
+    /// `qr_card` lays it out on a plain screen (whole pixels per module, a quiet zone of four),
     /// still reads with our own scanner — a long «My QR» link included.
     #[test]
     fn qr_least_side_still_reads() {
@@ -694,13 +793,34 @@ mod tests {
             "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
             "alice-in-the-long-name",
         );
-        for payload in [link.as_str(), "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ"] {
+        // FEAT-0057 П6: the longest request — an amount and a label of 60 four-byte characters,
+        // and of 60 Cyrillic ones.
+        let emoji = super::payment_uri(
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            Some(12_345_678),
+            &"🍰".repeat(60),
+        );
+        let cyrillic = super::payment_uri(
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            Some(12_345_678),
+            &"я".repeat(60),
+        );
+        for payload in [
+            link.as_str(),
+            "yMrDQWqicXKL8xdJg23oYVVqKNtm5AwvXQ",
+            cyrillic.as_str(),
+            emoji.as_str(),
+        ] {
             let code =
                 qrcode::QrCode::with_error_correction_level(payload, qrcode::EcLevel::M).unwrap();
             let n = code.width();
-            let quiet = 2;
-            let module = (super::QR_LEAST / (n + 2 * quiet) as f32).floor().max(1.0) as u32;
-            let card = super::QR_LEAST as u32 + 40;
+            let quiet = super::QUIET;
+            // FEAT-0057 П6: the side `qr_card` takes in the lowest window, at a pixel a point —
+            // larger than QR_LEAST for a dense code, so a module is never under two pixels.
+            let side = super::qr_side_for(300.0, n + 2 * quiet, 1.0);
+            let module = (side / (n + 2 * quiet) as f32).floor().max(1.0) as u32;
+            assert!(module >= 2, "{payload}: {module} px a module");
+            let card = side as u32 + 40;
             let mut grey = image::GrayImage::from_pixel(card, card, image::Luma([255]));
             let drawn = module * (n + 2 * quiet) as u32;
             let origin = (card - drawn) / 2 + module * quiet as u32;
@@ -733,6 +853,20 @@ mod tests {
             "the smallest window"
         );
         assert_eq!(super::qr_side(768.0), super::QR_MOST, "an ordinary one");
+        // A short code keeps the window's side; a dense one grows in a low window only.
+        assert_eq!(super::qr_side_for(300.0, 33, 1.0), super::QR_LEAST);
+        assert_eq!(super::qr_side_for(300.0, 109, 1.0), 218.0);
+        // The designer's rule: (modules + 8) × 2 — 60 emoji: version 22, 105 + 8.
+        assert_eq!(
+            super::qr_side_for(300.0, 105 + 2 * super::QUIET, 1.0),
+            226.0
+        );
+        assert_eq!(super::qr_side_for(768.0, 109, 1.0), super::QR_MOST);
+        assert_eq!(
+            super::qr_side_for(300.0, 109, 2.0),
+            super::QR_LEAST,
+            "HiDPI"
+        );
     }
 
     use super::{PastAddress, left_on, past_addresses, payment_uri};
@@ -757,7 +891,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            payment_uri("yX", form.requested(Some(&rate))),
+            payment_uri("yX", form.requested(Some(&rate)), ""),
             "dash:yX?amount=0.81221572"
         );
         // An old rate: the currency is not used; the DASH field (empty) is.
@@ -765,16 +899,19 @@ mod tests {
             fresh: false,
             ..rate
         };
-        assert_eq!(payment_uri("yX", form.requested(Some(&old))), "dash:yX");
+        assert_eq!(payment_uri("yX", form.requested(Some(&old)), ""), "dash:yX");
         crate::format::set_display(Default::default());
     }
 
     #[test]
     fn builds_bip21_links() {
-        assert_eq!(payment_uri("yX", None), "dash:yX");
-        assert_eq!(payment_uri("yX", Some(25_000_000)), "dash:yX?amount=0.25");
-        assert_eq!(payment_uri("yX", Some(300_000_000)), "dash:yX?amount=3");
-        assert_eq!(payment_uri("yX", Some(1)), "dash:yX?amount=0.00000001");
+        assert_eq!(payment_uri("yX", None, ""), "dash:yX");
+        assert_eq!(
+            payment_uri("yX", Some(25_000_000), ""),
+            "dash:yX?amount=0.25"
+        );
+        assert_eq!(payment_uri("yX", Some(300_000_000), ""), "dash:yX?amount=3");
+        assert_eq!(payment_uri("yX", Some(1), ""), "dash:yX?amount=0.00000001");
     }
 
     #[test]

@@ -13,6 +13,9 @@ const MAX_DASH: Duffs = 21_000_000;
 /// A note longer than this is cut: it is a line in «Check the payment».
 const NOTE_CHARS: usize = 200;
 
+/// FEAT-0057 П6 (R-6.2): the most a request's own label may hold (the frame's «0 / 60»).
+pub const LABEL_CHARS: usize = 60;
+
 /// What a `dash:` link asks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PaymentLink {
@@ -165,6 +168,31 @@ fn is_bidi_or_invisible(c: char) -> bool {
             | '\u{FEFF}'
             | '\u{FFF9}'..='\u{FFFB}'
     )
+}
+
+/// FEAT-0057 П6 (R-6.2): a request's label as it is typed — no control or bidi characters
+/// (those [`clean_note`] drops when a link is read) and at most [`LABEL_CHARS`]. Spaces stay as
+/// typed, so a word can follow; the link takes [`clean_note`] of it.
+pub fn label_typed(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .filter(|c| !c.is_control() && !is_bidi_or_invisible(*c))
+        .take(LABEL_CHARS)
+        .collect()
+}
+
+/// RFC 3986 percent-encoding of a query value (R-6.1): the unreserved characters as they are,
+/// every other byte of the UTF-8 as `%XX` — a space too, never `+`.
+pub fn encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// «My QR» (FR-8, as DashPay's `ReceiveInfoView`): `dash:<address>?user=<name>`, no amount.
@@ -320,11 +348,61 @@ mod tests {
 
     #[test]
     fn the_receive_screens_link_reads_back() {
-        let uri = crate::screens::receive::payment_uri(ADDRESS, Some(25_000_000));
+        let uri = crate::screens::receive::payment_uri(ADDRESS, Some(25_000_000), "");
         let link = ok(&uri);
         assert_eq!(
-            (link.address.as_str(), link.amount),
-            (ADDRESS, Some(25_000_000))
+            (link.address.as_str(), link.amount, link.note),
+            (ADDRESS, Some(25_000_000), None)
         );
+    }
+
+    /// FEAT-0057 A6.1: the request's label goes into the link and comes back whole — Russian,
+    /// Arabic, emoji, the URL's own characters.
+    #[test]
+    fn a_requests_label_reads_back_whole() {
+        for label in [
+            "Счёт № 42",
+            "فاتورة رقم ١٤",
+            "Coffee ☕ & cake 🍰",
+            "a=b&c?d#e%f+g/h",
+            "ö",
+        ] {
+            let uri = crate::screens::receive::payment_uri(ADDRESS, Some(25_000_000), label);
+            assert!(
+                uri.starts_with(&format!("dash:{ADDRESS}?amount=0.25&label=")),
+                "{uri}"
+            );
+            assert!(!uri.contains(' ') && !uri.contains('+'), "{uri}");
+            let link = ok(&uri);
+            assert_eq!(link.amount, Some(25_000_000), "{uri}");
+            assert_eq!(link.note.as_deref(), Some(label), "{uri}");
+        }
+        // As the frame has it.
+        assert_eq!(
+            crate::screens::receive::payment_uri(ADDRESS, Some(25_000_000), "Счёт № 42"),
+            format!("dash:{ADDRESS}?amount=0.25&label=%D0%A1%D1%87%D1%91%D1%82%20%E2%84%96%2042")
+        );
+        // Without an amount, the label alone; blank, no parameter.
+        assert_eq!(
+            crate::screens::receive::payment_uri(ADDRESS, None, "x"),
+            format!("dash:{ADDRESS}?label=x")
+        );
+        assert_eq!(
+            crate::screens::receive::payment_uri(ADDRESS, None, "  "),
+            format!("dash:{ADDRESS}")
+        );
+    }
+
+    /// FEAT-0057 A6.2: control and bidi characters are not typed into a label; the 61st
+    /// character is not either. Spaces stay while typing.
+    #[test]
+    fn a_label_is_typed_without_controls_and_up_to_sixty() {
+        assert_eq!(label_typed("pay\u{202E}now\u{7}\n x"), "paynow  x");
+        assert_eq!(label_typed("\u{2066}a\u{2069}\u{200F}"), "a");
+        assert_eq!(label_typed("invoice "), "invoice ");
+        let long = "я".repeat(LABEL_CHARS + 1);
+        assert_eq!(label_typed(&long).chars().count(), LABEL_CHARS);
+        let emoji = "🍰".repeat(LABEL_CHARS + 5);
+        assert_eq!(label_typed(&emoji).chars().count(), LABEL_CHARS);
     }
 }

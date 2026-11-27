@@ -77,6 +77,7 @@ mod pool_levels;
 mod pool_moves;
 mod pool_progress;
 mod qr;
+mod receive_label;
 mod resend;
 mod scrolling;
 mod secret_input;
