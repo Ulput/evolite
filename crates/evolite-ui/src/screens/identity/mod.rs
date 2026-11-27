@@ -410,13 +410,17 @@ pub fn identity(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut IdentityS
     let Some(identity) = &wallet.identity else {
         return;
     };
-    if state.editing.is_some() {
+    if let Some(credits) = state
+        .editing
+        .as_ref()
+        .map(|f| f.flow.credits(crate::components::Credits::of(wallet)))
+    {
         edit_profile(
             ui,
             a,
             state,
             identity,
-            (wallet.fees.profile, crate::components::Credits::of(wallet)),
+            (wallet.fees.profile, credits),
             wallet.password_each_send,
             &mut asked,
         );

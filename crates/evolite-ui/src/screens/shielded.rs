@@ -135,6 +135,11 @@ pub struct PoolState {
     /// "Shield" and "Unshield" (one move at a time; BUG-42): the password for every payment, sent
     /// once, its own answer only (TECH-spend-flow).
     pub flow: crate::components::spend_flow::SpendFlow<PoolMove>,
+    /// BUG-318 (BUG-186's rule): what the summary said when the move was signed — what is left
+    /// at the source and what arrives — shown while it runs: the source's balance has dropped
+    /// by the move already (Core's coins are in the asset lock), and reckoning again from it
+    /// takes the amount off twice.
+    pub signed: Option<(Option<Duffs>, Option<Duffs>)>,
     /// FEAT-0048 step 2 (UC-8): «From mixed coins» chosen in «Shield», and the core's plan.
     pub from_mixed: bool,
     pub mixed: crate::screens::mixed_lock::MixedLock,
@@ -717,6 +722,9 @@ pub(crate) fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                             state.continuing = resume;
                             state.progress = Some(0.0);
                             state.result = None;
+                            // BUG-318: what it was signed with, kept while it runs.
+                            let preview = costs.and_then(|c| c.3);
+                            state.signed = Some((preview.map(|(l, _)| l), preview.map(|(_, a)| a)));
                         }
                     }
                 });
@@ -785,6 +793,10 @@ pub(crate) fn shield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &m
                 && !busy
                 && crate::screens::lock_refused_line(ui, &p, fees, amount);
             let preview = preview.filter(|_| !lock_refused);
+            // BUG-318: while it runs, what was signed — not the source's balance, which has
+            // dropped by the move already.
+            let preview =
+                signed_while_running(state, PoolMove::Shield).map_or(preview, |s| s.0.zip(s.1));
             // From credits not checked in this run, what is left is not said (BUG-116).
             let checked = wallet.balances.credits_checked;
             costs = Some((cost, *source, resume, preview, checked));
@@ -1242,6 +1254,8 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
     let mut planned = None;
     // BUG-249: what is left in the pool after, as the middle reckoned it, for the summary.
     let mut left_text = "—".to_string();
+    // BUG-318: and as a figure, for what the move is signed with.
+    let mut left_now: Option<Duffs> = None;
     let closed = crate::components::dialog_with_summary(
         ui,
         a,
@@ -1327,6 +1341,8 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
                             cx.send(command);
                             state.progress = Some(0.0);
                             state.result = None;
+                            // BUG-318: what it was signed with, kept while it runs.
+                            state.signed = Some((left_now, Some(amount)));
                         }
                     }
                 });
@@ -1390,6 +1406,9 @@ fn unshield_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut PoolSt
             });
             let amount = crate::format::parse_amount(&state.unshield_amount).filter(|d| *d > 0);
             let left = amount.map(|d| crate::format::left_after(balance, d, fee));
+            // BUG-318: while it runs, what was signed — the pool's balance has dropped already.
+            let left = signed_while_running(state, PoolMove::Unshield).map_or(left, |s| s.0);
+            left_now = left;
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 field_label(ui, &p, tr!("Amount"));
@@ -1479,6 +1498,19 @@ fn can_judge(busy: bool, result: Option<&Result<(), CoreError>>) -> bool {
     !busy && !matches!(result, Some(Ok(())))
 }
 
+/// BUG-318 (BUG-186's rule for every summary): the figures `move_` was signed with, while it
+/// runs; none otherwise — and then they are forgotten, so the next move is reckoned afresh.
+fn signed_while_running(
+    state: &mut PoolState,
+    move_: PoolMove,
+) -> Option<(Option<Duffs>, Option<Duffs>)> {
+    let running = state.flow.waiting() && state.flow.signed() == Some(&move_);
+    if !running {
+        state.signed = None;
+    }
+    state.signed.filter(|_| running)
+}
+
 /// A new amount typed after a success: the success is over, and the amount is judged again.
 fn forget_success(
     state: &mut PoolState,
@@ -1493,7 +1525,7 @@ fn forget_success(
 
 /// What "Unshield" costs: into the identity's credits a top-up from the pool, to the Platform
 /// address an unshield, to Core a withdrawal (FEAT-0049).
-fn unshield_fee(fees: &Fees, to: UnshieldTo) -> Duffs {
+pub(crate) fn unshield_fee(fees: &Fees, to: UnshieldTo) -> Duffs {
     match to {
         UnshieldTo::Identity => fees.pool_top_up,
         UnshieldTo::PlatformAddress => fees.unshield,

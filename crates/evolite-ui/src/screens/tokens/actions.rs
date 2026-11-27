@@ -335,6 +335,7 @@ pub(super) fn claim_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &m
     let Some(form) = &mut tokens.claiming else {
         return;
     };
+    let payer_credits = form.flow.credits(payer_credits);
     let Some(row) = row_of(cx, &form.token_id) else {
         tokens.claiming = None;
         return;

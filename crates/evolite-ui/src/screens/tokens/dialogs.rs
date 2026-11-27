@@ -168,6 +168,7 @@ pub(super) fn send_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &mu
     let Some(form) = &mut tokens.sending else {
         return;
     };
+    let payer_credits = form.flow.credits(payer_credits);
     let wallet = cx.wallet();
     let Some(row): Option<TokenRow> = wallet
         .tokens

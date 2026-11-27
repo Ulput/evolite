@@ -426,7 +426,7 @@ fn review_summary(ui: &mut Ui, a: &mut Assets, wallet: &Wallet, form: &NameForm,
         ui,
         a,
         &crate::components::payer_name(wallet),
-        crate::components::Credits::of(wallet),
+        form.flow.credits(crate::components::Credits::of(wallet)),
         crate::components::Charge::About(total),
     );
     notice(

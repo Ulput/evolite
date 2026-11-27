@@ -1154,6 +1154,8 @@ fn add_contact(
     let result = state.result.clone();
     // The request costs credits: "password for every payment" asks for it here.
     let ask = crate::components::password_asked(cx.snap);
+    // BUG-318: the credits as signed, read before the password borrows the flow.
+    let credits = state.flow.credits(crate::components::Credits::of(wallet));
     let password = &mut state.flow.password;
     let mut send = false;
     let mut found_ready = false;
@@ -1189,7 +1191,7 @@ fn add_contact(
                     ui,
                     a,
                     &me,
-                    crate::components::Credits::of(wallet),
+                    credits,
                     crate::components::Charge::About(fee),
                 );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.
@@ -1529,7 +1531,7 @@ fn accept_dialog(
                     ui,
                     a,
                     &crate::components::payer_name(wallet),
-                    crate::components::Credits::of(wallet),
+                    state.flow.credits(crate::components::Credits::of(wallet)),
                     crate::components::Charge::About(wallet.fees.contact_request),
                 );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.

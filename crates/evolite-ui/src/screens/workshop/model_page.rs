@@ -1439,6 +1439,9 @@ fn series_window(
     let Some(form) = state.series.as_mut() else {
         return;
     };
+    let held_credits = form
+        .flow
+        .credits(crate::components::Credits::of(cx.wallet()));
     // Signed and answered well: the plate takes over.
     if matches!(form.flow.result(), Some(Ok(()))) {
         state.series = None;
@@ -1613,7 +1616,7 @@ fn series_window(
                     ui,
                     a,
                     &who,
-                    crate::components::Credits::of(&wallet),
+                    held_credits,
                     fees.map_or(crate::components::Charge::Calculating, |(_, total)| {
                         crate::components::Charge::AtMost(total)
                     }),

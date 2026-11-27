@@ -80,6 +80,8 @@ pub enum Stage<S> {
 /// BUG-177/179/186), shown again with the answer.
 pub struct SpendFlow<S> {
     stage: Stage<S>,
+    /// BUG-318: the payer's credits as the window last showed them while nothing was sent.
+    credits: std::cell::Cell<Option<super::Credits>>,
     /// The wallet password typed for it ([`SpendPassword`]).
     pub password: SpendPassword,
 }
@@ -90,6 +92,7 @@ impl<S> Default for SpendFlow<S> {
         MADE.with(|m| m.set(m.get() + 1));
         Self {
             stage: Stage::Idle,
+            credits: std::cell::Cell::new(None),
             password: SpendPassword::default(),
         }
     }
@@ -111,6 +114,19 @@ impl<S> SpendFlow<S> {
     /// Sent, its answer awaited.
     pub fn waiting(&self) -> bool {
         matches!(self.stage, Stage::Waiting { .. })
+    }
+
+    /// BUG-318 (BUG-186's rule for FEAT-0057 П3's «now › after»): the payer's credits as the
+    /// window showed them when it was signed — held while it runs and once answered; `now`
+    /// while nothing is sent. They drop while a write runs (a name's preorder is charged before
+    /// its domain; a balance pass reads them meanwhile): «now» taken again would take the fee
+    /// off twice. Every window asks it each frame, so the last idle frame's is what was signed.
+    pub fn credits(&self, now: super::Credits) -> super::Credits {
+        if matches!(self.stage, Stage::Idle) {
+            self.credits.set(Some(now));
+            return now;
+        }
+        self.credits.get().unwrap_or(now)
     }
 
     /// The figures shown when it was signed, while it waits or once answered.

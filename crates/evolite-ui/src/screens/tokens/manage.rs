@@ -1164,6 +1164,7 @@ pub(super) fn issuer_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, tokens: &
     let Some(form) = &mut tokens.issuer else {
         return;
     };
+    let payer_credits = form.flow.credits(payer_credits);
     let Some(page) = cx
         .wallet()
         .tokens

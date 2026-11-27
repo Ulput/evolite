@@ -584,7 +584,9 @@ pub fn request(
                     ui,
                     a,
                     identity,
-                    crate::components::Credits::of(cx.wallet()),
+                    state
+                        .flow
+                        .credits(crate::components::Credits::of(cx.wallet())),
                     // R-3.3: `fee_of_keys` is an upper bound — «after» at least.
                     crate::components::Charge::AtMost(*cost),
                 );

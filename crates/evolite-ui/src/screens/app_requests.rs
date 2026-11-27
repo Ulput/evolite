@@ -382,7 +382,9 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
                     ui,
                     a,
                     &pays,
-                    crate::components::Credits::of(cx.wallet()),
+                    state
+                        .disconnect_flow
+                        .credits(crate::components::Credits::of(cx.wallet())),
                     crate::components::Charge::About(cost),
                 );
                 // FEAT-0004 FR-7: the large-spend tick with what it agrees to.

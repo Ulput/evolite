@@ -230,6 +230,7 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
         return;
     }
     let form = &mut state.new;
+    let held_credits = form.flow.credits(crate::components::Credits::of(&wallet));
     let now = ui.input(|i| i.time);
     let who = super::super::tokens::shown_name(&wallet);
     // Ask the core again once the form rests on a draft it has not checked.
@@ -303,7 +304,7 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
             ui,
             a,
             &who,
-            crate::components::Credits::of(&wallet),
+            held_credits,
             fee,
             counting,
             why.as_deref(),

@@ -210,3 +210,99 @@ fn a_shields_success_is_not_an_unshields() {
     });
     assert!(has_words(&kit, POOL_TOO_LITTLE));
 }
+
+fn wallet_of(kit: &Kit) -> evolite_api::Wallet {
+    kit.state()
+        .snapshot
+        .as_ref()
+        .and_then(|s| s.wallet.clone())
+        .expect("a wallet")
+}
+
+/// A move sent and still running as the dialog leaves it: its answer not come.
+fn still_running(p: &mut crate::screens::shielded::PoolState, move_: PoolMove, signed: Signed) {
+    p.flow
+        .set_stage(crate::components::spend_flow::Stage::Waiting {
+            ask: 999_999,
+            signed: move_,
+        });
+    p.progress = Some(0.07);
+    p.signed = signed;
+}
+
+type Signed = Option<(Option<evolite_api::Duffs>, Option<evolite_api::Duffs>)>;
+
+/// BUG-318: while a shield from Core runs, «Left on Core» is what it was signed with — the coins
+/// have left the balance for the asset lock, and the amount is not taken off a second time.
+/// «Shield» keeps the figures it was signed with. Mutant: the signed figures not used → the
+/// amount twice.
+#[test]
+fn a_running_shield_shows_what_it_was_signed_with() {
+    let (_turn, mut kit) = demo_app("shield", "en");
+    let w = wallet_of(&kit);
+    let amount = (w.balances.core / 4 / 10_000) * 10_000;
+    let left = w.balances.core - amount - w.fees.core_payment;
+    let arrives = amount - w.fees.shield_from_core;
+    in_state(
+        &mut kit,
+        |_| {},
+        |p| {
+            // The preset shows a shield at work: none here, so «Shield» can be pressed.
+            p.progress = None;
+            p.from = 2;
+            p.amount = crate::format::input_text(amount);
+        },
+    );
+    let said = format!("≈ {}", crate::format::balance(left));
+    assert!(has_words(&kit, &said), "before: «{said}»");
+    // The dialog's «Shield» (the screen has its own behind it).
+    kit.query_all_by_role_and_label(Role::Button, "Shield")
+        .last()
+        .expect("the dialog's «Shield»")
+        .click();
+    kit.run_steps(1);
+    assert_eq!(
+        kit.state().pool.signed,
+        Some((Some(left), Some(arrives))),
+        "signed with what the summary said"
+    );
+    // The coins in the lock: the balance less the amount and Core's fee, the answer to come.
+    let locked = move |w: &mut evolite_api::Wallet| w.balances.core = left;
+    in_state(&mut kit, locked, |p| {
+        still_running(p, PoolMove::Shield, Some((Some(left), Some(arrives))));
+    });
+    assert!(has_words(&kit, &said), "while it runs: still «{said}»");
+    let twice = format!(
+        "≈ {}",
+        crate::format::balance(left - amount - w.fees.core_payment)
+    );
+    assert!(!has_words(&kit, &twice), "not «{twice}»");
+}
+
+/// BUG-318, the same rule: while an unshield runs, «Left in the pool» is what it was signed
+/// with, not the pool's balance that has dropped already.
+#[test]
+fn a_running_unshield_shows_what_it_was_signed_with() {
+    let (_turn, mut kit) = demo_app("unshield", "en");
+    let w = wallet_of(&kit);
+    let pool = w.balances.shielded;
+    let amount = (pool / 4 / 10_000) * 10_000;
+    let fee = crate::screens::shielded::unshield_fee(&w.fees, kit.state().pool.unshield_to);
+    let left = crate::format::left_after(pool, amount, fee);
+    in_state(
+        &mut kit,
+        |_| {},
+        |p| {
+            p.unshield_amount = crate::format::input_text(amount);
+        },
+    );
+    let said = crate::format::balance(left);
+    assert!(has_words(&kit, &said), "before: «{said}»");
+    let spent = move |w: &mut evolite_api::Wallet| w.balances.shielded = left;
+    in_state(&mut kit, spent, |p| {
+        still_running(p, PoolMove::Unshield, Some((Some(left), Some(amount))));
+    });
+    assert!(has_words(&kit, &said), "while it runs: still «{said}»");
+    let twice = crate::format::balance(crate::format::left_after(left, amount, fee));
+    assert!(!has_words(&kit, &twice), "not «{twice}»");
+}

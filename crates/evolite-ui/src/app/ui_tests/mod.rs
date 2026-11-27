@@ -85,6 +85,7 @@ mod send;
 mod send_back;
 mod set_aside;
 mod settings_apps;
+mod signed_summaries;
 mod smallest_window;
 mod spend;
 mod spend_flows;

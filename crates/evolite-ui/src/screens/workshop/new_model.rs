@@ -372,6 +372,7 @@ pub(super) fn page(
     }
     page_header(ui, a, tr!("New model"), None, |_, _| {});
     let form = &mut state.model;
+    let held_credits = form.flow.credits(crate::components::Credits::of(&wallet));
     // A file chosen in the dialog.
     if let Some(rx) = &form.picking {
         match rx.try_recv() {
@@ -455,7 +456,7 @@ pub(super) fn page(
             ui,
             a,
             &who,
-            crate::components::Credits::of(&wallet),
+            held_credits,
             plan.as_ref(),
             counting,
             form.mint().unwrap_or(0),

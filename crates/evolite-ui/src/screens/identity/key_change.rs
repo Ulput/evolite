@@ -240,7 +240,9 @@ pub(super) fn change_dialog(
     // BUG-183 AC-T4: credits short of the fee are said before the password (BUG-108's estimate,
     // never below what testnet charged).
     let credits = &cx.wallet().balances;
-    let payer_credits = crate::components::Credits::of(cx.wallet());
+    let payer_credits = change
+        .flow
+        .credits(crate::components::Credits::of(cx.wallet()));
     let credits_short = (plan.is_ok() && credits.credits_checked && fee > credits.credits)
         .then_some(credits.credits);
     let (title, icon, act, danger) = match change.kind {
