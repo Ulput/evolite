@@ -2679,6 +2679,11 @@ pub enum Command {
     /// (`dash-key:` v1, `dash-st:`) is refused with words of its own.
     OpenAppLink {
         text: String,
+        /// BUG-334 r1: the screen's own number for this read, given back in
+        /// [`Event::AppRequest`]: the answer to a read left or replaced is not taken for another
+        /// (the answers come out of order: a refused link at once, a read one later). `None`:
+        /// opened from outside (a link given at start).
+        ask: Option<u64>,
     },
     /// Turn down an app's request (approving it is [`Spend::ApproveApp`]). Answered with
     /// `Done { what: DoneWhat::App }`.
@@ -3687,7 +3692,11 @@ pub enum Event {
         what: &'static str,
         fraction: f32,
     },
-    AppRequest(Result<AppRequest, CoreError>),
+    /// The answer to [`Command::OpenAppLink`], with its `ask`.
+    AppRequest {
+        request: Result<AppRequest, CoreError>,
+        ask: Option<u64>,
+    },
     /// The answer to `PreviewPayment`: the Core address the payment to `to` will go to.
     PaymentPreview {
         to: String,

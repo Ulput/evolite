@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "正在读取应用的请求…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite 正在从 Platform 读取应用的合约及其所有者，并核对证明。这可能需要半分钟。",
   "Spent {} of {} · until {} · {} by the earlier keys": "已花费 {} / {} · 至 {} · 之前的密钥花费 {}",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "已花费：正在检查… / {} · 至 {} · 之前的密钥花费 {}",
   "Spent {} of {} · until {} · by the earlier keys: not known": "已花费 {} / {} · 至 {} · 之前的密钥花费：未知",

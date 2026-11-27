@@ -495,6 +495,7 @@ impl Real {
         &self,
         link: v2::Link,
         text: &str,
+        ask: Option<u64>,
     ) -> Result<(), CoreError> {
         let text = text.to_owned();
         let (id, keys) = self.dashpay_ready()?;
@@ -632,7 +633,10 @@ impl Real {
                 })
             }
             .await;
-            Event::AppRequest(result)
+            Event::AppRequest {
+                request: result,
+                ask,
+            }
         });
         Ok(())
     }

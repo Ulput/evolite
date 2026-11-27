@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "Читаємо запит застосунку…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite читає з Platform контракт застосунку та його власника й перевіряє докази. Це може тривати до пів хвилини.",
   "Spent {} of {} · until {} · {} by the earlier keys": "Витрачено {} з {} · до {} · {} попередніми ключами",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "Витрачено: перевіряємо… з {} · до {} · {} попередніми ключами",
   "Spent {} of {} · until {} · by the earlier keys: not known": "Витрачено {} з {} · до {} · попередніми ключами: невідомо",

@@ -316,7 +316,7 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         match app_link_from_qr(&scanned) {
             Ok(link) => {
                 requests.qr_error = None;
-                cx.send(evolite_api::Command::OpenAppLink { text: link });
+                cx.send(requests.read(link));
             }
             Err(why) => requests.qr_error = why,
         }
@@ -342,7 +342,7 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         let scan = button_enabled(ui, a, tr!("Scan QR"), ButtonKind::Primary, None, !scanning);
         crate::components::qr_menu_under(ui, a, "apps", &scan, &mut requests.scanner);
         if button(ui, a, tr!("Paste a link"), ButtonKind::Secondary, None).clicked() {
-            requests.pasting = true;
+            requests.start_pasting();
             requests.qr_error = None;
         }
     });
@@ -405,9 +405,7 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
         if cx.snap.demo
             && crate::components::text_action(ui, a, "link", tr!("Show an example")).clicked()
         {
-            cx.send(evolite_api::Command::OpenAppLink {
-                text: EXAMPLE.to_string(),
-            });
+            cx.send(requests.read(EXAMPLE.to_string()));
         }
         if let Some(done) = requests.connected.clone() {
             let answer = notice_closable(ui, a, "confirmed", &done, "", None);
@@ -430,7 +428,7 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
                         p.muted,
                     ));
                     if button(ui, a, tr!("Paste a link"), ButtonKind::Secondary, None).clicked() {
-                        requests.pasting = true;
+                        requests.start_pasting();
                     }
                 });
                 ui.add_space(32.0);
@@ -478,7 +476,7 @@ pub fn apps(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, requests: &mut AppRequest
     if let Some((app, line)) = requests.renewing.clone() {
         let mut closed = false;
         match connect2::renew_how(ui, a, &app, &line, &mut closed) {
-            Some(true) => requests.pasting = true,
+            Some(true) => requests.start_pasting(),
             Some(false) => scan_now = true,
             None => {}
         }

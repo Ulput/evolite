@@ -195,7 +195,10 @@ impl PriceWatch {
     /// An answer going to the window: the record of the spend it ends, if any.
     fn ended(&self, event: &Event) -> Option<Record> {
         let (answer, failure, fee) = match event {
-            Event::AppRequest(Ok(request)) => {
+            Event::AppRequest {
+                request: Ok(request),
+                ..
+            } => {
                 let mut watch = self.lock();
                 let cost = price::app_cost(&request.kind);
                 watch.app_costs.insert(request.id, cost);
@@ -549,25 +552,28 @@ mod tests {
     fn an_app_is_judged_by_the_cost_its_request_showed() {
         let (watch, dir) = watch();
         seen_by(&watch, 10_000);
-        watch.ended(&Event::AppRequest(Ok(evolite_api::AppRequest {
-            id: 7,
-            app: "yappr".into(),
-            kind: evolite_api::AppRequestKind::Connect2 {
-                app_id: String::new(),
-                label: String::new(),
-                owner: String::new(),
-                owner_name: None,
-                identity: String::new(),
-                sessions: Vec::new(),
-                encryption: Vec::new(),
-                limits: evolite_api::SessionLimits::wallet(),
-                breaks_old_clients: false,
-                renews: None,
-                created_at: 0,
-                callback_host: None,
-                cost: 77,
-            },
-        })));
+        watch.ended(&Event::AppRequest {
+            ask: None,
+            request: Ok(evolite_api::AppRequest {
+                id: 7,
+                app: "yappr".into(),
+                kind: evolite_api::AppRequestKind::Connect2 {
+                    app_id: String::new(),
+                    label: String::new(),
+                    owner: String::new(),
+                    owner_name: None,
+                    identity: String::new(),
+                    sessions: Vec::new(),
+                    encryption: Vec::new(),
+                    limits: evolite_api::SessionLimits::wallet(),
+                    breaks_old_clients: false,
+                    renews: None,
+                    created_at: 0,
+                    callback_host: None,
+                    cost: 77,
+                },
+            }),
+        });
         watch.begin(&Spend::ApproveApp { id: 7, grant: None }, 1);
         let record =
             watch.ended(&Spend::ApproveApp { id: 7, grant: None }.refused(CoreError::BadLink));

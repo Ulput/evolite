@@ -9,6 +9,7 @@ use evolite_api::Command;
 fn open_request(kit: &mut Kit) {
     kit.state_mut().core.send(Command::OpenAppLink {
         text: "dashpay://connect?v=2&n=t&r=AQ".into(),
+        ask: None,
     });
     wait_for(kit, "the request dialog", |kit| {
         kit.state().requests.open.is_some()
@@ -251,6 +252,7 @@ fn a_v1_link_is_refused_with_its_version() {
     let (_turn, mut kit) = demo_app("apps", "en");
     kit.state_mut().core.send(Command::OpenAppLink {
         text: "dash-key:abc?n=t&v=1".into(),
+        ask: None,
     });
     wait_for(&mut kit, "the refusal", |kit| {
         kit.state().requests.refused.is_some()
@@ -552,4 +554,110 @@ fn a_failed_read_says_which_and_opens_the_link_again() {
         kit.state().requests.open.is_some()
     });
     assert!(kit.state().requests.refused.is_none());
+}
+
+/// BUG-334: a link being read says so at once — «Reading the app's request…», with «Cancel» —
+/// for the 10–30 s Platform takes. r1: a read left (A) whose answer comes after the next read
+/// (B) started is dropped and B's request opens; «Open» in the paste window reads, then the
+/// request opens.
+#[test]
+fn a_link_being_read_says_so_and_can_be_left() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    let link = "dashpay://connect?v=2&n=t&r=AQ";
+    let ask = |c: Command| match c {
+        Command::OpenAppLink { ask, .. } => ask,
+        _ => None,
+    };
+    // A read whose answer has not come (none was asked of the core): the window is there.
+    let a = ask(kit.state_mut().requests.read(link.into()));
+    kit.run_steps(2);
+    assert!(has_text(&kit, "Reading the app's request…"));
+    button(&kit, "Cancel").click();
+    kit.run_steps(2);
+    assert_eq!(kit.state().requests.reading, None);
+    assert!(!has_text(&kit, "Reading the app's request…"));
+    // B read; A's answer comes first: dropped, B still read.
+    let b = ask(kit.state_mut().requests.read(link.into()));
+    kit.state_mut().core.send(Command::OpenAppLink {
+        text: link.into(),
+        ask: a,
+    });
+    settle(&mut kit);
+    assert!(kit.state().requests.open.is_none(), "A's answer dropped");
+    assert_eq!(kit.state().requests.reading, b);
+    // B's answer: its request.
+    kit.state_mut().core.send(Command::OpenAppLink {
+        text: link.into(),
+        ask: b,
+    });
+    wait_for(&mut kit, "B's request", |kit| {
+        kit.state().requests.open.is_some()
+    });
+    assert_eq!(kit.state().requests.reading, None);
+    kit.state_mut().requests.open = None;
+    kit.run_steps(2);
+    // «Paste a link» → «Open»: read, then the request.
+    kit.query_all_by_role_and_label(Role::Button, "Paste a link")
+        .last()
+        .expect("«Paste a link»")
+        .click();
+    kit.run_steps(2);
+    kit.state_mut().requests.link = link.into();
+    kit.run_steps(1);
+    button(&kit, "Open").click();
+    kit.run_steps(1);
+    assert!(
+        kit.state().requests.reading.is_some() || kit.state().requests.open.is_some(),
+        "reading from the click on"
+    );
+    assert!(!kit.state().requests.pasting, "the paste window gives way");
+    wait_for(&mut kit, "the request", |kit| {
+        kit.state().requests.open.is_some()
+    });
+    assert_eq!(kit.state().requests.reading, None);
+}
+
+/// BUG-336: «Paste a link» opens empty after a link that failed — a paste is not added to it.
+#[test]
+fn the_paste_window_opens_empty() {
+    let (_turn, mut kit) = demo_app("apps", "en");
+    kit.state_mut().requests.link = "dashpay://connect?v=2&n=t&r=OLD".into();
+    kit.query_all_by_role_and_label(Role::Button, "Paste a link")
+        .last()
+        .expect("«Paste a link»")
+        .click();
+    kit.run_steps(3);
+    assert!(kit.state().requests.pasting);
+    assert_eq!(kit.state().requests.link, "");
+}
+
+/// BUG-335: at 1024 × 768 in Russian the failed read's title («Не удалось прочитать запрос
+/// приложения») keeps clear of the close cross — a second line, not under it.
+#[test]
+fn a_refusals_title_keeps_clear_of_the_cross() {
+    let (_turn, mut kit) = demo_app("apps", "ru");
+    kit.state_mut().requests.refused = Some(evolite_api::AppLinkRefusal::ReadFailed {
+        stage: evolite_api::ConnectRead::Contract,
+        undecoded: false,
+        id: "8mjmcXmfLyFAX6BkawQbiuWUaNXyN3T7cSKTdTXhpDVU".into(),
+        details: "timeout".into(),
+        link: "dashpay://connect?v=2&n=t&r=AQ".into(),
+    });
+    kit.run_steps(4);
+    let close = crate::i18n::spoken(tr!("Close"));
+    let cross = kit
+        .query_all_by(|n| n.role() == Role::Button && n.label().as_deref() == Some(&*close))
+        .map(|n| n.rect())
+        .min_by(|a, b| a.top().total_cmp(&b.top()))
+        .expect("the cross");
+    let words = "Не удалось прочитать запрос приложения";
+    let title = kit
+        .query_all_by(|n| n.value().is_some_and(|v| v == words))
+        .map(|n| n.rect())
+        .next()
+        .expect("the title");
+    assert!(
+        title.right() + 10.0 <= cross.left() + 0.5,
+        "title {title:?}, cross {cross:?}"
+    );
 }

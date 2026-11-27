@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "アプリのリクエストを読み込んでいます…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite は Platform からアプリのコントラクトとその所有者を読み込み、証明を確認しています。最大 30 秒ほどかかることがあります。",
   "Spent {} of {} · until {} · {} by the earlier keys": "{1} のうち {0} 使用 · {2} まで · 以前の鍵で {3}",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "使用：確認中… {} のうち · {} まで · 以前の鍵で {}",
   "Spent {} of {} · until {} · by the earlier keys: not known": "{1} のうち {0} 使用 · {2} まで · 以前の鍵で：不明",

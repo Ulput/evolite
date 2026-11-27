@@ -122,6 +122,7 @@ fn without_a_sign_in_key_app_connect_is_refused_and_the_key_is_added_back() {
     wait_for(&mut kit, "Apps", |k| k.state().screen == Screen::Apps);
     kit.state_mut().core.send(Command::OpenAppLink {
         text: "dashpay://connect?v=2&n=t&r=AQ".into(),
+        ask: None,
     });
     wait_for(&mut kit, "the refusal", |k| {
         k.state().requests.refused.is_some()
@@ -330,6 +331,7 @@ fn a_dash_key_link_without_a_sign_in_key_is_refused_before_anything() {
     let (credits_before, keys_before) = (credits(&kit), identity(&kit).keys);
     kit.state_mut().core.send(Command::OpenAppLink {
         text: "dash-key:3mJr7AoUXx2Wqd?n=t&v=2".into(),
+        ask: None,
     });
     wait_for(&mut kit, "the refusal", |k| {
         k.state().requests.refused.is_some()

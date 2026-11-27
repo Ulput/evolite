@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "앱의 요청을 읽는 중…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite가 Platform에서 앱의 컨트랙트와 소유자를 읽고 증명을 확인합니다. 최대 30초 정도 걸릴 수 있습니다.",
   "Spent {} of {} · until {} · {} by the earlier keys": "{1} 중 {0} 사용 · {2}까지 · 이전 키로 {3}",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "사용: 확인 중… {} 중 · {}까지 · 이전 키로 {}",
   "Spent {} of {} · until {} · by the earlier keys: not known": "{1} 중 {0} 사용 · {2}까지 · 이전 키로: 알 수 없음",

@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "Membaca permintaan aplikasi…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite membaca kontrak aplikasi dan pemiliknya dari Platform serta memeriksa buktinya. Ini bisa memakan waktu hingga setengah menit.",
   "Spent {} of {} · until {} · {} by the earlier keys": "Terpakai {} dari {} · sampai {} · {} oleh kunci sebelumnya",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "Terpakai: memeriksa… dari {} · sampai {} · {} oleh kunci sebelumnya",
   "Spent {} of {} · until {} · by the earlier keys: not known": "Terpakai {} dari {} · sampai {} · oleh kunci sebelumnya: tidak diketahui",

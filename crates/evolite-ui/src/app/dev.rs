@@ -996,7 +996,10 @@ impl App {
         let real_shot = dev.real_shot;
         let preset = |name: &str| dev.preset(name);
         if let Some(link) = dev.example_link {
-            self.core.send(Command::OpenAppLink { text: link.into() });
+            self.core.send(Command::OpenAppLink {
+                text: link.into(),
+                ask: None,
+            });
         }
         // FEAT-0023 round 4: the request at its end (A1b), and the list's dialogs (R1, D1, D2)
         // or its disconnected part (L2).

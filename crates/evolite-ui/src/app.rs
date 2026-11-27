@@ -1081,7 +1081,7 @@ impl App {
                     result,
                     ..
                 } => self.settings.on_node_saved(result),
-                Event::AppRequest(request) => {
+                Event::AppRequest { request, ask } => {
                     if let Ok(request) = request
                         && self.settings.is_on("notify-apps")
                         && !ctx.input(|i| i.focused)
@@ -1090,7 +1090,7 @@ impl App {
                             &crate::screens::app_requests::app_label(&request.app),
                         ));
                     }
-                    self.requests.on_request(request.clone());
+                    self.requests.on_request(request.clone(), *ask);
                 }
                 Event::Done {
                     what: DoneWhat::App,

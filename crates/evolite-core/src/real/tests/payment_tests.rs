@@ -188,11 +188,17 @@ async fn a_disconnect_is_not_taken_for_an_answer_to_a_request() {
 #[tokio::test]
 async fn app_links_are_checked_before_anything_is_signed() {
     let mut core = core_with_vault("app-links", "pw");
-    let request = |text: &str| Command::OpenAppLink { text: text.into() };
+    let request = |text: &str| Command::OpenAppLink {
+        text: text.into(),
+        ask: None,
+    };
     let (event, _) = core.handle(request("https://evil.example")).await;
     assert!(matches!(
         event,
-        Some(Event::AppRequest(Err(CoreError::BadLink)))
+        Some(Event::AppRequest {
+            request: Err(CoreError::BadLink),
+            ..
+        })
     ));
     // FEAT-0023: App Connect v1 is not supported; its links say so, whatever they hold.
     for v1 in [
@@ -203,7 +209,10 @@ async fn app_links_are_checked_before_anything_is_signed() {
         let (event, _) = core.handle(request(v1)).await;
         match event {
             // Told as another version (E1): v1, as the link says, or 1 for dash-st:.
-            Some(Event::AppRequest(Err(CoreError::AppLink(AppLinkRefusal::Version { v })))) => {
+            Some(Event::AppRequest {
+                request: Err(CoreError::AppLink(AppLinkRefusal::Version { v })),
+                ..
+            }) => {
                 assert_eq!(v, "1", "{v1}")
             }
             other => panic!("{v1}: {other:?}"),
@@ -214,11 +223,12 @@ async fn app_links_are_checked_before_anything_is_signed() {
         .await;
     assert!(matches!(
         event,
-        Some(Event::AppRequest(Err(CoreError::AppLink(
-            AppLinkRefusal::LinkForNetwork {
+        Some(Event::AppRequest {
+            request: Err(CoreError::AppLink(AppLinkRefusal::LinkForNetwork {
                 network: evolite_api::Network::Mainnet
-            }
-        ))))
+            })),
+            ..
+        })
     ));
     // Declining is always answered; approving a request never shown is refused.
     let answer = |id, approve| match approve {

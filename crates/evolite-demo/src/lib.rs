@@ -745,7 +745,7 @@ impl Mock {
                 )),
                 ask: None,
             },
-            Command::OpenAppLink { text } => {
+            Command::OpenAppLink { text, ask } => {
                 self.next_request += 1;
                 let request = match &self.snapshot.wallet {
                     Some(wallet) => app_request(self.next_request, &text, wallet),
@@ -760,7 +760,7 @@ impl Mock {
                 {
                     self.asked_v2 = Some((asked.id, asked.kind.clone()));
                 }
-                Event::AppRequest(request)
+                Event::AppRequest { request, ask }
             }
             Command::DeclineApp { .. } => Event::Done {
                 what: DoneWhat::App,
@@ -4041,7 +4041,7 @@ mod tests {
         let events = || rx.try_iter().collect::<Vec<_>>();
         let opened = |events: Vec<Event>| {
             events.into_iter().find_map(|e| match e {
-                Event::AppRequest(Ok(r)) => Some(r),
+                Event::AppRequest { request: Ok(r), .. } => Some(r),
                 _ => None,
             })
         };
@@ -4064,7 +4064,10 @@ mod tests {
             ask: 0,
             large_confirmed: false,
         };
-        let link = |text: &str| Command::OpenAppLink { text: text.into() };
+        let link = |text: &str| Command::OpenAppLink {
+            text: text.into(),
+            ask: None,
+        };
         m.handle(link("dashpay://connect?v=2&n=t&r=AQ"), &tx);
         let request = opened(events()).expect("a request");
         let AppRequestKind::Connect2 {

@@ -59,6 +59,11 @@ pub struct AppRequests {
     pub preset: Option<&'static str>,
     /// `--screen connect-limits`: the request scrolled to its end (A1b).
     pub body_to_end: bool,
+    /// BUG-334: the read under way, by its number (`ask`): «Reading the app's request…» until
+    /// its answer comes (the reads take up to half a minute). Only its own answer is taken.
+    pub reading: Option<u64>,
+    /// The number the next read gets.
+    pub next_ask: u64,
 }
 
 /// The person's yes to a request ("Allow sign-in", "Sign", "The code matches"). The core takes
@@ -89,8 +94,44 @@ pub enum Pick {
 }
 
 impl AppRequests {
+    /// BUG-334: `text` read by the core, and «Reading the app's request…» shown until it
+    /// answers: the paste window and a refusal close.
+    pub fn read(&mut self, text: String) -> Command {
+        self.next_ask += 1;
+        self.reading = Some(self.next_ask);
+        self.pasting = false;
+        self.refused = None;
+        Command::OpenAppLink {
+            text,
+            ask: Some(self.next_ask),
+        }
+    }
+
+    /// BUG-334: «Cancel» while reading: the read's answer, when it comes, is not its number
+    /// any more and is dropped. A read spends nothing.
+    pub fn cancel_reading(&mut self) {
+        self.reading = None;
+    }
+
+    /// BUG-336: «Paste a link» opens empty — a link pasted before is not the next one, and a
+    /// paste must not be added to it.
+    pub fn start_pasting(&mut self) {
+        self.pasting = true;
+        self.link.clear();
+        self.link_error = None;
+    }
+
     /// Takes the core's answer to a link or to the user's decision.
-    pub fn on_request(&mut self, request: Result<AppRequest, CoreError>) {
+    pub fn on_request(&mut self, request: Result<AppRequest, CoreError>, ask: Option<u64>) {
+        // BUG-334 r1: the answer to a read of this screen is taken only while it is the read
+        // under way — one left («Cancel») or replaced by another is dropped, whatever order the
+        // answers come in. A link opened from outside (`None`) is shown as before.
+        if let Some(ask) = ask {
+            if self.reading != Some(ask) {
+                return;
+            }
+            self.reading = None;
+        }
         match request {
             Ok(r) => {
                 // BUG-209: another request starts clean — the password typed for the one it
@@ -268,16 +309,21 @@ pub fn show(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) 
     if state.pasting {
         paste_dialog(ui, a, cx, state);
     }
+    if state.reading.is_some() {
+        reading_dialog(ui, a, state);
+    }
     if let Some(why) = state.refused.clone() {
         let mut again = false;
         let mut retry = None;
         if super::connect2::refusal(ui, a, &why, &mut again, &mut retry) {
             state.refused = None;
-            state.pasting = again;
+            if again {
+                state.start_pasting();
+            }
         }
         // BUG-323: «Try again» opens the same link again.
         if let Some(text) = retry {
-            cx.send(Command::OpenAppLink { text });
+            cx.send(state.read(text));
         }
     }
     let Some(request) = state.open.clone() else {
@@ -431,6 +477,48 @@ pub fn disconnect_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut 
     }
 }
 
+/// BUG-334: while the core reads a link — the app's contract, its owner, the groups and the
+/// keys, from Platform with proofs, up to half a minute — the screen says so, and the read can
+/// be left (its answer is dropped then).
+fn reading_dialog(ui: &mut Ui, a: &mut Assets, state: &mut AppRequests) {
+    let closed = dialog_with_footer(
+        ui,
+        a,
+        "app-link-reading",
+        "link",
+        tr!("Reading the app's request…"),
+        462.0,
+        |ui, a, part| {
+            let p = a.p;
+            if part == Part::Footer {
+                let mut close = false;
+                button_row(ui, |ui| {
+                    if button(ui, a, tr!("Cancel"), ButtonKind::Ghost, None).clicked() {
+                        close = true;
+                    }
+                });
+                return close;
+            }
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.add(egui::Spinner::new().size(18.0).color(p.muted));
+                ui.add(crate::components::para(
+                    tr!(
+                        "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute."
+                    ),
+                    13.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            });
+            false
+        },
+    );
+    if closed {
+        state.cancel_reading();
+    }
+}
+
 /// "Paste a link": an App Connect v2 link from an app (`dashpay://connect`, or `dash-key:` v2).
 fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppRequests) {
     let closed = dialog_with_footer(
@@ -453,9 +541,8 @@ fn paste_dialog(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut AppReques
                     if button_enabled(ui, a, tr!("Open"), ButtonKind::Primary, None, ready)
                         .clicked()
                     {
-                        cx.send(Command::OpenAppLink {
-                            text: state.link.clone(),
-                        });
+                        let link = state.link.clone();
+                        cx.send(state.read(link));
                     }
                 });
                 return close;
@@ -510,7 +597,14 @@ impl crate::screen_state::ScreenState for AppRequests {
 
     fn forget(&mut self, why: crate::screen_state::Why) {
         match why {
-            crate::screen_state::Why::WalletSwitch => *self = Self::default(),
+            // BUG-334 r2: the read numbers go on — a late answer to the last wallet's read
+            // is not the next wallet's first.
+            crate::screen_state::Why::WalletSwitch => {
+                *self = Self {
+                    next_ask: self.next_ask,
+                    ..Self::default()
+                }
+            }
             _ => {
                 self.flow.forget();
                 self.disconnect_flow.forget();
@@ -525,34 +619,37 @@ mod tests {
 
     fn asked(id: u64) -> AppRequests {
         let mut state = AppRequests::default();
-        state.on_request(Ok(AppRequest {
-            id,
-            app: "@yappr".into(),
-            kind: AppRequestKind::Connect2 {
-                app_id: "A".into(),
-                label: "Yappr".into(),
-                owner: "O".into(),
-                owner_name: None,
-                identity: "@me".into(),
-                sessions: vec![evolite_api::SessionOffer {
-                    binding: evolite_api::AppBinding::Group { id: "G".into() },
-                    level: evolite_api::KeyLevel::High,
-                    proposed_budget: None,
-                    proposed_expiry: None,
-                    budget: 50_000_000,
-                    expires_at: 90 * 24 * 60 * 60,
-                    changed: false,
-                    primary: true,
-                }],
-                encryption: Vec::new(),
-                limits: evolite_api::SessionLimits::wallet(),
-                breaks_old_clients: true,
-                renews: None,
-                created_at: 0,
-                callback_host: None,
-                cost: 0,
-            },
-        }));
+        state.on_request(
+            Ok(AppRequest {
+                id,
+                app: "@yappr".into(),
+                kind: AppRequestKind::Connect2 {
+                    app_id: "A".into(),
+                    label: "Yappr".into(),
+                    owner: "O".into(),
+                    owner_name: None,
+                    identity: "@me".into(),
+                    sessions: vec![evolite_api::SessionOffer {
+                        binding: evolite_api::AppBinding::Group { id: "G".into() },
+                        level: evolite_api::KeyLevel::High,
+                        proposed_budget: None,
+                        proposed_expiry: None,
+                        budget: 50_000_000,
+                        expires_at: 90 * 24 * 60 * 60,
+                        changed: false,
+                        primary: true,
+                    }],
+                    encryption: Vec::new(),
+                    limits: evolite_api::SessionLimits::wallet(),
+                    breaks_old_clients: true,
+                    renews: None,
+                    created_at: 0,
+                    callback_host: None,
+                    cost: 0,
+                },
+            }),
+            None,
+        );
         state
     }
 
@@ -656,7 +753,7 @@ mod tests {
         let mut state = asked(8);
         state.pick(Pick::Yes, false, 0);
         state.on_answer(state.flow.waiting_ask(), Ok(()));
-        state.on_request(asked(9).open.ok_or_else(out_of_date));
+        state.on_request(asked(9).open.ok_or_else(out_of_date), None);
         assert_eq!(state.consent, Consent::Asking, "a new request asks again");
         assert!(is_no(state.pick(Pick::Close, false, 0), 9));
     }
@@ -677,7 +774,7 @@ mod tests {
         let mut state = asked(7);
         state.flow.password.type_in("seven's");
         assert!(state.flow.password.ready(true));
-        state.on_request(asked(8).open.ok_or_else(out_of_date));
+        state.on_request(asked(8).open.ok_or_else(out_of_date), None);
         assert!(!state.flow.password.ready(true), "the field empty for 8");
         assert_eq!(password(state.pick(Pick::Yes, true, 0)), Some((8, false)));
 
@@ -686,7 +783,7 @@ mod tests {
         state.flow.password.type_in("seven's");
         assert_eq!(password(state.pick(Pick::Yes, true, 0)), Some((7, true)));
         let seven = state.flow.waiting_ask();
-        state.on_request(asked(8).open.ok_or_else(out_of_date));
+        state.on_request(asked(8).open.ok_or_else(out_of_date), None);
         assert!(state.connecting.is_none(), "7's banner");
         assert_eq!(state.consent, Consent::Asking);
         state.on_answer(seven, Ok(()));
@@ -698,7 +795,7 @@ mod tests {
         // The same request again (its link opened twice) keeps what was typed.
         let mut state = asked(7);
         state.flow.password.type_in("seven's");
-        state.on_request(asked(7).open.ok_or_else(out_of_date));
+        state.on_request(asked(7).open.ok_or_else(out_of_date), None);
         assert!(state.flow.password.ready(true));
     }
 
@@ -733,5 +830,60 @@ mod tests {
             .set_stage(crate::components::spend_flow::Stage::Waiting { ask: 0, signed: () });
         state.on_disconnected(Some(0), Ok(()));
         assert_eq!(state.connected, None);
+    }
+
+    /// BUG-334 r1: only the answer to the read under way is taken, in whatever order the
+    /// answers come — a read left (A) answers after the next one (B) started: A is dropped, B
+    /// shown; A answering after B is dropped too. A link from outside (`None`) is shown as
+    /// before. BUG-336: the paste window opens empty.
+    #[test]
+    fn only_the_answer_to_the_read_under_way_is_taken() {
+        let mut state = AppRequests::default();
+        let Command::OpenAppLink { ask: a, .. } = state.read("dashpay://a".into()) else {
+            panic!("a read");
+        };
+        assert_eq!(state.reading, a);
+        state.cancel_reading();
+        assert_eq!(state.reading, None);
+        let Command::OpenAppLink { ask: b, .. } = state.read("dashpay://b".into()) else {
+            panic!("a read");
+        };
+        assert_ne!(a, b);
+        // A's answer first: dropped, B still read.
+        state.on_request(Err(CoreError::BadLink), a);
+        assert!(!state.pasting && state.reading == b, "A dropped");
+        // B's: shown.
+        state.on_request(Err(CoreError::BadLink), b);
+        assert!(state.pasting && state.reading.is_none(), "B shown");
+        // A late again: dropped.
+        state.pasting = false;
+        state.on_request(Err(CoreError::BadLink), a);
+        assert!(!state.pasting, "A after B dropped");
+        // BUG-334 r2: a wallet switch keeps the numbers — the last wallet's read (its first,
+        // 1) answering late is not the next wallet's first read.
+        let mut switched = AppRequests::default();
+        let Command::OpenAppLink { ask: old, .. } = switched.read("dashpay://old".into()) else {
+            panic!("a read");
+        };
+        crate::screen_state::ScreenState::forget(
+            &mut switched,
+            crate::screen_state::Why::WalletSwitch,
+        );
+        let Command::OpenAppLink { ask: new, .. } = switched.read("dashpay://new".into()) else {
+            panic!("a read");
+        };
+        assert_ne!(old, new, "numbers go on");
+        switched.on_request(Err(CoreError::BadLink), old);
+        assert!(
+            !switched.pasting && switched.reading == new,
+            "the last wallet's answer dropped"
+        );
+        // From outside: shown.
+        state.on_request(Err(CoreError::BadLink), None);
+        assert!(state.pasting, "a link from outside");
+        state.link = "dashpay://b".into();
+        state.pasting = false;
+        state.start_pasting();
+        assert!(state.pasting && state.link.is_empty() && state.link_error.is_none());
     }
 }

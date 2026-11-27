@@ -637,10 +637,13 @@ impl Real {
                 result: self.hide_name_request(&identity, &label),
                 ask: None,
             },
-            Command::OpenAppLink { text } => match self.open_app_link(&text) {
+            Command::OpenAppLink { text, ask } => match self.open_app_link(&text, ask) {
                 // The decoded request comes from the background task.
                 Ok(()) => return (None, false),
-                Err(e) => Event::AppRequest(Err(e)),
+                Err(e) => Event::AppRequest {
+                    request: Err(e),
+                    ask,
+                },
             },
             // NFT pictures as their documents store them (packed), or profile pictures: a
             // plain image file, never packed.

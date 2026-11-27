@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "جارٍ قراءة طلب التطبيق…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "يقرأ evolite عقد التطبيق ومالكه من Platform ويتحقق من الإثباتات. قد يستغرق ذلك حتى نصف دقيقة.",
   "Spent {} of {} · until {} · {} by the earlier keys": "أُنفق {} من {} · حتى {} · {} بالمفاتيح السابقة",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "أُنفق: جارٍ التحقق… من {} · حتى {} · {} بالمفاتيح السابقة",
   "Spent {} of {} · until {} · by the earlier keys: not known": "أُنفق {} من {} · حتى {} · بالمفاتيح السابقة: غير معروف",

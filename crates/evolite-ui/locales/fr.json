@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "Lecture de la demande de l’app…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite lit sur Platform le contrat de l’app et son propriétaire, et vérifie les preuves. Cela peut prendre jusqu’à une demi-minute.",
   "Spent {} of {} · until {} · {} by the earlier keys": "Dépensé {} sur {} · jusqu’au {} · {} par les clés précédentes",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "Dépensé : vérification… sur {} · jusqu’au {} · {} par les clés précédentes",
   "Spent {} of {} · until {} · by the earlier keys: not known": "Dépensé {} sur {} · jusqu’au {} · par les clés précédentes : inconnu",

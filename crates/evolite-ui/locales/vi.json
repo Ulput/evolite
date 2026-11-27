@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "Đang đọc yêu cầu của ứng dụng…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite đọc hợp đồng của ứng dụng và chủ sở hữu của nó từ Platform và kiểm tra các bằng chứng. Việc này có thể mất đến nửa phút.",
   "Spent {} of {} · until {} · {} by the earlier keys": "Đã chi {} trên {} · đến {} · {} bởi các khóa trước",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "Đã chi: đang kiểm tra… trên {} · đến {} · {} bởi các khóa trước",
   "Spent {} of {} · until {} · by the earlier keys: not known": "Đã chi {} trên {} · đến {} · bởi các khóa trước: không rõ",

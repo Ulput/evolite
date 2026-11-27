@@ -263,7 +263,7 @@ pub fn answer(event: &Event) -> Option<Record> {
                 _ => "open",
             },
         ),
-        Event::AppRequest(r) => ("app_request", outcome(r)),
+        Event::AppRequest { request, .. } => ("app_request", outcome(request)),
         Event::PaymentPreview { result, .. } => ("payment_preview", outcome(result)),
         // What the coins are stays out: no outpoint, address or amount (FEAT-0013, R-11).
         Event::Coins { result, .. } => ("coins", outcome(result)),

@@ -1,4 +1,6 @@
 {
+  "Reading the app's request…": "Uygulamanın isteği okunuyor…",
+  "evolite reads the app's contract and its owner from Platform and checks the proofs. It can take up to half a minute.": "evolite uygulamanın sözleşmesini ve sahibini Platform’dan okuyor ve kanıtları denetliyor. Bu yarım dakikaya kadar sürebilir.",
   "Spent {} of {} · until {} · {} by the earlier keys": "{} / {} harcandı · {} tarihine kadar · önceki anahtarlarla {}",
   "Spent: checking… of {} · until {} · {} by the earlier keys": "Harcanan: kontrol ediliyor… / {} · {} tarihine kadar · önceki anahtarlarla {}",
   "Spent {} of {} · until {} · by the earlier keys: not known": "{} / {} harcandı · {} tarihine kadar · önceki anahtarlarla: bilinmiyor",

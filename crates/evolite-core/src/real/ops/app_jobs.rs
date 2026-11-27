@@ -52,10 +52,14 @@ pub(in crate::real) fn shown_apps(
 impl Real {
     /// Opens an app's link: checks it, asks Platform what is needed to show it, and answers
     /// `AppRequest` — at once when the link itself is refused, else from the background.
-    pub(in crate::real) fn open_app_link(&self, text: &str) -> Result<(), CoreError> {
+    pub(in crate::real) fn open_app_link(
+        &self,
+        text: &str,
+        ask: Option<u64>,
+    ) -> Result<(), CoreError> {
         let ms = (now().max(0) as u64).saturating_mul(1_000);
         match app_connect_v2::parse(text, app_connect_v2::Net::current(), ms) {
-            Ok(link) => self.open_connect2(link, text),
+            Ok(link) => self.open_connect2(link, text, ask),
             // App Connect v1 is not supported (the customer, 2026-11-11): told as another version.
             Err(app_connect_v2::Refusal::NotOurs) if is_v1_link(text) => {
                 Err(CoreError::AppLink(AppLinkRefusal::Version {

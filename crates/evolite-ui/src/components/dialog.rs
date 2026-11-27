@@ -115,11 +115,16 @@ fn titled(
             let p = a.p;
             let (boxr, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
             super::paint_icon_box(ui, a, boxr, 12, icon, 20.0, p.text);
+            // BUG-335: the title keeps clear of the close cross, as a header of its own does
+            // (BUG-114): a long one takes a second line, never the cross's place.
+            let room = (ui.available_width() - CROSS - 10.0).max(0.0);
             let Some(under) = under else {
-                ui.label(txt(title, 20.0, Weight::Bold, p.text));
+                ui.vertical(|ui| {
+                    ui.set_max_width(room);
+                    ui.add(super::para(title, 20.0, Weight::Bold, p.text));
+                });
                 return;
             };
-            let room = (ui.available_width() - CROSS - 10.0).max(0.0);
             ui.vertical(|ui| {
                 ui.set_max_width(room);
                 ui.spacing_mut().item_spacing.y = 2.0;
