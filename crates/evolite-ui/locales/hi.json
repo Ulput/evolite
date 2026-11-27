@@ -3081,5 +3081,20 @@
   "Simple mode": "सरल",
   "The Platform address holds {} — you can manage it in Advanced mode.": "Platform पते पर {} है — इसे उन्नत मोड में प्रबंधित कर सकते हैं।",
   "What suits you better?": "आपके लिए क्या बेहतर है?",
-  "You can switch at any time. Your money and data stay as they are.": "आप कभी भी बदल सकते हैं। आपका पैसा और डेटा वैसे ही रहते हैं।"
+  "You can switch at any time. Your money and data stay as they are.": "आप कभी भी बदल सकते हैं। आपका पैसा और डेटा वैसे ही रहते हैं।",
+  "The pin of the first Dash meetup in the city, November 2026": "शहर की पहली Dash मीटअप का पिन, नवंबर 2026",
+  "Change the price…": "कीमत बदलें…",
+  "Sell…": "बेचें…",
+  "No. {} is for sale — after the gift it will have no price": "क्रमांक {} बिक्री पर है — उपहार के बाद उसकी कोई कीमत नहीं रहेगी",
+  "The copy stays yours; only its price is taken off.": "प्रति आपकी ही रहेगी; केवल उसकी कीमत हटेगी।",
+  "No. {} · for sale at {}": "नं. {} · {} में बिक्री पर",
+  "No. {}": "नं. {}",
+  "“{}” · No. {} · {}": "“{}” · नं. {} · {}",
+  "“{}” · No. {}": "“{}” · नं. {}",
+  "Sign and give": "हस्ताक्षर करें और उपहार दें",
+  "Sign and put up for sale": "हस्ताक्षर करें और बिक्री पर रखें",
+  "Sign and change the price": "हस्ताक्षर करें और कीमत बदलें",
+  "Sign and take off sale": "हस्ताक्षर करें और बिक्री से हटाएँ",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "कीमत केवल नं. {} पर बदलती है। जब तक रिकॉर्ड नेटवर्क पर नहीं आता, खरीदार पुरानी कीमत देखता है।",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "कोई भी इसे खरीद सकता है — तुरंत, आपकी पुष्टि के बिना। उपहार कीमत हटा देता है; बिक्री के बाद कीमत नया मालिक तय करता है।"
 }

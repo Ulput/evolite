@@ -1223,9 +1223,14 @@ impl App {
                     result,
                     ask,
                 } => {
-                    if !self.workshop.model.on_done(*ask, result)
-                        && let Some(form) = &mut self.workshop.series
-                    {
+                    let taken = self.workshop.model.on_done(*ask, result)
+                        || self
+                            .workshop
+                            .series
+                            .as_mut()
+                            .is_some_and(|form| form.on_done(*ask, result));
+                    // W10: a series on one copy, from the Collection's card.
+                    if !taken && let Some(form) = &mut self.collection.series {
                         form.on_done(*ask, result);
                     }
                 }
@@ -1236,6 +1241,9 @@ impl App {
                     result,
                 } => {
                     if let Some(form) = &mut self.workshop.series {
+                        form.on_planned(target, kind, result);
+                    }
+                    if let Some(form) = &mut self.collection.series {
                         form.on_planned(target, kind, result);
                     }
                 }

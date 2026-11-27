@@ -3033,5 +3033,20 @@
   "Simple mode": "シンプル",
   "The Platform address holds {} — you can manage it in Advanced mode.": "Platform アドレスに {} あります — 詳細モードで管理できます。",
   "What suits you better?": "どちらが使いやすいですか？",
-  "You can switch at any time. Your money and data stay as they are.": "いつでも切り替えられます。お金とデータはそのままです。"
+  "You can switch at any time. Your money and data stay as they are.": "いつでも切り替えられます。お金とデータはそのままです。",
+  "The pin of the first Dash meetup in the city, November 2026": "街で初めての Dash ミートアップのピン、2026年11月",
+  "Change the price…": "価格を変更…",
+  "Sell…": "販売…",
+  "No. {} is for sale — after the gift it will have no price": "{} 番は出品中です。贈ると価格はなくなります",
+  "The copy stays yours; only its price is taken off.": "この品はあなたの手元に残り、価格だけが外れます。",
+  "No. {} · for sale at {}": "No. {} · {} で販売中",
+  "No. {}": "No. {}",
+  "“{}” · No. {} · {}": "「{}」 · No. {} · {}",
+  "“{}” · No. {}": "「{}」 · No. {}",
+  "Sign and give": "署名して贈る",
+  "Sign and put up for sale": "署名して販売に出す",
+  "Sign and change the price": "署名して価格を変更",
+  "Sign and take off sale": "署名して販売を取り下げる",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "価格が変わるのは No. {} だけです。記録がネットワークに載るまで、買い手には以前の価格が表示されます。",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "誰でもすぐに購入できます。あなたの確認は不要です。贈ると価格は外れます。販売後は新しい所有者が価格を決めます。"
 }

@@ -193,6 +193,7 @@ mod tests {
             edition: (Some(1), 10),
             owner: "@o".into(),
             owner_id: "o".into(),
+            model: None,
             chosen: false,
             price: None,
         }

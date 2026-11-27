@@ -265,6 +265,7 @@ pub const PRESETS: &[&str] = &[
     "apps", "connect", "connect-limits", "connect-renew", "refused-v1", "refused-stale",
     "refused-mainnet", "apps-disconnected", "apps-renew", "apps-disconnect", "apps-remove",
     "collection", "gift",
+    "collection-pin", "collection-pin-give", "collection-pin-reprice", "collection-pin-unprice",
     "identities-long", "tokens-identities-long", "collection-identities-long", "workshop-identities-long",
     "workshop", "workshop-new", "workshop-review", "workshop-steps", "workshop-collection",
     "workshop-model", "workshop-model-copy", "workshop-model-review", "workshop-model-page",
@@ -572,7 +573,18 @@ fn dev_args<'a>(
                 | "apps-disconnect" | "apps-remove",
             ),
         ) => Screen::Apps,
-        (None, Some("collection" | "gift" | "collection-identities-long")) => Screen::Collection,
+        (
+            None,
+            Some(
+                "collection"
+                | "gift"
+                | "collection-identities-long"
+                | "collection-pin"
+                | "collection-pin-give"
+                | "collection-pin-reprice"
+                | "collection-pin-unprice",
+            ),
+        ) => Screen::Collection,
         (None, Some("identities-long")) => Screen::Identity,
         (
             None,

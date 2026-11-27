@@ -155,7 +155,7 @@ pub fn synced() -> SyncInfo {
 
 /// The pictures of the demo NFTs: three drawn for evolite and six of the samples made in
 /// Jembe (three still, three animated with CSS) and its 3D ring, by file name.
-const ART: [(&str, &[u8]); 11] = [
+const ART: [(&str, &[u8]); 12] = [
     ("jembe", include_bytes!("../assets/nft/jembe.svg")),
     ("chainlocks", include_bytes!("../assets/nft/chainlocks.svg")),
     ("genesis", include_bytes!("../assets/nft/genesis.svg")),
@@ -186,6 +186,9 @@ const ART: [(&str, &[u8]); 11] = [
         "glitch-skull",
         include_bytes!("../assets/nft/glitch-skull-neon.svg"),
     ),
+    // FEAT-0038 W10: a copy bought from another collection, the one of its model the wallet
+    // holds (drawn for evolite).
+    ("orange-pin", include_bytes!("../assets/nft/orange-pin.svg")),
     // A 3D model (glTF), as Jembe proposes to store them: `imageFormat` 2, GLB in raw deflate.
     (
         "diamond-ring",
@@ -1267,6 +1270,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             // BUG-188: more copies of one model, shown as one tile «×3».
@@ -1287,6 +1291,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: Some(50_000_000),
             },
             Nft {
@@ -1303,6 +1308,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1324,6 +1330,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: Some(50_000_000),
             },
             Nft {
@@ -1342,6 +1349,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1361,6 +1369,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1379,6 +1388,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1394,6 +1404,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: Some(10_000_000),
             },
             // BUG-188: a run of copies, «№ 40–43», two of them for sale.
@@ -1410,6 +1421,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: Some(10_000_000),
             },
             Nft {
@@ -1425,6 +1437,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1440,6 +1453,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1461,6 +1475,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1480,6 +1495,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi-lab".into(),
                 owner_id: LAB_IDENTITY.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1495,6 +1511,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "@satoshi-lab".into(),
                 owner_id: LAB_IDENTITY.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
             Nft {
@@ -1516,6 +1533,7 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
                 owner: "".into(),
                 owner_id: PEOPLE[0].id.into(),
                 chosen: false,
+                model: None,
                 price: None,
             },
         ]
@@ -1523,6 +1541,13 @@ pub fn demo_wallet(t: Timestamp) -> Wallet {
         // BUG-313: the Workshop's own collection's instances, from its one list: the Collection
         // and the Workshop count the same NFTs.
         .chain(crate::workshop::own_nfts("@satoshi", PEOPLE[0].id))
+        // FEAT-0038 W10: one copy of another collection's model, bought: its card offers the
+        // series windows on one copy.
+        .chain(std::iter::once(crate::workshop::pin_nft(
+            "@satoshi",
+            PEOPLE[0].id,
+            t - 3 * day,
+        )))
         .collect(),
         nfts_status: NftsStatus::Ready,
         nfts_statuses: Vec::new(),

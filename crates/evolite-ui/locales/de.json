@@ -3081,5 +3081,20 @@
   "Simple mode": "Einfach",
   "The Platform address holds {} — you can manage it in Advanced mode.": "Auf der Platform-Adresse liegen {} — verwalten können Sie sie im erweiterten Modus.",
   "What suits you better?": "Was passt besser zu Ihnen?",
-  "You can switch at any time. Your money and data stay as they are.": "Sie können jederzeit wechseln. Ihr Geld und Ihre Daten bleiben, wie sie sind."
+  "You can switch at any time. Your money and data stay as they are.": "Sie können jederzeit wechseln. Ihr Geld und Ihre Daten bleiben, wie sie sind.",
+  "The pin of the first Dash meetup in the city, November 2026": "Der Pin vom ersten Dash-Treffen in der Stadt, November 2026",
+  "Change the price…": "Preis ändern…",
+  "Sell…": "Verkaufen…",
+  "No. {} is for sale — after the gift it will have no price": "Nr. {} steht zum Verkauf — nach dem Verschenken hat es keinen Preis mehr",
+  "The copy stays yours; only its price is taken off.": "Das Exemplar bleibt Ihres; nur sein Preis wird entfernt.",
+  "No. {} · for sale at {}": "Nr. {} · zum Verkauf für {}",
+  "No. {}": "Nr. {}",
+  "“{}” · No. {} · {}": "„{}“ · Nr. {} · {}",
+  "“{}” · No. {}": "„{}“ · Nr. {}",
+  "Sign and give": "Signieren und verschenken",
+  "Sign and put up for sale": "Signieren und zum Verkauf stellen",
+  "Sign and change the price": "Signieren und Preis ändern",
+  "Sign and take off sale": "Signieren und vom Verkauf nehmen",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "Der Preis ändert sich nur bei Nr. {}. Bis der Eintrag im Netzwerk ist, sieht ein Käufer den alten Preis.",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "Jeder kann es kaufen — sofort, ohne deine Bestätigung. Ein Geschenk nimmt den Preis weg; nach dem Verkauf legt der neue Besitzer den Preis fest."
 }

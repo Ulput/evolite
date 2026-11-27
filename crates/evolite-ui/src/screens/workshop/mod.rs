@@ -103,9 +103,10 @@ pub(crate) fn not_synced_retry_due(
     }
 }
 
-#[cfg(feature = "dev-tools")]
 pub use model_page::Action as SeriesAction;
+pub use model_page::OneCopy;
 pub use model_page::SeriesForm;
+pub(crate) use model_page::{Have as SeriesHave, series_dialog};
 pub use new_collection::NewCollection;
 pub use new_model::ModelForm;
 
@@ -1086,6 +1087,7 @@ mod gift_tests {
             kind: SeriesKind::Gift {
                 count: 2,
                 to: "@bob".into(),
+                copy: None,
             },
             total: 2,
             done,

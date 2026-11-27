@@ -3177,5 +3177,20 @@
   "Simple mode": "Простий",
   "The Platform address holds {} — you can manage it in Advanced mode.": "На адресі Platform {} — керувати нею можна в Розширеному режимі.",
   "What suits you better?": "Як вам зручніше?",
-  "You can switch at any time. Your money and data stay as they are.": "Можна перемкнути будь-коли. Гроші й дані не змінюються."
+  "You can switch at any time. Your money and data stay as they are.": "Можна перемкнути будь-коли. Гроші й дані не змінюються.",
+  "The pin of the first Dash meetup in the city, November 2026": "Значок з першої зустрічі Dash у місті, листопад 2026",
+  "Change the price…": "Змінити ціну…",
+  "Sell…": "Продати…",
+  "No. {} is for sale — after the gift it will have no price": "№ {} продається — після подарунка ціни не буде",
+  "The copy stays yours; only its price is taken off.": "Примірник залишиться у вас — зніметься лише ціна.",
+  "No. {} · for sale at {}": "№ {} · продається за {}",
+  "No. {}": "№ {}",
+  "“{}” · No. {} · {}": "«{}» · № {} · {}",
+  "“{}” · No. {}": "«{}» · № {}",
+  "Sign and give": "Підписати й подарувати",
+  "Sign and put up for sale": "Підписати й виставити",
+  "Sign and change the price": "Підписати й змінити ціну",
+  "Sign and take off sale": "Підписати й зняти з продажу",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "Ціна змінюється лише в № {}. Поки запис не в мережі, покупець бачить стару ціну.",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "Купити може будь-хто — одразу, без вашого підтвердження. Подарунок знімає ціну; після продажу ціну призначає новий власник."
 }

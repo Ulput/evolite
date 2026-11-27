@@ -1514,6 +1514,10 @@ pub struct Nft {
     pub origin: NftOrigin,
     pub issuer: String,
     pub contract: String,
+    /// FEAT-0038 W10: the model («image» document, base58) the copy is of, when its collection
+    /// follows the Workshop's profile — what a series on it is about ([`series::SeriesTarget`]);
+    /// `None` for a copy without one: no series is offered on it.
+    pub model: Option<String>,
     /// Number and edition size; the size is 0 when the issuer set none. FEAT-0054 r1: no number
     /// when the document has none (shown without one, never «№ 0»).
     pub edition: (Option<u32>, u32),

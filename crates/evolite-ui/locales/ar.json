@@ -3273,5 +3273,20 @@
   "Simple mode": "بسيط",
   "The Platform address holds {} — you can manage it in Advanced mode.": "على عنوان Platform ‏{} — يمكنك إدارته في الوضع المتقدم.",
   "What suits you better?": "ما الأنسب لك؟",
-  "You can switch at any time. Your money and data stay as they are.": "يمكنك التبديل في أي وقت. تبقى أموالك وبياناتك كما هي."
+  "You can switch at any time. Your money and data stay as they are.": "يمكنك التبديل في أي وقت. تبقى أموالك وبياناتك كما هي.",
+  "The pin of the first Dash meetup in the city, November 2026": "دبوس أول لقاء لـ Dash في المدينة، نوفمبر 2026",
+  "Change the price…": "غيّر السعر…",
+  "Sell…": "بيع…",
+  "No. {} is for sale — after the gift it will have no price": "الرقم {} معروض للبيع — بعد الإهداء لن يكون له سعر",
+  "The copy stays yours; only its price is taken off.": "تبقى النسخة لك؛ يُلغى سعرها فقط.",
+  "No. {} · for sale at {}": "رقم {} · معروض للبيع بسعر {}",
+  "No. {}": "رقم {}",
+  "“{}” · No. {} · {}": "«{}» · رقم {} · {}",
+  "“{}” · No. {}": "«{}» · رقم {}",
+  "Sign and give": "وقّع وأهدِ",
+  "Sign and put up for sale": "وقّع واعرض للبيع",
+  "Sign and change the price": "وقّع وغيّر السعر",
+  "Sign and take off sale": "وقّع وأزِل من البيع",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "يتغير السعر فقط لرقم {}. حتى يصل السجل إلى الشبكة، يرى المشتري السعر القديم.",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "يمكن لأي شخص شراؤها — فورًا ودون تأكيدك. الإهداء يلغي السعر؛ بعد البيع يحدد المالك الجديد السعر."
 }

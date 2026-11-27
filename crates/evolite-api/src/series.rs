@@ -19,7 +19,13 @@ pub enum SeriesKind {
     /// write over the other, architect 2026-11-20).
     Reprice { from: Credits, price: Credits },
     /// Give `count` free instances to `to` (an @name or an identity id), lowest serials first.
-    Gift { count: u32, to: String },
+    /// W10 (UC-13): `copy` — that one copy of the identity's, by its serial, on sale or not
+    /// (the transfer takes its price off, AC-A11); `count` is 1 then.
+    Gift {
+        count: u32,
+        to: String,
+        copy: Option<u32>,
+    },
     /// Take `count` instances off sale (at `price`, or at any price): a transfer to oneself,
     /// which drops `$price` (architect 2026-11-19), highest serials first.
     Unprice { count: u32, price: Option<Credits> },

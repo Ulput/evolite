@@ -3033,5 +3033,20 @@
   "Simple mode": "Sederhana",
   "The Platform address holds {} — you can manage it in Advanced mode.": "Alamat Platform berisi {} — Anda dapat mengelolanya di mode Lanjutan.",
   "What suits you better?": "Mana yang lebih cocok untuk Anda?",
-  "You can switch at any time. Your money and data stay as they are.": "Anda bisa beralih kapan saja. Uang dan data Anda tetap seperti semula."
+  "You can switch at any time. Your money and data stay as they are.": "Anda bisa beralih kapan saja. Uang dan data Anda tetap seperti semula.",
+  "The pin of the first Dash meetup in the city, November 2026": "Pin dari pertemuan Dash pertama di kota, November 2026",
+  "Change the price…": "Ubah harga…",
+  "Sell…": "Jual…",
+  "No. {} is for sale — after the gift it will have no price": "No. {} sedang dijual — setelah dihadiahkan, harganya hilang",
+  "The copy stays yours; only its price is taken off.": "Salinan tetap milik Anda; hanya harganya yang dihapus.",
+  "No. {} · for sale at {}": "No. {} · dijual seharga {}",
+  "No. {}": "No. {}",
+  "“{}” · No. {} · {}": "“{}” · No. {} · {}",
+  "“{}” · No. {}": "“{}” · No. {}",
+  "Sign and give": "Tanda tangani dan hadiahkan",
+  "Sign and put up for sale": "Tanda tangani dan jual",
+  "Sign and change the price": "Tanda tangani dan ubah harga",
+  "Sign and take off sale": "Tanda tangani dan tarik dari penjualan",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "Harga hanya berubah pada No. {}. Sampai catatan ada di jaringan, pembeli melihat harga lama.",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "Siapa pun bisa membelinya — langsung, tanpa konfirmasi Anda. Hadiah menghapus harganya; setelah terjual, pemilik baru yang menentukan harga."
 }

@@ -120,6 +120,9 @@ struct Mock {
     sales_read: bool,
     /// W9: the example model's copies and their prices; a price series changes them.
     shelf: Vec<evolite_api::workshop::Instance>,
+    /// W10: the copies of another collection's model the wallet holds (one, bought); a series
+    /// on that model changes them.
+    pins: Vec<evolite_api::workshop::Instance>,
     /// BUG-266: the check of a collection named [`workshop::SYNC_PENDING`] said «not synced»
     /// once — as a sync that ends after the form was opened.
     not_synced_said: bool,
@@ -586,14 +589,16 @@ impl Mock {
                     | SeriesKind::Unprice { count, .. }
                     | SeriesKind::Delete { count } => (*count, 145_000),
                 };
-                // W9: a price series on the shelf's own serials, as the real core picks them.
-                let picked = matches!(
+                // W9: a price series on the shelf's own serials, as the real core picks them;
+                // W10: the pin's on its own shelf, a gift of it too.
+                let pin = target.model == workshop::PIN_MODEL;
+                let picked = (matches!(
                     kind,
                     SeriesKind::Price { .. }
                         | SeriesKind::Reprice { .. }
                         | SeriesKind::Unprice { .. }
-                )
-                .then(|| workshop::pick(&self.shelf, &kind));
+                ) || pin && matches!(kind, SeriesKind::Gift { .. }))
+                .then(|| workshop::pick(self.shelf_of(&target.model), &kind));
                 let (serials, refusal) = match picked {
                     Some(Ok(serials)) => (serials, None),
                     Some(Err(why)) => (Vec::new(), Some(why)),
@@ -1468,33 +1473,67 @@ impl Mock {
 
     /// A spend past the gate: the demo has no wallet behind it, so each says so plainly (the
     /// staged proof for "Hide in the pool" first).
+    /// The copies a series on `model` takes from: the pin's (W10), else the example's (W9).
+    fn shelf_of(&self, model: &str) -> &[evolite_api::workshop::Instance] {
+        if model == workshop::PIN_MODEL {
+            &self.pins
+        } else {
+            &self.shelf
+        }
+    }
+
     /// W9 in the demo: a price series (sale, change of price, take-off) on the shelf, all its
-    /// writes in at once; `false` for anything else.
+    /// writes in at once; W10: also a gift of the pin, which leaves the wallet. The Collection's
+    /// copies follow (their price, the pin given away). `false` for anything else.
     fn price_series(&mut self, op: &Spend) -> bool {
         use evolite_api::series::{SeriesKind, SeriesState};
         let Spend::NftBatch { target, kind, .. } = op else {
             return false;
         };
-        if !matches!(
+        let pin = target.model == workshop::PIN_MODEL;
+        if !(matches!(
             kind,
             SeriesKind::Price { .. } | SeriesKind::Reprice { .. } | SeriesKind::Unprice { .. }
-        ) {
+        ) || pin && matches!(kind, SeriesKind::Gift { .. }))
+        {
             return false;
         }
-        let Ok(serials) = workshop::pick(&self.shelf, kind) else {
+        let Ok(serials) = workshop::pick(self.shelf_of(&target.model), kind) else {
             return false;
         };
-        workshop::apply(&mut self.shelf, kind, &serials);
+        let shelf = if pin { &mut self.pins } else { &mut self.shelf };
+        let gone: Vec<String> = shelf
+            .iter()
+            .filter(|i| serials.contains(&i.serial))
+            .map(|i| i.id.clone())
+            .collect();
+        workshop::apply(shelf, kind, &serials);
+        let shelf = shelf.clone();
         // As the real core estimates a write (`plan::per_write`): a price ≈ 0,000054; a
         // take-off is a transfer to oneself, as a gift ≈ 0,00145 (Platform takes a price off no
         // other way).
         let per_write: Duffs = match kind {
-            SeriesKind::Unprice { .. } => workshop::GIFT_FEE,
+            SeriesKind::Unprice { .. } | SeriesKind::Gift { .. } => workshop::GIFT_FEE,
             _ => 5_400,
         };
         let Some(wallet) = self.snapshot.wallet.as_mut() else {
             return false;
         };
+        // The Collection reads what the shelf holds: the copies' prices, a given one gone.
+        wallet.nfts.retain(|n| {
+            !(n.model.as_deref() == Some(target.model.as_str())
+                && gone.contains(&n.id)
+                && !shelf.iter().any(|i| i.id == n.id))
+        });
+        for n in wallet
+            .nfts
+            .iter_mut()
+            .filter(|n| n.model.as_deref() == Some(target.model.as_str()))
+        {
+            if let Some(copy) = shelf.iter().find(|i| i.id == n.id) {
+                n.price = copy.price;
+            }
+        }
         let total = serials.len() as u32;
         wallet.balances.credits -= per_write * total as Duffs;
         let id = wallet.series.iter().map(|s| s.id).max().unwrap_or(0) + 1;
@@ -1507,6 +1546,7 @@ impl Mock {
             SeriesKind::Reprice { price, .. } => evolite_api::series::SeriesAct::Reprice {
                 price: duffs(*price),
             },
+            SeriesKind::Gift { to, .. } => evolite_api::series::SeriesAct::Gift { to: to.clone() },
             _ => evolite_api::series::SeriesAct::Unprice,
         };
         let line = wallet.activity.iter().map(|a| a.id).max().unwrap_or(0) + 1;
@@ -2694,6 +2734,7 @@ pub fn run(
         collections_made: Vec::new(),
         sales_read: false,
         shelf: workshop::instances(),
+        pins: workshop::pins(),
         not_synced_said: false,
     };
     let send_snapshot = |mock: &Mock| {
@@ -2765,6 +2806,7 @@ mod tests {
             collections_made: Vec::new(),
             sales_read: false,
             shelf: workshop::instances(),
+            pins: workshop::pins(),
             not_synced_said: false,
         };
         (m, tx, rx)

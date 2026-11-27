@@ -178,6 +178,10 @@ async fn plan_of(
         }
         _ => {
             let (pick, want) = match kind {
+                // W10: one copy of the card's, on sale or not.
+                SeriesKind::Gift {
+                    copy: Some(serial), ..
+                } => (Pick::Copy(*serial), 1),
                 SeriesKind::Price { count, .. }
                 | SeriesKind::Gift { count, .. }
                 | SeriesKind::Delete { count } => (Pick::Free, *count as usize),
@@ -186,7 +190,7 @@ async fn plan_of(
                 SeriesKind::Mint { .. } => unreachable!(),
             };
             let mut taken: Vec<Instance> = Vec::new();
-            let mut after = None;
+            let mut after = pick.first_after();
             let mut ended = false;
             for _ in 0..MAX_PAGES {
                 let page = chain
@@ -275,6 +279,7 @@ fn kind_back(kind: &Kind, count: u32) -> SeriesKind {
         Kind::Gift { to } => SeriesKind::Gift {
             count,
             to: to.clone(),
+            copy: None,
         },
         Kind::Unprice => SeriesKind::Unprice { count, price: None },
         Kind::Delete => SeriesKind::Delete { count },

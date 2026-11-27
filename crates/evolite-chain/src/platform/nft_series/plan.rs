@@ -13,6 +13,11 @@ pub struct Instance {
     pub price: Option<u64>,
 }
 
+/// A price in credits as the screens show it: whole duffs.
+fn shown(credits: u64) -> evolite_api::Duffs {
+    crate::platform::workshop_read::duffs_of_credits(credits)
+}
+
 /// Pages read before giving up on finding enough (architect, 2026-11-20): «try fewer».
 pub const MAX_PAGES: usize = 20;
 
@@ -23,6 +28,9 @@ pub enum Pick {
     Free,
     /// On sale at this price, or at any — take off sale: read by serial descending.
     OnSale(Option<u64>),
+    /// W10: that one copy of mine, on sale or not — a gift from its card: read from its serial
+    /// up ([`Pick::first_after`]).
+    Copy(u32),
 }
 
 impl Pick {
@@ -31,12 +39,25 @@ impl Pick {
         matches!(self, Pick::OnSale(_))
     }
 
+    /// Where the first page starts (after this serial): a copy's own page holds it first, however
+    /// far into the model it is; the others from the start.
+    pub fn first_after(self) -> Option<u32> {
+        match self {
+            Pick::Copy(serial) => serial.checked_sub(1),
+            _ => None,
+        }
+    }
+
     fn takes(self, i: &Instance, me: &Identifier) -> bool {
         i.owner == *me
             && match self {
                 Pick::Free => i.price.is_none(),
                 Pick::OnSale(None) => i.price.is_some(),
-                Pick::OnSale(Some(p)) => i.price == Some(p),
+                // BUG-327 r1 Should 2 (W10): by the price the screens show — in duffs. Another
+                // app may set one that is not a whole duff (1 500 credits): shown as 1 duff,
+                // the window asks 1 000, and an exact match found no copy (`NoneAtPrice`).
+                Pick::OnSale(Some(p)) => i.price.is_some_and(|q| shown(q) == shown(p)),
+                Pick::Copy(serial) => i.serial == serial,
             }
     }
 }
@@ -184,17 +205,18 @@ mod tests {
     #[test]
     fn on_sale_ones_at_a_price_highest_first() {
         let me = id(1);
+        // Prices in credits, whole duffs as the screens show them (BUG-327 r1 Should 2).
         let desc = page(&[
-            (9, 1, Some(5)),
-            (8, 1, Some(7)),
-            (7, 2, Some(5)),
-            (6, 1, Some(5)),
+            (9, 1, Some(5_000)),
+            (8, 1, Some(7_000)),
+            (7, 2, Some(5_000)),
+            (6, 1, Some(5_000)),
         ]);
         let mut taken = Vec::new();
-        assert!(Pick::OnSale(Some(5)).descending());
+        assert!(Pick::OnSale(Some(5_000)).descending());
         assert!(take_from_page(
             &desc,
-            Pick::OnSale(Some(5)),
+            Pick::OnSale(Some(5_000)),
             &me,
             2,
             &mut taken
@@ -204,6 +226,44 @@ mod tests {
         let mut any = Vec::new();
         take_from_page(&desc, Pick::OnSale(None), &me, 9, &mut any);
         assert_eq!(any.len(), 3, "mine on sale at any price");
+    }
+
+    /// W10: a copy's gift takes that copy of mine, on sale or not, and no other; its page starts
+    /// right before it. Mutant: the price kept as `Free` keeps it → red.
+    /// BUG-327 r1 Should 2: another app's price of 1 500 credits shows as 1 duff; «Change the
+    /// price…» and «Take off sale» ask 1 000 — the copy is found, and only those shown at it.
+    /// Mutant: the exact credits compared → none, red.
+    #[test]
+    fn a_price_not_of_whole_duffs_is_found_by_the_one_shown() {
+        let me = id(1);
+        let rows = page(&[
+            (9, 1, Some(1_500)),
+            (8, 1, Some(2_000)),
+            (7, 1, Some(1_000)),
+        ]);
+        let mut taken = Vec::new();
+        let _ = take_from_page(&rows, Pick::OnSale(Some(1_000)), &me, 9, &mut taken);
+        let serials: Vec<u32> = taken.iter().map(|i| i.serial).collect();
+        assert_eq!(serials, [9, 7], "both shown as 1 duff, not the 2 duffs one");
+    }
+
+    #[test]
+    fn a_copys_gift_takes_that_copy_on_sale_or_not() {
+        let me = id(1);
+        let rows = page(&[(40, 2, None), (41, 1, Some(5)), (42, 1, None)]);
+        let mut taken = Vec::new();
+        assert!(take_from_page(&rows, Pick::Copy(41), &me, 1, &mut taken));
+        let serials: Vec<u32> = taken.iter().map(|i| i.serial).collect();
+        assert_eq!(serials, [41], "the copy on sale, not the free one after it");
+        let mut none = Vec::new();
+        assert!(
+            !take_from_page(&rows, Pick::Copy(40), &me, 1, &mut none),
+            "not mine"
+        );
+        assert_eq!(Pick::Copy(41).first_after(), Some(40));
+        assert_eq!(Pick::Copy(0).first_after(), None);
+        assert!(!Pick::Copy(41).descending());
+        assert_eq!(Pick::Free.first_after(), None);
     }
 
     /// R-6: after the highest of the journal and the network; never past the supply.

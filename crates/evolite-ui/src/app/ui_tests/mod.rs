@@ -101,6 +101,7 @@ mod token_windows;
 mod tokens;
 mod top_up_twice;
 mod update_check;
+mod w10_copy;
 mod wallets;
 mod workshop;
 mod xpub;

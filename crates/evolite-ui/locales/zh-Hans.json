@@ -3033,5 +3033,20 @@
   "Simple mode": "简洁",
   "The Platform address holds {} — you can manage it in Advanced mode.": "Platform 地址上有 {} —— 可在高级模式中管理。",
   "What suits you better?": "哪种更适合你？",
-  "You can switch at any time. Your money and data stay as they are.": "可以随时切换。你的资金和数据保持不变。"
+  "You can switch at any time. Your money and data stay as they are.": "可以随时切换。你的资金和数据保持不变。",
+  "The pin of the first Dash meetup in the city, November 2026": "本市首次 Dash 聚会的徽章，2026 年 11 月",
+  "Change the price…": "修改价格…",
+  "Sell…": "出售…",
+  "No. {} is for sale — after the gift it will have no price": "第 {} 个正在出售——赠送后将不再有价格",
+  "The copy stays yours; only its price is taken off.": "副本仍归你所有，只是取消价格。",
+  "No. {} · for sale at {}": "第 {} 号 · 以 {} 出售中",
+  "No. {}": "第 {} 号",
+  "“{}” · No. {} · {}": "“{}” · 第 {} 号 · {}",
+  "“{}” · No. {}": "“{}” · 第 {} 号",
+  "Sign and give": "签名并赠送",
+  "Sign and put up for sale": "签名并上架出售",
+  "Sign and change the price": "签名并修改价格",
+  "Sign and take off sale": "签名并下架",
+  "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price.": "只有第 {} 号的价格会改变。在记录上链之前，买家看到的仍是旧价格。",
+  "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price.": "任何人都可以立即购买，无需你确认。赠送会取消价格；售出后由新所有者定价。"
 }

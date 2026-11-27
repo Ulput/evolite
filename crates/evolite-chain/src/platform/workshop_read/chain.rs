@@ -791,6 +791,7 @@ impl Chain {
                     },
                     issuer,
                     contract: collection.clone(),
+                    model: Some(model.id.clone()),
                     edition: (serial_of(doc), model.supply),
                     owner: owner_name.into(),
                     owner_id: owner.into(),

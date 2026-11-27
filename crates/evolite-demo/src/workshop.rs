@@ -56,8 +56,47 @@ pub fn own_nfts(owner: &str, owner_id: &str) -> Vec<evolite_api::Nft> {
             price: i.price,
             // The wallet's own collection: its pictures drawn without asking.
             chosen: true,
+            model: Some(MODEL.into()),
         })
         .collect()
+}
+
+/// FEAT-0038 W10: another issuer's collection, «Dash Pins», whose model «Orange pin» the wallet
+/// holds one copy of — bought, no. 1 of 100, for sale again at 0.5 DASH.
+pub const PIN_CONTRACT: &str = "DashPins5kQ8vH2mXcR7tLw3Nb9YeFj4Ua6Dg1Zs8Kp";
+pub const PIN_MODEL: &str = "Pin7mB4xQ2vN8cK5wR1tY6hJ3fL9dS4aG2eU7pZ5nXo";
+pub const PIN_PRICE: evolite_api::Duffs = 50_000_000;
+
+/// The pin's copies the wallet holds: no. 1 at 0.5 DASH. The demo core keeps them as their own
+/// shelf: a series on the pin changes them, not the example's.
+pub fn pins() -> Vec<Instance> {
+    vec![Instance {
+        id: "demo-pin-1".into(),
+        serial: 1,
+        price: Some(PIN_PRICE),
+    }]
+}
+
+/// The pin as the Collection shows it, bought `at`.
+pub fn pin_nft(owner: &str, owner_id: &str, at: i64) -> evolite_api::Nft {
+    let copy = &pins()[0];
+    evolite_api::Nft {
+        id: copy.id.clone(),
+        name: "Orange pin".into(),
+        description: tr!("The pin of the first Dash meetup in the city, November 2026").into(),
+        art: crate::demo::art("orange-pin"),
+        art_verified: true,
+        origin: evolite_api::NftOrigin::Received { at: Some(at) },
+        issuer: "dashpins".into(),
+        contract: PIN_CONTRACT.into(),
+        model: Some(PIN_MODEL.into()),
+        edition: (Some(copy.serial), 100),
+        owner: owner.into(),
+        owner_id: owner_id.into(),
+        price: copy.price,
+        // A purchase: the person chose it (FEAT-0054 r1).
+        chosen: true,
+    }
 }
 
 /// A model's picture's room in its write, in the demo (the real core measures it).
@@ -105,7 +144,15 @@ pub fn pick(shelf: &[Instance], kind: &SeriesKind) -> Result<Vec<u32>, SeriesRef
         SeriesKind::Price { price: 0, .. } | SeriesKind::Reprice { price: 0, .. } => {
             return Err(SeriesRefusal::ZeroPrice);
         }
-        SeriesKind::Price { .. } => shelf
+        // W10: that one copy, on sale or not.
+        SeriesKind::Gift {
+            copy: Some(serial), ..
+        } => shelf
+            .iter()
+            .filter(|i| i.serial == *serial)
+            .map(|i| i.serial)
+            .collect(),
+        SeriesKind::Price { .. } | SeriesKind::Gift { .. } => shelf
             .iter()
             .filter(|i| i.price.is_none())
             .map(|i| i.serial)
@@ -127,7 +174,7 @@ pub fn pick(shelf: &[Instance], kind: &SeriesKind) -> Result<Vec<u32>, SeriesRef
     };
     serials.sort_unstable();
     let count = match kind {
-        SeriesKind::Price { count, .. } => *count as usize,
+        SeriesKind::Price { count, .. } | SeriesKind::Gift { count, .. } => *count as usize,
         SeriesKind::Unprice { count, .. } => {
             serials.reverse();
             *count as usize
@@ -136,7 +183,9 @@ pub fn pick(shelf: &[Instance], kind: &SeriesKind) -> Result<Vec<u32>, SeriesRef
     };
     if serials.is_empty() {
         return Err(match kind {
-            SeriesKind::Price { .. } => SeriesRefusal::NotEnoughInstances { have: 0 },
+            SeriesKind::Price { .. } | SeriesKind::Gift { .. } => {
+                SeriesRefusal::NotEnoughInstances { have: 0 }
+            }
             _ => SeriesRefusal::NoneAtPrice,
         });
     }
@@ -149,11 +198,16 @@ pub fn pick(shelf: &[Instance], kind: &SeriesKind) -> Result<Vec<u32>, SeriesRef
     Ok(serials)
 }
 
-/// A price series written on `serials` of `shelf`.
-pub fn apply(shelf: &mut [Instance], kind: &SeriesKind, serials: &[u32]) {
+/// A series written on `serials` of `shelf`: a price set or taken off; a gift takes the copies
+/// away (W10).
+pub fn apply(shelf: &mut Vec<Instance>, kind: &SeriesKind, serials: &[u32]) {
     let price = match kind {
         SeriesKind::Price { price, .. } | SeriesKind::Reprice { price, .. } => Some(duffs(*price)),
         SeriesKind::Unprice { .. } => None,
+        SeriesKind::Gift { .. } => {
+            shelf.retain(|i| !serials.contains(&i.serial));
+            return;
+        }
         _ => return,
     };
     for i in shelf.iter_mut().filter(|i| serials.contains(&i.serial)) {

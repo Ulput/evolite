@@ -1808,6 +1808,26 @@ impl App {
         }
         // `--screen gift` opens the collection with the gift dialog.
         self.collection.gifting = preset("gift");
+        // FEAT-0038 W10: the card of the demo's one copy, «Orange pin», and its series windows
+        // filled as in the frames (`--screen collection-pin…`).
+        self.collection.preset_pin = [
+            ("collection-pin", None),
+            (
+                "collection-pin-give",
+                Some(screens::collection::CopyAct::Give),
+            ),
+            (
+                "collection-pin-reprice",
+                Some(screens::collection::CopyAct::ChangePrice),
+            ),
+            (
+                "collection-pin-unprice",
+                Some(screens::collection::CopyAct::TakeOff),
+            ),
+        ]
+        .into_iter()
+        .find(|(name, _)| preset(name))
+        .map(|(_, act)| act);
         // `--screen phrase` opens 17 over Backup, `--screen appearance` that section.
         let report = preset("report") || preset("report-letter");
         self.settings.section = if preset("phrase") || preset("check-phrase") || preset("backup") {

@@ -40,10 +40,20 @@ fn credits_of(duffs: Duffs) -> Option<evolite_api::series::Credits> {
     u64::try_from(duffs).ok()?.checked_mul(1_000)
 }
 
+/// W10 (UC-13): the one copy a window from the Collection's card is about — its number and its
+/// price now.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct OneCopy {
+    pub serial: u32,
+    pub price: Option<Duffs>,
+}
+
 /// The series window: how many, to whom, its plan, its password.
 pub struct SeriesForm {
     pub action: Action,
     target: SeriesTarget,
+    /// W10: the window is about this copy alone (no «How many»); a gift gives it, on sale or not.
+    copy: Option<OneCopy>,
     how_many: String,
     to: String,
     /// W9: the price of a copy as typed, in the unit of the Settings.
@@ -69,6 +79,7 @@ impl SeriesForm {
         Self {
             action,
             target,
+            copy: None,
             // BUG-259: empty, its hint «1» — a «1» typed into ahead of the cursor made «12».
             how_many: String::new(),
             to: String::new(),
@@ -94,6 +105,33 @@ impl SeriesForm {
         form.to = "@alice".into();
         form.changed_at = -SETTLE_SECS;
         form
+    }
+
+    /// W10: a window of the Collection's card on its one `copy`: «Give…», «Sell…», «Change the
+    /// price…» (from its price) or «Take off sale…» (at its price).
+    pub fn one(action: Action, target: SeriesTarget, copy: OneCopy) -> Self {
+        let mut form = Self::new(action, target);
+        form.copy = Some(copy);
+        // One copy has no «How many» (BUG-259 left it empty for the series): it is one.
+        form.how_many = "1".into();
+        if action == Action::Unprice {
+            form.which = copy.price;
+        }
+        form
+    }
+
+    /// `--screen collection-pin-give` / `-reprice`: W10's windows filled as in the frames — to
+    /// @alice, at 0.75 — and asked of the core at once.
+    #[cfg(feature = "dev-tools")]
+    pub fn preset_fill(&mut self) {
+        match self.action {
+            Action::Give => self.to = "@alice".into(),
+            Action::Reprice { .. } => {
+                self.price = format!("0{}75", crate::format::number_marks().1);
+            }
+            _ => {}
+        }
+        self.changed_at = -SETTLE_SECS;
     }
 
     /// W9 S5 from a row of «Prices»: `count` copies at `price` (or at any, `None`).
@@ -182,6 +220,7 @@ impl SeriesForm {
                 (!to.is_empty()).then(|| SeriesKind::Gift {
                     count,
                     to: to.to_owned(),
+                    copy: self.copy.map(|c| c.serial),
                 })
             }
             Action::Issue => Some(SeriesKind::Mint { count }),
@@ -1057,12 +1096,12 @@ enum PriceAct {
 
 /// What the series windows count from: the free copies, how many can still be issued, the
 /// copies for sale (by price: S4's numbers, S5's «Which»).
-struct Have<'a> {
-    free: Option<u64>,
-    left_to_issue: Option<u32>,
-    for_sale: &'a [evolite_api::workshop::Instance],
+pub(crate) struct Have<'a> {
+    pub free: Option<u64>,
+    pub left_to_issue: Option<u32>,
+    pub for_sale: &'a [evolite_api::workshop::Instance],
     /// All of `for_sale` read: before it, S5's «Which» keeps the price it was opened for.
-    for_sale_read: bool,
+    pub for_sale_read: bool,
 }
 
 /// The copies for sale by price, cheapest first, with their numbers.
@@ -1436,19 +1475,35 @@ fn series_window(
     model: &str,
     have: &Have,
 ) {
-    let Some(form) = state.series.as_mut() else {
-        return;
-    };
-    let held_credits = form
-        .flow
-        .credits(crate::components::Credits::of(cx.wallet()));
     // Signed and answered well: the plate takes over.
-    if matches!(form.flow.result(), Some(Ok(()))) {
-        state.series = None;
+    if series_dialog(ui, a, cx, &mut state.series, model, have) {
         state.counts.clear();
         state.counts_asked.clear();
         state.instances.clear();
-        return;
+    }
+}
+
+/// The series window of `slot`'s form, on the model named `model` with what `have` counts — the
+/// model page's (W8, W9) or the Collection card's one copy (W10). Returns true when the series
+/// was signed and answered well: the window is gone then (`slot` is `None`).
+pub(crate) fn series_dialog(
+    ui: &mut Ui,
+    a: &mut Assets,
+    cx: &mut Ctx,
+    slot: &mut Option<SeriesForm>,
+    model: &str,
+    have: &Have,
+) -> bool {
+    let Some(form) = slot.as_mut() else {
+        return false;
+    };
+    // BUG-318: the credits the window was signed with, held until it is sent.
+    let held_credits = form
+        .flow
+        .credits(crate::components::Credits::of(cx.wallet()));
+    if matches!(form.flow.result(), Some(Ok(()))) {
+        *slot = None;
+        return true;
     }
     let now = ui.input(|i| i.time);
     // BUG-266: «wait for the sync» is not the last word: asked again a moment later.
@@ -1490,29 +1545,46 @@ fn series_window(
         Action::Reprice { .. } => tr!("Change the price").to_owned(),
         Action::Unprice => tr!("Take off sale").to_owned(),
     };
-    // W9: what the window is about, under its title.
-    let under = match form.action {
-        // W9 r1: the free ones not read yet — not «free 0».
-        Action::Sell => Some(match have.free {
-            Some(free) => format!(tr!("“{}” · free {}"), name, crate::format::count(free)),
-            None => format!("“{name}”"),
-        }),
-        Action::Reprice { from } => {
-            let group = by_price.get(&from).cloned().unwrap_or_default();
-            Some(format!(
-                tr!("“{}” · {} at {} · {}"),
-                name,
-                crate::text::plural(group.len() as u32, tr!("copy"), tr!("copies")),
-                crate::format::amount(from),
-                numbers_line(&group, RANGES_SHOWN)
-            ))
-        }
-        Action::Unprice => Some(format!(
-            tr!("“{}” · for sale {}"),
-            name,
-            crate::format::count(u64::from(on_sale))
+    // W9: what the window is about, under its title. W10 (the designer's check): a window on one
+    // copy names that copy — «“Orange pin” · No. 1 · 0.5000 DASH» — not a series' count.
+    let one = form.copy.map(|c| (c.serial, c.price));
+    let under = match (form.action, one) {
+        (Action::Give, Some((serial, Some(price)))) => Some(format!(
+            tr!("No. {} · for sale at {}"),
+            serial,
+            crate::format::amount(price)
         )),
-        _ => None,
+        (Action::Give, Some((serial, None))) => Some(format!(tr!("No. {}"), serial)),
+        (Action::Reprice { .. } | Action::Unprice, Some((serial, Some(price)))) => Some(format!(
+            tr!("“{}” · No. {} · {}"),
+            name,
+            serial,
+            crate::format::amount(price)
+        )),
+        (Action::Sell, Some((serial, _))) => Some(format!(tr!("“{}” · No. {}"), name, serial)),
+        _ => match form.action {
+            // W9 r1: the free ones not read yet — not «free 0».
+            Action::Sell => Some(match have.free {
+                Some(free) => format!(tr!("“{}” · free {}"), name, crate::format::count(free)),
+                None => format!("“{name}”"),
+            }),
+            Action::Reprice { from } => {
+                let group = by_price.get(&from).cloned().unwrap_or_default();
+                Some(format!(
+                    tr!("“{}” · {} at {} · {}"),
+                    name,
+                    crate::text::plural(group.len() as u32, tr!("copy"), tr!("copies")),
+                    crate::format::amount(from),
+                    numbers_line(&group, RANGES_SHOWN)
+                ))
+            }
+            Action::Unprice => Some(format!(
+                tr!("“{}” · for sale {}"),
+                name,
+                crate::format::count(u64::from(on_sale))
+            )),
+            _ => None,
+        },
     };
     // One window per kind of series (BUG-249 r3: an id the guard reads): «Continue» opens the
     // one of the series it resumes.
@@ -1655,13 +1727,20 @@ fn series_window(
                 && op.is_some()
                 && form.flow.password.ready(true)
                 && form.flow.can_act();
-            let label = match form.action {
-                Action::Give => format!(tr!("Sign and give {}"), records),
-                Action::Issue => format!(tr!("Sign and issue {}"), records),
-                Action::Continue => tr!("Sign and continue").to_owned(),
-                Action::Sell => format!(tr!("Sign and put up {}"), records),
-                Action::Reprice { .. } => format!(tr!("Sign and change {}"), records),
-                Action::Unprice => format!(tr!("Sign and take off {}"), records),
+            let label = match (form.action, form.copy.is_some()) {
+                // W10 (the designer's check): one copy — no count on the button.
+                (Action::Give, true) => tr!("Sign and give").to_owned(),
+                (Action::Sell, true) => tr!("Sign and put up for sale").to_owned(),
+                (Action::Reprice { .. }, true) => tr!("Sign and change the price").to_owned(),
+                (Action::Unprice, true) => tr!("Sign and take off sale").to_owned(),
+                (action, _) => match action {
+                    Action::Give => format!(tr!("Sign and give {}"), records),
+                    Action::Issue => format!(tr!("Sign and issue {}"), records),
+                    Action::Continue => tr!("Sign and continue").to_owned(),
+                    Action::Sell => format!(tr!("Sign and put up {}"), records),
+                    Action::Reprice { .. } => format!(tr!("Sign and change {}"), records),
+                    Action::Unprice => format!(tr!("Sign and take off {}"), records),
+                },
             };
             let mut go = false;
             crate::components::button_row(ui, |ui| {
@@ -1699,7 +1778,10 @@ fn series_window(
                     Action::Give => have.free,
                     _ => have.left_to_issue.map(u64::from),
                 };
-                how_many(ui, a, form, of, false);
+                // W10: one copy, no «How many».
+                if form.copy.is_none() {
+                    how_many(ui, a, form, of, false);
+                }
                 if form.action == Action::Give {
                     field_label(ui, &p, tr!("Recipient"));
                     text_field(
@@ -1712,7 +1794,21 @@ fn series_window(
                         |_| {},
                     );
                 }
-                if let Some(words) = serials_words(form.action == Action::Give, &serials) {
+                // W10, AC-A11: a copy for sale loses its price with the gift — said before it.
+                if let Some(OneCopy {
+                    serial,
+                    price: Some(_),
+                }) = form.copy
+                {
+                    crate::components::warning(
+                        ui,
+                        a,
+                        &format!(
+                            tr!("No. {} is for sale — after the gift it will have no price"),
+                            serial
+                        ),
+                    );
+                } else if let Some(words) = serials_words(form.action == Action::Give, &serials) {
                     ui.label(txt(&words, 12.0, Weight::Regular, p.muted));
                 } else if counting {
                     // BUG-349: the numbers' line has its place while they are counted.
@@ -1720,7 +1816,9 @@ fn series_window(
                 }
             }
             Action::Sell => {
-                how_many(ui, a, form, have.free, true);
+                if form.copy.is_none() {
+                    how_many(ui, a, form, have.free, true);
+                }
                 price_field(ui, &p, form, tr!("Price per copy"));
                 let count: u32 = form.how_many.trim().parse().unwrap_or(0);
                 if let Some(price) = form.typed_price().filter(|_| count > 0) {
@@ -1778,15 +1876,35 @@ fn series_window(
                 );
                 if let Some(price) = form.typed_price() {
                     kv_row_fit(ui, &p, tr!("Will be"), &per_copy(price), words.clone());
-                    if_all_bought(ui, &p, price.saturating_mul(group as Duffs));
+                    // W10: for one copy «If all are bought» only repeats «Will be».
+                    if form.copy.is_none() {
+                        if_all_bought(ui, &p, price.saturating_mul(group as Duffs));
+                    }
                 }
                 ui.label(txt(
-                    &format!(
-                        tr!(
-                            "The price changes on the same {} copies; their numbers stay the same. Until the record is on the network, a buyer sees the old price."
+                    &match form.copy {
+                        Some(c) => format!(
+                            tr!(
+                                "The price changes only on No. {}. Until the record is on the network, a buyer sees the old price."
+                            ),
+                            c.serial
                         ),
-                        group
-                    ),
+                        None => format!(
+                            tr!(
+                                "The price changes on the same {} copies; their numbers stay the same. Until the record is on the network, a buyer sees the old price."
+                            ),
+                            group
+                        ),
+                    },
+                    12.0,
+                    Weight::Regular,
+                    p.muted,
+                ));
+            }
+            // W10: the one copy at its price — no «Which», no «How many».
+            Action::Unprice if form.copy.is_some() => {
+                ui.label(txt(
+                    tr!("The copy stays yours; only its price is taken off."),
                     12.0,
                     Weight::Regular,
                     p.muted,
@@ -1844,15 +1962,18 @@ fn series_window(
         if let Some(why) = why.as_deref().filter(|w| !w.is_empty()) {
             notice(ui, a, "warning", p.danger, why);
         }
-        super::super::tokens::para(
-            ui,
-            tr!(
-                "One record per copy, up to 4 at once. The window can be closed — the series goes on in the background, its progress shows on the model's page."
-            ),
-            12.0,
-            p.muted,
-            None,
-        );
+        // W10: one record, of a model whose page may be another's.
+        if form.copy.is_none() {
+            super::super::tokens::para(
+                ui,
+                tr!(
+                    "One record per copy, up to 4 at once. The window can be closed — the series goes on in the background, its progress shows on the model's page."
+                ),
+                12.0,
+                p.muted,
+                None,
+            );
+        }
         false
     };
     let closed = match (action, under.as_deref()) {
@@ -1877,6 +1998,10 @@ fn series_window(
             480.0,
             body,
         ),
+        // W10: a gift of one copy says which copy leaves (the designer's check).
+        (Action::Give, Some(under)) => {
+            dialog_with_summary_under(ui, a, "workshop-give", "nft", (&title, under), 480.0, body)
+        }
         _ if gives => dialog_with_summary(ui, a, "workshop-give", "nft", &title, 480.0, body),
         _ => dialog_with_summary(ui, a, "workshop-issue", "nft", &title, 480.0, body),
     };
@@ -1885,8 +2010,9 @@ fn series_window(
     }
     if closed && !form.flow.waiting() {
         form.forget();
-        state.series = None;
+        *slot = None;
     }
+    false
 }
 
 /// «How many», «of {n}», its field; W9 S2 with «All {n}» at the field's end.

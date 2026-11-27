@@ -732,6 +732,7 @@ pub(crate) mod tests {
             kind: evolite_api::series::SeriesKind::Gift {
                 count: 3,
                 to: "@carol".into(),
+                copy: None,
             },
             fee_max: 3 * 145_000,
         };

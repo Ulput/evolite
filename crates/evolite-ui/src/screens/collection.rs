@@ -72,6 +72,16 @@ pub struct CollectionState {
     pub flow: crate::components::spend_flow::SpendFlow<()>,
     /// The core's answer to the last "Give".
     pub result: Option<Result<(), CoreError>>,
+    /// FEAT-0038 W10 (UC-13): the series window on one copy — «Give…», «Sell…», «Change the
+    /// price…», «Take off sale…» — and the model's name for it.
+    pub series: Option<super::workshop::SeriesForm>,
+    pub series_model: String,
+    /// The copy the window is about, as the card showed it.
+    pub series_copy: Option<SeriesCopy>,
+    /// `--screen collection-pin…`: the demo's pin's card, or this window on it, once the list
+    /// has it.
+    #[cfg(feature = "dev-tools")]
+    pub preset_pin: Option<Option<CopyAct>>,
     /// The pictures, drawn by the core at the size of the cards.
     pub art: ArtCache,
     /// Settings → Collection: a picture from an issuer not trusted waits for "Show".
@@ -116,6 +126,11 @@ impl CollectionState {
         self.recipient.clear();
         self.result = None;
         self.shown.clear();
+        if let Some(form) = &mut self.series {
+            form.forget();
+        }
+        self.series = None;
+        self.series_copy = None;
     }
 
     /// The picture of `nft` is not drawn until the person asks: an issuer nobody trusted may
@@ -300,6 +315,8 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
             total
         };
         let mut clicked = false;
+        // W10: the series window a card asked for, and its copy.
+        let mut opened: Option<(CopyAct, usize)> = None;
         ui.scope(|ui| {
             let grid = |ui: &mut Ui,
                         a: &mut Assets,
@@ -378,9 +395,10 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                                         (&mut state.art, &mut asked),
                                         (nfts, group, &asks),
                                         (gift_fee, now, &mut state.page),
-                                        (true, mine),
+                                        (&wallet.series, true, mine),
                                     );
                                     state.gifting |= picked.gift;
+                                    opened = opened.or(picked.series.map(|act| (act, group[0])));
                                     if let Some(issuer) = picked.trust {
                                         // r1: kept by the wallet, not only this run.
                                         asked.push(Command::TrustIssuer {
@@ -408,7 +426,13 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 nft.name.clone()
             };
             let mut picked = Picked::default();
-            let close = crate::components::dialog_with_header(
+            // W10: one copy's series buttons in the window's footer.
+            let footer = match (group.len(), offer(nft, nfts, &wallet.series)) {
+                (1, Offer::Series(why)) => Some(why),
+                _ => None,
+            };
+            let mut from_footer = None;
+            let close = crate::components::dialog_with_header_and_footer(
                 ui,
                 a,
                 "nft-card",
@@ -416,18 +440,29 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 |ui, _| {
                     ui.label(txt(&title, 20.0, Weight::Bold, p.text));
                 },
-                |ui, a| {
-                    picked = card_body(
-                        ui,
-                        a,
-                        (&mut state.art, &mut asked),
-                        (nfts, group, &asks),
-                        (gift_fee, now, &mut state.page),
-                        (false, mine),
-                    );
-                    picked.gift
+                |ui, a, part| match part {
+                    crate::components::Part::Footer => {
+                        if let Some(why) = footer {
+                            from_footer = copy_actions(ui, a, nft, why, false);
+                        }
+                        from_footer.is_some()
+                    }
+                    crate::components::Part::Summary => false,
+                    crate::components::Part::Middle => {
+                        picked = card_body(
+                            ui,
+                            a,
+                            (&mut state.art, &mut asked),
+                            (nfts, group, &asks),
+                            (gift_fee, now, &mut state.page),
+                            (&wallet.series, false, mine),
+                        );
+                        picked.gift
+                    }
                 },
             );
+            picked.series = picked.series.or(from_footer);
+            opened = opened.or(picked.series.map(|act| (act, group[0])));
             state.gifting |= picked.gift;
             if let Some(issuer) = picked.trust {
                 // r1: kept by the wallet, not only this run.
@@ -436,9 +471,30 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
                 });
                 state.trusted.insert(issuer);
             }
-            if close || picked.gift {
+            // One window at a time (BUG-188 §5): a series window takes the card's place.
+            if close || picked.gift || picked.series.is_some() {
                 state.open = false;
             }
+        }
+        // `--screen collection-pin…`: the pin's card or one of its windows, once it is listed.
+        #[cfg(feature = "dev-tools")]
+        if let Some(act) = state.preset_pin
+            && let Some(i) = nfts.iter().position(|n| n.id == "demo-pin-1")
+        {
+            state.preset_pin = None;
+            state.selected = i;
+            match act {
+                None => state.open = true,
+                Some(act) => {
+                    open_series(state, &nfts[i], act);
+                    if let Some(form) = &mut state.series {
+                        form.preset_fill();
+                    }
+                }
+            }
+        }
+        if let Some((act, i)) = opened {
+            open_series(state, &nfts[i], act);
         }
         for command in asked {
             cx.send(command);
@@ -449,6 +505,126 @@ pub fn collection(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Collect
             gift_dialog(ui, a, cx, state);
         }
     });
+    series_window(ui, a, cx, state);
+}
+
+/// W10: what a card's button opens on its one copy.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CopyAct {
+    Give,
+    Sell,
+    ChangePrice,
+    TakeOff,
+}
+
+/// W10: the copy a series window is about — its owner, collection, model, number and price
+/// as the card showed them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SeriesCopy {
+    id: String,
+    target: evolite_api::series::SeriesTarget,
+    copy: super::workshop::OneCopy,
+}
+
+/// W10: what the card of one copy offers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Offer {
+    /// Not a copy of a Workshop model (no model or no number): the card as before.
+    Before,
+    /// The series windows on this copy; `Some(why)`: shown, not active, with why.
+    Series(Option<&'static str>),
+}
+
+/// W10 (UC-13): the series windows are offered on a copy of a Workshop model with a number
+/// when its identity holds no other copy of that model — the core takes the free copies with the
+/// lowest numbers or those at a price from the highest, so the copy on the card is the one
+/// written only then (R-10); and not while a series of that identity runs (R-8, AC-A8).
+fn offer(nft: &Nft, nfts: &[Nft], series: &[evolite_api::series::SeriesState]) -> Offer {
+    let (Some(model), Some(_)) = (nft.model.as_deref(), nft.edition.0) else {
+        return Offer::Before;
+    };
+    let copies = nfts
+        .iter()
+        .filter(|n| {
+            n.owner_id == nft.owner_id
+                && n.contract == nft.contract
+                && n.model.as_deref() == Some(model)
+        })
+        .count();
+    if copies > 1 {
+        return Offer::Series(Some(SERIES_LATER));
+    }
+    if series
+        .iter()
+        .any(|s| s.running && s.target.identity == nft.owner_id)
+    {
+        return Offer::Series(Some(tr!("A series is running — wait for it or stop it")));
+    }
+    Offer::Series(None)
+}
+
+/// W10: the window `act` asks for on `nft`, the copy of its card.
+fn open_series(state: &mut CollectionState, nft: &Nft, act: CopyAct) {
+    use super::workshop::{OneCopy, SeriesAction, SeriesForm};
+    let (Some(model), Some(serial)) = (nft.model.clone(), nft.edition.0) else {
+        return;
+    };
+    let target = evolite_api::series::SeriesTarget {
+        identity: nft.owner_id.clone(),
+        contract: nft.contract.clone(),
+        model,
+    };
+    let copy = OneCopy {
+        serial,
+        price: nft.price,
+    };
+    let action = match (act, nft.price) {
+        (CopyAct::Give, _) => SeriesAction::Give,
+        (CopyAct::Sell, _) => SeriesAction::Sell,
+        (CopyAct::ChangePrice, Some(from)) => SeriesAction::Reprice { from },
+        (CopyAct::TakeOff, Some(_)) => SeriesAction::Unprice,
+        // Not for sale: nothing to change or take off.
+        (CopyAct::ChangePrice | CopyAct::TakeOff, None) => return,
+    };
+    state.series = Some(SeriesForm::one(action, target.clone(), copy));
+    state.series_model = nft.name.clone();
+    state.series_copy = Some(SeriesCopy {
+        id: nft.id.clone(),
+        target,
+        copy,
+    });
+}
+
+/// W10: the open series window on one copy; when its series is signed and answered well, the
+/// Collection is read again (the price, a copy given away).
+fn series_window(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut CollectionState) {
+    let Some(one) = state.series_copy.clone() else {
+        return;
+    };
+    let OneCopy { serial, price } = one.copy;
+    use super::workshop::OneCopy;
+    // What the window counts from: the one copy, free or at its price.
+    let for_sale: Vec<evolite_api::workshop::Instance> = price
+        .map(|price| evolite_api::workshop::Instance {
+            id: one.id.clone(),
+            serial,
+            price: Some(price),
+        })
+        .into_iter()
+        .collect();
+    let have = super::workshop::SeriesHave {
+        free: Some(u64::from(price.is_none())),
+        left_to_issue: None,
+        for_sale: &for_sale,
+        for_sale_read: true,
+    };
+    let name = state.series_model.clone();
+    if super::workshop::series_dialog(ui, a, cx, &mut state.series, &name, &have) {
+        cx.send(Command::RefreshNfts);
+    }
+    if state.series.is_none() {
+        state.series_copy = None;
+    }
 }
 
 fn edition(nft: &Nft) -> String {
@@ -748,6 +924,8 @@ fn tile_name(
 struct Picked {
     /// «Give» (the demo's, one copy).
     gift: bool,
+    /// W10: a series window on the one copy.
+    series: Option<CopyAct>,
     /// «Always show from …»: this issuer.
     trust: Option<String>,
 }
@@ -760,13 +938,23 @@ fn card_body(
     (art_cache, asked): (&mut ArtCache, &mut Vec<Command>),
     (nfts, group, asks): (&[Nft], &[usize], &[bool]),
     (gift_fee, now, page): (Option<Duffs>, chrono::DateTime<chrono::Local>, &mut usize),
-    (panel, mine): (bool, bool),
+    (series, panel, mine): (&[evolite_api::series::SeriesState], bool, bool),
 ) -> Picked {
     let first = group[0];
     if group.len() == 1 {
-        let (gift, trust) = detail(ui, a, &nfts[first], asks[first], gift_fee, now, panel);
+        let offer = offer(&nfts[first], nfts, series);
+        let (gift, trust, act) = detail(
+            ui,
+            a,
+            &nfts[first],
+            asks[first],
+            (gift_fee, offer),
+            now,
+            panel,
+        );
         return Picked {
             gift,
+            series: act,
             trust: trust.then(|| nfts[first].issuer.clone()),
         };
     }
@@ -782,6 +970,7 @@ fn card_body(
     );
     Picked {
         gift: false,
+        series: None,
         trust: trust.then(|| nfts[first].issuer.clone()),
     }
 }
@@ -1098,18 +1287,20 @@ fn capitalized(s: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `ask`: the picture waits for consent; `gift_fee`: "Give" is offered, at this fee.
-/// Returns ("Give", "Always show from …").
+/// `ask`: the picture waits for consent; `gift_fee`: "Give" is offered, at this fee; `offer`:
+/// W10's series windows on this copy, or the card as before.
+/// Returns ("Give", "Always show from …", the series window asked for).
 fn detail(
     ui: &mut Ui,
     a: &mut Assets,
     nft: &Nft,
     ask: bool,
-    gift_fee: Option<Duffs>,
+    (gift_fee, offer): (Option<Duffs>, Offer),
     now: chrono::DateTime<chrono::Local>,
     title: bool,
-) -> (bool, bool) {
+) -> (bool, bool, Option<CopyAct>) {
     let p = a.p;
+    let mut act = None;
     #[cfg_attr(not(demo_core), allow(unused_mut))]
     let mut gift = false;
     #[cfg(not(demo_core))]
@@ -1185,6 +1376,26 @@ fn detail(
             }
             divider(ui, &p);
             let value = sans(13.0, Weight::Medium);
+            // W10: «for sale · 0.5000 DASH» in the accent, as the tiles say it. The first row (the
+            // designer's check): the buttons under the table are about it, and at 800 × 440 the
+            // rows below scroll.
+            match (nft.price, &offer) {
+                (Some(d), Offer::Series(_)) => crate::components::kv_row_in(
+                    ui,
+                    &p,
+                    tr!("Price"),
+                    &format!(tr!("for sale · {}"), crate::format::amount(d)),
+                    value.clone(),
+                    p.accent,
+                ),
+                (price, _) => {
+                    let price = match price {
+                        Some(d) => crate::format::amount(d),
+                        None => tr!("not for sale").into(),
+                    };
+                    kv_row(ui, &p, tr!("Price"), &price, value.clone());
+                }
+            }
             kv_row(ui, &p, tr!("Owner"), &nft.owner, value.clone());
             match &nft.origin {
                 NftOrigin::Gift { from, at } => {
@@ -1211,14 +1422,14 @@ fn detail(
                 &nft.contract,
                 mono(13.0, Weight::Medium),
             );
-            let price = match nft.price {
-                Some(d) => crate::format::amount(d),
-                None => tr!("not for sale").into(),
-            };
-            kv_row(ui, &p, tr!("Price"), &price, value);
-            // "Give" and "Sell": the demo's, as in Figma.
+            // In the panel under the card; the window has them in its footer (BUG-122: never
+            // scrolled away).
+            if let (Offer::Series(why), true) = (offer, title) {
+                act = copy_actions(ui, a, nft, why, title);
+            }
+            // "Give" and "Sell": the demo's, as in Figma — on a copy W10 does not cover.
             #[cfg(demo_core)]
-            {
+            if offer == Offer::Before {
                 divider(ui, &p);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 8.0;
@@ -1250,7 +1461,68 @@ fn detail(
             }
         }
     }
-    (gift, trust)
+    (gift, trust, act)
+}
+
+/// W10 (the frame W10 on BUG-188): «Give…», then «Change the price…» and «Take off sale…» for a
+/// copy for sale or «Sell…»; the rules of a direct purchase under them (AC-A11). `why`: they
+/// are shown, not active, with why. `panel`: one under another, the panel's width.
+fn copy_actions(
+    ui: &mut Ui,
+    a: &mut Assets,
+    nft: &Nft,
+    why: Option<&'static str>,
+    panel: bool,
+) -> Option<CopyAct> {
+    let p = a.p;
+    let mut buttons = vec![(tr!("Give…"), ButtonKind::Primary, CopyAct::Give)];
+    if nft.price.is_some() {
+        buttons.push((
+            tr!("Change the price…"),
+            ButtonKind::Secondary,
+            CopyAct::ChangePrice,
+        ));
+        buttons.push((
+            tr!("Take off sale…"),
+            ButtonKind::Secondary,
+            CopyAct::TakeOff,
+        ));
+    } else {
+        buttons.push((tr!("Sell…"), ButtonKind::Secondary, CopyAct::Sell));
+    }
+    let mut act = None;
+    let mut press = |ui: &mut Ui, a: &mut Assets, (label, kind, what), width| {
+        let pressed = crate::components::button_enabled(ui, a, label, kind, width, why.is_none());
+        let pressed = match why {
+            Some(why) => pressed.on_disabled_hover_text(crate::i18n::t(why).into_owned()),
+            None => pressed,
+        };
+        if pressed.clicked() {
+            act = Some(what);
+        }
+    };
+    if panel {
+        let width = ui.available_width();
+        for each in buttons {
+            press(ui, a, each, Some(width));
+        }
+    } else {
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 8.0;
+            for each in buttons {
+                press(ui, a, each, None);
+            }
+        });
+    }
+    ui.add(crate::components::para(
+        tr!(
+            "Anyone can buy it — at once, without your confirmation. A gift takes the price off; after a sale the new owner sets the price."
+        ),
+        12.0,
+        Weight::Regular,
+        p.muted,
+    ));
+    act
 }
 
 /// "Give": the recipient's Dash name and the fee; the core does the transfer (the demo's).
@@ -1503,12 +1775,77 @@ mod tests {
             origin: NftOrigin::Release,
             issuer: "jembe".into(),
             contract: "jembe-nft".into(),
+            model: None,
             edition: (Some(edition), 500),
             owner: "@me".into(),
             owner_id: "me".into(),
             chosen: false,
             price,
         }
+    }
+
+    /// FEAT-0038 W10: the series windows on a copy of a Workshop model with a number, held alone
+    /// by its identity; inactive with why when the identity holds another copy of that model
+    /// (the core would take the lowest free one, maybe not this) or runs a series; the card as
+    /// before for a copy with no model or no number. Mutant: the other copies not counted → red.
+    #[test]
+    fn the_series_windows_are_offered_on_a_copy_held_alone() {
+        use super::{Offer, SERIES_LATER, offer};
+        use evolite_api::series::{SeriesKind, SeriesState, SeriesTarget};
+        let of_model = |id: &str, owner: &str| Nft {
+            model: Some("pin".into()),
+            owner_id: owner.into(),
+            ..nft(id, "pin", 1, Some(50_000_000))
+        };
+        let one = of_model("a", "me");
+        assert_eq!(
+            offer(&one, std::slice::from_ref(&one), &[]),
+            Offer::Series(None)
+        );
+        // Another identity's copy of the model is not this one's.
+        let theirs = of_model("b", "other");
+        assert_eq!(
+            offer(&one, &[one.clone(), theirs], &[]),
+            Offer::Series(None)
+        );
+        let second = of_model("c", "me");
+        assert_eq!(
+            offer(&one, &[one.clone(), second], &[]),
+            Offer::Series(Some(SERIES_LATER))
+        );
+        let running = SeriesState {
+            id: 1,
+            target: SeriesTarget {
+                identity: "me".into(),
+                contract: "jembe-nft".into(),
+                model: "other-model".into(),
+            },
+            kind: SeriesKind::Mint { count: 3 },
+            total: 3,
+            done: 1,
+            refused: 0,
+            unclear: 0,
+            running: true,
+            stopping: false,
+            per_write: 1,
+        };
+        assert!(matches!(
+            offer(&one, std::slice::from_ref(&one), &[running]),
+            Offer::Series(Some(why)) if why.starts_with("A series is running")
+        ));
+        let no_model = nft("d", "jembe", 1, None);
+        assert_eq!(
+            offer(&no_model, std::slice::from_ref(&no_model), &[]),
+            Offer::Before
+        );
+        let no_number = Nft {
+            edition: (None, 0),
+            ..one.clone()
+        };
+        assert_eq!(
+            offer(&no_number, std::slice::from_ref(&no_number), &[]),
+            Offer::Before
+        );
     }
 
     /// BUG-188 §4: copies of one contract and one picture are one group, where its first copy
@@ -1709,6 +2046,7 @@ mod tests {
             origin: NftOrigin::Release,
             issuer: issuer.into(),
             contract: String::new(),
+            model: None,
             edition: (Some(1), 1),
             owner: String::new(),
             owner_id: String::new(),
