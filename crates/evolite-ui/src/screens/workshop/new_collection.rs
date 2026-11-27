@@ -180,6 +180,21 @@ fn refusal_words(r: &ContractRefusal, who: &str) -> String {
         ContractRefusal::MainContractMissing => {
             tr!("There is no contract with this id on Dash Platform.").into()
         }
+        // BUG-342 (BUG-323's words): which contract, and «newer» only when Platform's answer came
+        // and was not taken; «Details» has the answer.
+        ContractRefusal::MainContractUnread { id, undecoded, .. } => {
+            let id = crate::i18n::own(id);
+            if *undecoded {
+                format!(
+                    tr!(
+                        "Could not read the contract {}: it may be newer than this version of evolite."
+                    ),
+                    id
+                )
+            } else {
+                format!(tr!("Could not read the contract {} from Platform."), id)
+            }
+        }
         ContractRefusal::NewerNetwork(_) => {
             tr!("The network runs a newer version of Dash Platform. Update evolite.").into()
         }
@@ -267,6 +282,14 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
             },
         },
     };
+    // BUG-342: what Platform answered when «Belongs to a contract» did not read.
+    let details: Option<String> = checked
+        .as_ref()
+        .and_then(|c| c.as_ref().ok())
+        .and_then(|c| match &c.refusal {
+            Some(ContractRefusal::MainContractUnread { details, .. }) => Some(details.clone()),
+            _ => None,
+        });
     let wide = ui.available_width() >= 760.0;
     let mut check_pressed = false;
     let mut cancel = false;
@@ -284,6 +307,7 @@ pub(super) fn page(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut Worksh
             fee,
             counting,
             why.as_deref(),
+            details.as_deref(),
             &mut check_pressed,
             &mut cancel,
         );
@@ -469,6 +493,7 @@ fn summary(
     fee: Option<ContractFee>,
     counting: bool,
     why: Option<&str>,
+    details: Option<&str>,
     check: &mut bool,
     cancel: &mut bool,
 ) {
@@ -530,6 +555,9 @@ fn summary(
         });
         if let Some(why) = why.filter(|w| !w.is_empty()) {
             super::super::tokens::para(ui, why, 12.0, p.danger, None);
+            if let Some(details) = details {
+                crate::components::details_line(ui, &p, details);
+            }
         }
     });
 }

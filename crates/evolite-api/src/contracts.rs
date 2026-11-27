@@ -114,6 +114,14 @@ pub enum ContractRefusal {
     MainContractId,
     /// No contract with that id on Platform (read with a proof).
     MainContractMissing,
+    /// BUG-342: the contract `id` could not be read — Platform answered and the answer was not
+    /// taken (`undecoded`: perhaps newer than this evolite), or the read failed; `details`: what
+    /// Platform answered, for «Details». The fee is still counted, never «the network refused».
+    MainContractUnread {
+        id: String,
+        undecoded: bool,
+        details: String,
+    },
     /// The network runs a protocol newer than this build of evolite knows: «Update evolite».
     NewerNetwork(u32),
     /// Platform's rules refuse the contract: their words, for «Details».

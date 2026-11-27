@@ -3015,5 +3015,7 @@
   "at least ≈ {}": "최소 ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "정확한 수수료는 네트워크 부하에 따라 다릅니다. 들어온 금액은 기록에 있습니다.",
   "Creation of the identity {} from the pool": "풀에서 아이덴티티 {} 생성",
-  "Top-up of {} from the pool": "풀에서 {} 충전"
+  "Top-up of {} from the pool": "풀에서 {} 충전",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "컨트랙트 {}을(를) 읽지 못했습니다. 이 evolite 버전보다 새로운 것일 수 있습니다.",
+  "Could not read the contract {} from Platform.": "컨트랙트 {}을(를) Platform에서 읽지 못했습니다."
 }

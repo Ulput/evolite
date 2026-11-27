@@ -1184,3 +1184,35 @@ fn a_sale_window_opened_before_the_copies_are_read_says_no_zero() {
         has_words(kit, "“Winter tram” · free 8")
     });
 }
+
+/// BUG-342: «Belongs to a contract» that does not read — the registration's estimate stays, and
+/// under «Check» which contract could not be read and why («newer» when Platform's answer was not
+/// taken), with «Details»; never «the network refused».
+#[test]
+fn a_main_contract_not_read_keeps_the_fee_and_says_why() {
+    let (_turn, mut kit) = demo_app("workshop", "en");
+    wait_for(&mut kit, "W1", |kit| has_text(kit, "Seasons of the city"));
+    button(&kit, "Create NFT").click();
+    wait_for(&mut kit, "W2", |kit| has_text(kit, "Collection rules"));
+    type_into(&mut kit, "Collection name", "Dash Pins");
+    type_into(
+        &mut kit,
+        "Belongs to a contract · optional",
+        "UnreadWHqD5yZyyygggh937aP6h2UW7aQWBdWpM5",
+    );
+    wait_for(&mut kit, "the core's check", |kit| {
+        has_words(kit, "Could not read the contract")
+    });
+    assert!(
+        has_words(&kit, "it may be newer than this version of evolite"),
+        "{:?}",
+        painted_texts(&kit)
+    );
+    assert!(has_words(&kit, "0.1950"), "the fee stays");
+    assert!(!has_words(&kit, "network refused"));
+    assert!(kit.query_by_label("Details").is_some(), "Platform's answer");
+    assert!(
+        button(&kit, "Check").accesskit_node().is_disabled(),
+        "nothing to sign"
+    );
+}

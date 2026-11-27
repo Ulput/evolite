@@ -154,7 +154,7 @@ fn read_failed(
 /// BUG-323 r1 (Should 1): Platform answered and evolite could not take the answer — a protocol,
 /// decoding, version or proof error, by the error's type names; not a timeout or an unreachable
 /// node. Only then «perhaps newer than this evolite».
-fn undecoded(debug: &str) -> bool {
+pub(in crate::real) fn undecoded(debug: &str) -> bool {
     crate::diag::error_kind_of_debug(debug)
         .split('/')
         .any(|name| {

@@ -3063,5 +3063,7 @@
   "at least ≈ {}": "कम से कम ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "सटीक शुल्क नेटवर्क के लोड पर निर्भर करता है; कितना आया, यह इतिहास में है।",
   "Creation of the identity {} from the pool": "पूल से पहचान {} का निर्माण",
-  "Top-up of {} from the pool": "पूल से {} का टॉप-अप"
+  "Top-up of {} from the pool": "पूल से {} का टॉप-अप",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "कॉन्ट्रैक्ट {} पढ़ा नहीं जा सका: शायद यह evolite के इस संस्करण से नया है।",
+  "Could not read the contract {} from Platform.": "कॉन्ट्रैक्ट {} Platform से पढ़ा नहीं जा सका।"
 }

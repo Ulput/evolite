@@ -3015,5 +3015,7 @@
   "at least ≈ {}": "ít nhất ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "Phí chính xác phụ thuộc vào tải của mạng; số đã nhận có trong Lịch sử.",
   "Creation of the identity {} from the pool": "Tạo danh tính {} từ pool",
-  "Top-up of {} from the pool": "Nạp cho {} từ pool"
+  "Top-up of {} from the pool": "Nạp cho {} từ pool",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "Không đọc được hợp đồng {}: có thể nó mới hơn phiên bản evolite này.",
+  "Could not read the contract {} from Platform.": "Không đọc được hợp đồng {} từ Platform."
 }

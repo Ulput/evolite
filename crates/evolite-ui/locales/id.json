@@ -3015,5 +3015,7 @@
   "at least ≈ {}": "setidaknya ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "Biaya pastinya bergantung pada beban jaringan; yang masuk ada di Riwayat.",
   "Creation of the identity {} from the pool": "Pembuatan identitas {} dari pool",
-  "Top-up of {} from the pool": "Isi ulang {} dari pool"
+  "Top-up of {} from the pool": "Isi ulang {} dari pool",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "Kontrak {} tidak dapat dibaca: mungkin lebih baru dari versi evolite ini.",
+  "Could not read the contract {} from Platform.": "Kontrak {} tidak dapat dibaca dari Platform."
 }

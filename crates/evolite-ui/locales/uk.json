@@ -3159,5 +3159,7 @@
   "at least ≈ {}": "не менше ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "Точна плата залежить від навантаження мережі; скільки надійшло — в Історії.",
   "Creation of the identity {} from the pool": "Створення ідентичності {} з пулу",
-  "Top-up of {} from the pool": "Поповнення {} з пулу"
+  "Top-up of {} from the pool": "Поповнення {} з пулу",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "Не вдалося прочитати контракт {}: можливо, він новіший за цю версію evolite.",
+  "Could not read the contract {} from Platform.": "Не вдалося прочитати контракт {} з Platform."
 }

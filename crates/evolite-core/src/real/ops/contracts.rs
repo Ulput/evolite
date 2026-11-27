@@ -83,6 +83,24 @@ async fn main_contract(
     }
 }
 
+/// BUG-342: «Belongs to a contract» whose read failed, as the screen says it — the id whole,
+/// whether the answer came and was not taken (BUG-323's rule), and Platform's words.
+fn main_unread(main: &str, e: CoreError) -> ContractRefusal {
+    let details = match e {
+        CoreError::Failed(why) => why,
+        other => format!("{other:?}"),
+    };
+    // r1: the version check's words before the SDK's `{:?}`, off before its type is read.
+    let debug = details
+        .strip_prefix(evolite_chain::contracts::fresh::VERSION_UNCHECKED)
+        .unwrap_or(&details);
+    ContractRefusal::MainContractUnread {
+        id: main.trim().to_owned(),
+        undecoded: super::app_connect2::undecoded(debug),
+        details: details.clone(),
+    }
+}
+
 /// A refusal before the password as the screen says it; the others are errors.
 pub(in crate::real) fn refusal_of(e: RegisterError) -> Result<ContractRefusal, CoreError> {
     Ok(match e {
@@ -386,9 +404,13 @@ impl Real {
                 let mut refusal = checked.refusal.map(refusal_of).transpose()?;
                 let mut main_description = None;
                 if let Some(main) = main_of(&draft) {
-                    match main_contract(&chain, main).await? {
-                        Ok((_, description)) => main_description = description,
-                        Err(why) => refusal = refusal.or(Some(why)),
+                    // BUG-342: a read that failed is said with what Platform answered, and the
+                    // registration's fee stays — not the whole check failed («the network
+                    // refused», no estimate).
+                    match main_contract(&chain, main).await {
+                        Ok(Ok((_, description))) => main_description = description,
+                        Ok(Err(why)) => refusal = refusal.or(Some(why)),
+                        Err(e) => refusal = refusal.or(Some(main_unread(main, e))),
                     }
                 }
                 Ok(ContractCheck {
@@ -925,5 +947,45 @@ mod tests {
         assert_eq!(line.key.as_deref(), Some("contract:C1"));
         let line = created_line(&draft, "me", "C1", None, 19);
         assert_eq!((line.spent, line.cost_known), (19, false));
+    }
+
+    /// BUG-342: «Belongs to a contract» that did not read is a refusal with the id and what
+    /// Platform answered — «newer» only when the answer came and was not taken — not an error
+    /// that loses the fee.
+    #[test]
+    fn a_main_contract_not_read_is_said_with_its_words() {
+        use evolite_chain::contracts::fresh::VERSION_UNCHECKED;
+        let id = " GWRSAVFMjXx8HpQFaNJMqBV7MBgMK4br5UESsB4S31Ec ";
+        let ContractRefusal::MainContractUnread { id: said, .. } =
+            main_unread(id, CoreError::Failed("TimeoutReached(30s, ..)".into()))
+        else {
+            panic!("a refusal of its own");
+        };
+        assert_eq!(said, id.trim());
+        // r1: the read's error as it comes from `fresh_proved` — the SDK's `{:?}` (`fetch`,
+        // `latest_versions`), alone or after the version check's words; whole in «Details».
+        for (error, newer) in [
+            ("Protocol(DecodingError(..))".to_owned(), true),
+            ("Proof(InvalidProof(..))".to_owned(), true),
+            ("TimeoutReached(30s, ..)".to_owned(), false),
+            ("DapiClientError(Transport(..))".to_owned(), false),
+            (
+                format!("{VERSION_UNCHECKED}Protocol(DecodingError(..))"),
+                true,
+            ),
+            (
+                format!("{VERSION_UNCHECKED}DapiClientError(Transport(..))"),
+                false,
+            ),
+        ] {
+            let ContractRefusal::MainContractUnread {
+                undecoded, details, ..
+            } = main_unread(id, CoreError::Failed(error.clone()))
+            else {
+                panic!("a refusal of its own");
+            };
+            assert_eq!(undecoded, newer, "{error}");
+            assert_eq!(details, error, "whole in «Details»");
+        }
     }
 }

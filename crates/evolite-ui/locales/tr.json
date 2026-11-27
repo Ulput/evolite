@@ -3063,5 +3063,7 @@
   "at least ≈ {}": "en az ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "Kesin ücret ağın yüküne bağlıdır; gelen tutar Geçmiş’te.",
   "Creation of the identity {} from the pool": "Havuzdan {} kimliğinin oluşturulması",
-  "Top-up of {} from the pool": "Havuzdan {} yüklemesi"
+  "Top-up of {} from the pool": "Havuzdan {} yüklemesi",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "{} sözleşmesi okunamadı: evolite’in bu sürümünden daha yeni olabilir.",
+  "Could not read the contract {} from Platform.": "{} sözleşmesi Platform’dan okunamadı."
 }

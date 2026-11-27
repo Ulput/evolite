@@ -3015,5 +3015,7 @@
   "at least ≈ {}": "少なくとも ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "正確な手数料はネットワークの負荷によります。届いた額は「履歴」にあります。",
   "Creation of the identity {} from the pool": "プールからアイデンティティ {} を作成",
-  "Top-up of {} from the pool": "プールから {} にチャージ"
+  "Top-up of {} from the pool": "プールから {} にチャージ",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "コントラクト {} を読み込めませんでした。この evolite のバージョンより新しい可能性があります。",
+  "Could not read the contract {} from Platform.": "コントラクト {} を Platform から読み込めませんでした。"
 }

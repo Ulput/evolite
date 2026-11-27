@@ -81,6 +81,15 @@ pub fn made_id(n: usize) -> String {
 pub fn main_contract(id: &str) -> Result<String, evolite_api::contracts::ContractRefusal> {
     let base58 = |c: char| c.is_ascii_alphanumeric() && !"0OIl".contains(c);
     let id = id.trim();
+    // BUG-342: an id the demo «cannot read» — its contract perhaps newer than this evolite.
+    if id.starts_with("Unread") && id.chars().all(base58) {
+        return Err(evolite_api::contracts::ContractRefusal::MainContractUnread {
+            id: id.to_owned(),
+            undecoded: true,
+            details: "Protocol(Decoding(\"DataContractInSerializationFormat version 2, allowed 0..1\"))"
+                .into(),
+        });
+    }
     if (32..=44).contains(&id.len()) && id.chars().all(base58) {
         Ok("City game: items and rewards".into())
     } else {

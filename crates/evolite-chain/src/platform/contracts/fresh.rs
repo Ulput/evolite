@@ -24,6 +24,11 @@ use super::{Cached, ContractCache, Next, decide};
 /// from a failed read (the Workshop's «Belongs to a contract», W2).
 pub const NOT_ON_PLATFORM: &str = "the contract is not on Platform";
 
+/// What a write's read says before the error when the kept contract's version could not be
+/// checked; the error after it is the SDK's `{:?}` (BUG-342 r1: taken off before its type is
+/// read, by this one constant).
+pub const VERSION_UNCHECKED: &str = "the contract's version could not be checked: ";
+
 /// Where versions and bodies come from: Platform, with proofs (the chain), or a test's stand-in.
 pub trait Source {
     /// The latest versions of `ids`, proved; an id missing from the answer has no contract.
@@ -108,7 +113,7 @@ pub async fn fresh_many<S: Source>(
             Err(e) => {
                 for (id, kept) in check {
                     let answer = if proved {
-                        Err(format!("the contract's version could not be checked: {e}"))
+                        Err(format!("{VERSION_UNCHECKED}{e}"))
                     } else {
                         Ok(Cached {
                             version_checked: false,

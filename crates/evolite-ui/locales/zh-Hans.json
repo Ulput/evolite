@@ -3015,5 +3015,7 @@
   "at least ≈ {}": "至少 ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "确切费用取决于网络负载；实际到账见“历史”。",
   "Creation of the identity {} from the pool": "从私密池创建身份 {}",
-  "Top-up of {} from the pool": "从私密池为 {} 充值"
+  "Top-up of {} from the pool": "从私密池为 {} 充值",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "无法读取合约 {}：它可能比此版本的 evolite 更新。",
+  "Could not read the contract {} from Platform.": "无法从 Platform 读取合约 {}。"
 }

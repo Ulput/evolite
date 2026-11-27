@@ -3063,5 +3063,7 @@
   "at least ≈ {}": "mindestens ≈ {}",
   "The exact fee depends on the network's load; what came in is in History.": "Die genaue Gebühr hängt von der Netzauslastung ab; was ankam, steht im Verlauf.",
   "Creation of the identity {} from the pool": "Erstellung der Identität {} aus dem Pool",
-  "Top-up of {} from the pool": "Aufladung von {} aus dem Pool"
+  "Top-up of {} from the pool": "Aufladung von {} aus dem Pool",
+  "Could not read the contract {}: it may be newer than this version of evolite.": "Der Vertrag {} konnte nicht gelesen werden: Er ist vielleicht neuer als diese Version von evolite.",
+  "Could not read the contract {} from Platform.": "Der Vertrag {} konnte nicht aus Platform gelesen werden."
 }

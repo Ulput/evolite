@@ -467,6 +467,8 @@
   "Could not read the app's contract {} from Platform.",
   "Could not read the app's contract {}: it may be newer than this version of evolite.",
   "Could not read the app's request",
+  "Could not read the contract {} from Platform.",
+  "Could not read the contract {}: it may be newer than this version of evolite.",
   "Could not read the identity's keys for contract {} from Platform.",
   "Could not read the picture",
   "Could not read the pool: {}. We'll try again later",
