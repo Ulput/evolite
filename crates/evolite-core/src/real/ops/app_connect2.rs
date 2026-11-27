@@ -351,20 +351,45 @@ pub(in crate::real) fn shown_session(
         .collect()
 }
 
-/// What app's session keys have spent of their budgets as last read, credits; `None` while no
-/// key of it was read. A key not read counts nothing.
+/// What app's session keys have spent of their budgets as last read, credits. BUG-350: `None`
+/// unless every key of it was read — a key not read is not known, not «nothing spent» (else a
+/// read without it lowers the baseline, and the next one with it counts its spending again).
 pub(in crate::real) fn spent_by_reads(app: &App, reads: &Reads) -> Option<u64> {
     let session = app.session.as_ref()?;
-    let mut any = false;
-    let mut spent = 0u64;
+    if session.keys.is_empty() {
+        return None;
+    }
+    session
+        .keys
+        .iter()
+        .map(|key| {
+            reads
+                .get(&(app.contract.clone(), app.identity.clone(), key.id))
+                .and_then(|r| r.remaining)
+                .map(|left| key.budget.saturating_sub(left))
+        })
+        .sum::<Option<u64>>()
+}
+
+/// BUG-350 (review nit): the keys of app's session whose budget is not read — why
+/// [`spent_by_reads`] is `None` — journaled once a run per key ([`diag::Record::AppSpentUnknown`]);
+/// the ones journaled by this call.
+pub(in crate::real) fn note_unknown_keys(app: &App, reads: &Reads) -> Vec<u32> {
+    static NOTED: std::sync::Mutex<std::collections::BTreeSet<(String, String, u32)>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let Some(session) = &app.session else {
+        return Vec::new();
+    };
+    let mut noted = NOTED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut new = Vec::new();
     for key in &session.keys {
-        let read = reads.get(&(app.contract.clone(), app.identity.clone(), key.id));
-        if let Some(left) = read.and_then(|r| r.remaining) {
-            any = true;
-            spent = spent.saturating_add(key.budget.saturating_sub(left));
+        let at = (app.contract.clone(), app.identity.clone(), key.id);
+        if reads.get(&at).is_none_or(|r| r.remaining.is_none()) && noted.insert(at) {
+            crate::diag::record(crate::diag::Record::AppSpentUnknown { key: key.id });
+            new.push(key.id);
         }
     }
-    any.then_some(spent)
+    new
 }
 
 /// BUG-145 AC-T3: what a read of the budgets adds to History, in duffs, and the new baseline. The
@@ -1086,7 +1111,11 @@ pub(in crate::real) async fn read_budgets(
                 },
             );
         }
-        spent_by_reads(app, &reads)
+        let spent = spent_by_reads(app, &reads);
+        if spent.is_none() {
+            note_unknown_keys(app, &reads);
+        }
+        spent
     };
     let Some(spent) = spent else {
         return Ok(());

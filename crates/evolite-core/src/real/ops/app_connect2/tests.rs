@@ -311,8 +311,8 @@ fn the_return_link_is_named_by_its_host() {
     assert_eq!(callback_host("https:///x"), None);
 }
 
-/// BUG-145 AC-T3: what an app spent is its keys' budgets less what Platform says is left; a
-/// key not read counts nothing, and with none read there is nothing to compare.
+/// BUG-145 AC-T3: what an app spent is its keys' budgets less what Platform says is left; with
+/// a key not read there is nothing to compare (BUG-350).
 #[test]
 fn an_apps_spending_is_its_budgets_less_what_is_left() {
     let app = app(vec![stored(8, NOW_MS + 1), stored(9, NOW_MS + 1)]);
@@ -323,9 +323,59 @@ fn an_apps_spending_is_its_budgets_less_what_is_left() {
         disabled: false,
     };
     reads.insert(("C".into(), "I".into(), 8), left(49_999_000_000));
-    assert_eq!(spent_by_reads(&app, &reads), Some(1_000_000));
+    assert_eq!(spent_by_reads(&app, &reads), None, "key 9 not read");
     reads.insert(("C".into(), "I".into(), 9), left(49_999_500_000));
     assert_eq!(spent_by_reads(&app, &reads), Some(1_500_000));
+}
+
+/// BUG-350: reads that alternate — key A alone, then A and B, then A alone (B's read failed),
+/// then both again — put B's spending into History once, not twice: a read without B is not
+/// known and leaves the baseline where it was.
+#[test]
+fn alternating_reads_count_a_keys_spending_once() {
+    let app = app(vec![stored(8, NOW_MS + 1), stored(9, NOW_MS + 1)]);
+    let budget = stored(8, NOW_MS + 1).budget;
+    let read = |remaining: Option<u64>| KeyRead {
+        remaining,
+        disabled: false,
+    };
+    // A spent 1 000 000 credits (1 000 duffs), B 2 000 000 (2 000 duffs); nothing more after.
+    let a = Some(budget - 1_000_000);
+    let b = Some(budget - 2_000_000);
+    let mut reads = Reads::new();
+    let mut seen = None;
+    let mut lines = Vec::new();
+    for (left_a, left_b) in [(a, None), (a, b), (a, None), (a, b)] {
+        reads.insert(("C".into(), "I".into(), 8), read(left_a));
+        reads.insert(("C".into(), "I".into(), 9), read(left_b));
+        // As `read_budgets` does: not known — no line, the baseline stays.
+        let Some(spent) = spent_by_reads(&app, &reads) else {
+            continue;
+        };
+        let (line, base) = app_spent_step(seen, spent);
+        seen = Some(base);
+        if line > 0 {
+            lines.push(line);
+        }
+    }
+    assert_eq!(lines, vec![3_000], "A and B once");
+}
+
+/// BUG-350 (review nit): a key whose budget is not read is journaled, once a run.
+#[test]
+fn a_key_not_read_is_journaled_once() {
+    let mut app = app(vec![stored(8, NOW_MS + 1), stored(9, NOW_MS + 1)]);
+    app.contract = "BUG-350".into();
+    let mut reads = Reads::new();
+    reads.insert(
+        ("BUG-350".into(), "I".into(), 8),
+        KeyRead {
+            remaining: Some(1),
+            disabled: false,
+        },
+    );
+    assert_eq!(note_unknown_keys(&app, &reads), vec![9]);
+    assert_eq!(note_unknown_keys(&app, &reads), Vec::<u32>::new(), "once");
 }
 
 /// BUG-145 AC-T3: each read adds the growth since the last one, in whole duffs of the totals

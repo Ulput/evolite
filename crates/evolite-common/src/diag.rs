@@ -163,6 +163,12 @@ pub enum Record {
         error: String,
         protocol: Option<u32>,
     },
+    /// BUG-350 (review nit): an app's spending is not known because one of its session keys has
+    /// no read budget — so QA tells it from «the app spent nothing». Once a run per key; the key's
+    /// number only, no amount, no app, no identity.
+    AppSpentUnknown {
+        key: u32,
+    },
     /// A panic: where, and its message and stack, scrubbed.
     Panic {
         location: String,
@@ -546,6 +552,7 @@ impl Record {
                 error,
                 protocol,
             } => json!({"k": "connect_read", "stage": stage, "error": error, "protocol": protocol}),
+            Record::AppSpentUnknown { key } => json!({"k": "app_spent_unknown", "key": key}),
             Record::WindowReset => json!({"k": "window_reset"}),
             Record::ContactChannelBroken => json!({"k": "contact_channel_broken"}),
             Record::UpdateCheck { result, date } => {
@@ -1171,6 +1178,13 @@ mod tests {
             "{line}"
         );
         assert!(!line.contains("8mjm") && !line.contains("bad"), "{line}");
+    }
+
+    /// BUG-350: an app's spending not known is journaled as the key's number only.
+    #[test]
+    fn an_unknown_apps_spending_is_the_key_number_only() {
+        let line = Record::AppSpentUnknown { key: 9 }.line(UNIX_EPOCH);
+        assert!(line.contains(r#""k":"app_spent_unknown","key":9"#), "{line}");
     }
 
     /// FEAT-0019 T-1.8: a page of a token's history is journaled as counts only — no token,
