@@ -146,6 +146,14 @@ pub struct WorkshopState {
     /// BUG-324: each gift series seen — whether it was running and how many it had given — so
     /// that its model's «Given» is read again once it stops.
     gifts_seen: HashMap<u64, (bool, u32)>,
+    /// BUG-324 r3: the series of the wallet were seen once — one that comes after is of this
+    /// run, from nothing given, even when it is seen first already stopped (a gift of one ends
+    /// between two snapshots). Set by the model page's first frame (`on_series` is called only
+    /// there), not by a read of the series: the snapshot has no «series read» flag — they come
+    /// from the local `nft-series.json` loaded at the core's start, so the first frame already
+    /// has them all. A series started and done before the page's first frame reads as of
+    /// before — nothing read again; the page asks «Given» when it opens anyway.
+    series_primed: bool,
     /// BUG-324 r2: «Given» read again after a gift series stopped, with what it must show at
     /// least by then: Platform may not give the transfer yet — read again every
     /// [`GIVEN_AGAIN`] seconds until it does, at most [`GIVEN_TRIES`] times.
@@ -345,7 +353,9 @@ impl WorkshopState {
             .iter()
             .filter(|s| matches!(s.kind, SeriesKind::Gift { .. }))
         {
-            let before = self.gifts_seen.insert(s.id, (s.running, s.done));
+            let seen = self.gifts_seen.insert(s.id, (s.running, s.done));
+            // r3: QA's gift of one was seen first already done — nothing was read again.
+            let before = seen.or(self.series_primed.then_some((true, 0)));
             let gave = before.is_some_and(|(running, done)| running || done != s.done);
             if !s.running && gave {
                 let key = (s.target.contract.clone(), s.target.model.clone());
@@ -375,6 +385,7 @@ impl WorkshopState {
                 self.given_asked.remove(&key);
             }
         }
+        self.series_primed = true;
     }
 
     /// BUG-324 r2 Should: «Given» as the tile shows it. While the network shows fewer than were
@@ -474,6 +485,7 @@ impl WorkshopState {
         self.given.clear();
         self.given_asked.clear();
         self.gifts_seen.clear();
+        self.series_primed = false;
         self.given_wait.clear();
         self.forget_sales();
         self.about = false;
@@ -1222,6 +1234,33 @@ mod gift_tests {
         answer(&mut state, 3);
         assert_eq!(shown(&state).count, Count::Proved(3), "the network's «3»");
         assert!(state.given_wait.is_empty());
+    }
+
+    /// BUG-324 r3 (QA, dev-8654b3e8): a gift of one was seen first already done — the series of
+    /// the wallet seen before it, it is of this run: «Given» is read again and says «at least 1»
+    /// until the network shows it. Seen first in the first look (a restart): nothing.
+    #[test]
+    fn a_gift_seen_first_already_done_is_read_again() {
+        let key = ("c".to_owned(), "m".to_owned());
+        let mut state = WorkshopState::default();
+        answer_count(&mut state, 0);
+        state.given_asked.insert(key.clone(), Retry::default());
+        state.on_series(&[gift(1, false, 1)]);
+        assert!(state.given_wait.is_empty(), "a restart's series: nothing");
+        assert!(read_now(&state));
+        state.on_series(&[gift(1, false, 1), gift(2, false, 1)]);
+        assert!(
+            matches!(
+                state.given_shown(&key).map(|g| g.count),
+                Some(Count::Counted {
+                    count: 1,
+                    complete: false,
+                    ..
+                })
+            ),
+            "«at least 1» at once"
+        );
+        assert!(!state.given_asked.contains_key(&key), "asked again");
     }
 
     /// BUG-324: a gift series that stops — seen running, or with more given than before —
