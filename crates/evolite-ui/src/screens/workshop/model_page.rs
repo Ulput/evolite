@@ -1560,6 +1560,11 @@ fn series_window(
         .and_then(|p| p.as_ref().ok())
         .map(|p| p.serials.clone())
         .unwrap_or_default();
+    // BUG-349: something to plan typed and its plan not here yet (settling, or asked and the
+    // core still counting — QA waited 12 s): the rows of the price say «Calculating…» in their
+    // place, so the window does not look ready to sign and the password does not move later.
+    let counting =
+        action != Action::Continue && fees.is_none() && planned.is_none() && form.kind().is_some();
     let mut changed = false;
     let body = |ui: &mut Ui, a: &mut Assets, part: Part| {
         let p = a.p;
@@ -1569,19 +1574,30 @@ fn series_window(
         let words = crate::theme::sans(13.0, Weight::SemiBold);
         if part == Part::Summary {
             ui.spacing_mut().item_spacing.y = 10.0;
-            if let Some((per_write, total)) = fees {
-                // W9 (the designer, 2026-11-25): «3 records × ≈ one» on the left, «≈ all» on the
-                // right. The count's words translated first: the row's label is not a key.
-                let records_words = crate::text::plural(records, tr!("record"), tr!("records"));
-                let records_words = crate::i18n::t_in(crate::i18n::current(), &records_words);
-                kv_row_fit(
+            // W9 (the designer, 2026-11-25): «3 records × ≈ one» on the left, «≈ all» on the
+            // right. The count's words translated first: the row's label is not a key.
+            let records_words = crate::text::plural(records, tr!("record"), tr!("records"));
+            let records_words = crate::i18n::t_in(crate::i18n::current(), &records_words);
+            match fees {
+                Some((per_write, total)) => kv_row_fit(
                     ui,
                     &p,
                     &format!("{records_words} × ≈ {}", crate::format::amount(per_write)),
                     // BUG-259: the margin's estimate — «at most».
                     &super::at_most(Some(total), false),
                     value.clone(),
-                );
+                ),
+                // BUG-349: the typed count's records, their fee «Calculating…».
+                None if counting => kv_row_fit(
+                    ui,
+                    &p,
+                    &records_words,
+                    &super::at_most(None, true),
+                    value.clone(),
+                ),
+                None => {}
+            }
+            if fees.is_some() || counting {
                 if form.action == Action::Unprice {
                     ui.add(crate::components::para(
                         tr!(
@@ -1598,7 +1614,9 @@ fn series_window(
                     a,
                     &who,
                     crate::components::Credits::of(&wallet),
-                    crate::components::Charge::AtMost(total),
+                    fees.map_or(crate::components::Charge::Calculating, |(_, total)| {
+                        crate::components::Charge::AtMost(total)
+                    }),
                 );
             }
             if form.action == Action::Give {
@@ -1693,6 +1711,9 @@ fn series_window(
                 }
                 if let Some(words) = serials_words(form.action == Action::Give, &serials) {
                     ui.label(txt(&words, 12.0, Weight::Regular, p.muted));
+                } else if counting {
+                    // BUG-349: the numbers' line has its place while they are counted.
+                    ui.label(txt("", 12.0, Weight::Regular, p.muted));
                 }
             }
             Action::Sell => {

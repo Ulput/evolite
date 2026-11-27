@@ -476,6 +476,27 @@ fn how_many_takes_what_is_typed_at_once() {
         kit.query_by_label("Sign and issue 2").is_some(),
         "the number typed, with the field still in focus"
     );
+    // BUG-349: its plan not here yet — the price's rows say so in their place, not nothing
+    // (QA: 12 s without a price, then the rows came and moved the password down).
+    assert!(has_words(&kit, "2 records"), "the records typed");
+    assert!(has_words(&kit, "Calculating…"), "the fee being counted");
+    assert!(has_words(&kit, "calculating…"), "the credits after it");
+    let password = |kit: &Kit| {
+        kit.query_by_role(Role::PasswordInput)
+            .map(|n| n.rect().top())
+    };
+    let before = password(&kit);
+    wait_for(&mut kit, "the plan", |kit| has_words(kit, "at most ≈"));
+    assert!(
+        !has_words(&kit, "Calculating…"),
+        "the estimate in its place"
+    );
+    assert!(has_words(&kit, "are issued"), "the numbers");
+    let after = password(&kit);
+    assert!(
+        before.zip(after).is_none_or(|(b, a)| (b - a).abs() < 1.0),
+        "the password stays where it was: {before:?} → {after:?}"
+    );
 }
 
 /// UC-8, W8: «Give…» — how many of the free copies, to whom; the core's plan; the summary
