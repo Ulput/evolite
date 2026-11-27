@@ -3260,5 +3260,9 @@
   "Top-up of {} from the pool": "شحن {} من المجمّع",
   "Could not read the contract {}: it may be newer than this version of evolite.": "تعذّرت قراءة العقد {}: ربما يكون أحدث من هذا الإصدار من evolite.",
   "Could not read the contract {} from Platform.": "تعذّرت قراءة العقد {} من Platform.",
-  "You sign once: evolite writes the model — 1 record on the network.": "توقّع مرة واحدة: يكتب evolite النموذج — سجل واحد على الشبكة."
+  "You sign once: evolite writes the model — 1 record on the network.": "توقّع مرة واحدة: يكتب evolite النموذج — سجل واحد على الشبكة.",
+  "Name, @name or id": "الاسم أو @الاسم أو المعرّف",
+  "No contacts match \"{}\"": "لا توجد جهات اتصال تطابق «{}»",
+  "Find @{} in DPNS": "البحث عن @{} في DPNS",
+  "Clear the search": "مسح البحث"
 }

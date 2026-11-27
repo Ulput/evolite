@@ -3068,5 +3068,9 @@
   "Top-up of {} from the pool": "Havuzdan {} yüklemesi",
   "Could not read the contract {}: it may be newer than this version of evolite.": "{} sözleşmesi okunamadı: evolite’in bu sürümünden daha yeni olabilir.",
   "Could not read the contract {} from Platform.": "{} sözleşmesi Platform’dan okunamadı.",
-  "You sign once: evolite writes the model — 1 record on the network.": "Bir kez imzalarsınız: evolite modeli yazar — ağda 1 kayıt."
+  "You sign once: evolite writes the model — 1 record on the network.": "Bir kez imzalarsınız: evolite modeli yazar — ağda 1 kayıt.",
+  "Name, @name or id": "Ad, @ad veya kimlik",
+  "No contacts match \"{}\"": "«{}» ile eşleşen kişi yok",
+  "Find @{} in DPNS": "DPNS’te @{} ara",
+  "Clear the search": "Aramayı temizle"
 }

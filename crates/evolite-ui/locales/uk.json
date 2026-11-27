@@ -3164,5 +3164,9 @@
   "Top-up of {} from the pool": "Поповнення {} з пулу",
   "Could not read the contract {}: it may be newer than this version of evolite.": "Не вдалося прочитати контракт {}: можливо, він новіший за цю версію evolite.",
   "Could not read the contract {} from Platform.": "Не вдалося прочитати контракт {} з Platform.",
-  "You sign once: evolite writes the model — 1 record on the network.": "Підпишете один раз: evolite запише модель — 1 запис у мережі."
+  "You sign once: evolite writes the model — 1 record on the network.": "Підпишете один раз: evolite запише модель — 1 запис у мережі.",
+  "Name, @name or id": "Ім’я, @ім’я або id",
+  "No contacts match \"{}\"": "Немає контактів за «{}»",
+  "Find @{} in DPNS": "Знайти @{} у DPNS",
+  "Clear the search": "Очистити пошук"
 }

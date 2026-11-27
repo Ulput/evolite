@@ -3068,5 +3068,9 @@
   "Top-up of {} from the pool": "पूल से {} का टॉप-अप",
   "Could not read the contract {}: it may be newer than this version of evolite.": "कॉन्ट्रैक्ट {} पढ़ा नहीं जा सका: शायद यह evolite के इस संस्करण से नया है।",
   "Could not read the contract {} from Platform.": "कॉन्ट्रैक्ट {} Platform से पढ़ा नहीं जा सका।",
-  "You sign once: evolite writes the model — 1 record on the network.": "आप एक बार हस्ताक्षर करते हैं: evolite मॉडल लिखता है — नेटवर्क पर 1 रिकॉर्ड।"
+  "You sign once: evolite writes the model — 1 record on the network.": "आप एक बार हस्ताक्षर करते हैं: evolite मॉडल लिखता है — नेटवर्क पर 1 रिकॉर्ड।",
+  "Name, @name or id": "नाम, @नाम या आईडी",
+  "No contacts match \"{}\"": "«{}» से कोई संपर्क मेल नहीं खाता",
+  "Find @{} in DPNS": "DPNS में @{} खोजें",
+  "Clear the search": "खोज साफ़ करें"
 }

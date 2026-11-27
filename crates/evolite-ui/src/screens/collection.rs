@@ -132,8 +132,8 @@ impl CollectionState {
     }
 }
 
-/// DPNS label: 3–63 letters, digits and inner hyphens, with an optional "@".
-#[cfg(any(demo_core, test))]
+/// DPNS label: 3–63 letters, digits and inner hyphens, with an optional "@". Also the
+/// Contacts search's «Find @… in DPNS» (FEAT-0057 П4), so in every build.
 pub fn is_dash_name(input: &str) -> bool {
     let label = input.trim().trim_start_matches('@');
     (3..=63).contains(&label.len())

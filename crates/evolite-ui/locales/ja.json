@@ -3020,5 +3020,9 @@
   "Top-up of {} from the pool": "プールから {} にチャージ",
   "Could not read the contract {}: it may be newer than this version of evolite.": "コントラクト {} を読み込めませんでした。この evolite のバージョンより新しい可能性があります。",
   "Could not read the contract {} from Platform.": "コントラクト {} を Platform から読み込めませんでした。",
-  "You sign once: evolite writes the model — 1 record on the network.": "署名は一度だけ: evolite がモデルを書き込みます — ネットワーク上の記録 1 件。"
+  "You sign once: evolite writes the model — 1 record on the network.": "署名は一度だけ: evolite がモデルを書き込みます — ネットワーク上の記録 1 件。",
+  "Name, @name or id": "名前、@名前、または ID",
+  "No contacts match \"{}\"": "「{}」に一致する連絡先はありません",
+  "Find @{} in DPNS": "DPNS で @{} を探す",
+  "Clear the search": "検索をクリア"
 }

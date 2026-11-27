@@ -27,6 +27,7 @@ mod collection_filter;
 mod collection_grid;
 mod contact_card;
 mod contact_resend;
+mod contact_search;
 mod contacts_privacy;
 mod contested_names;
 mod core_known;

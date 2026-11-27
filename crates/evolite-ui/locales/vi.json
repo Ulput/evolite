@@ -3020,5 +3020,9 @@
   "Top-up of {} from the pool": "Nạp cho {} từ pool",
   "Could not read the contract {}: it may be newer than this version of evolite.": "Không đọc được hợp đồng {}: có thể nó mới hơn phiên bản evolite này.",
   "Could not read the contract {} from Platform.": "Không đọc được hợp đồng {} từ Platform.",
-  "You sign once: evolite writes the model — 1 record on the network.": "Bạn ký một lần: evolite ghi mẫu — 1 bản ghi trên mạng."
+  "You sign once: evolite writes the model — 1 record on the network.": "Bạn ký một lần: evolite ghi mẫu — 1 bản ghi trên mạng.",
+  "Name, @name or id": "Tên, @tên hoặc id",
+  "No contacts match \"{}\"": "Không có liên hệ nào khớp «{}»",
+  "Find @{} in DPNS": "Tìm @{} trong DPNS",
+  "Clear the search": "Xóa tìm kiếm"
 }

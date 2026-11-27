@@ -43,6 +43,13 @@ const HOW: [(&str, &str, &str); 3] = [
 
 #[derive(Default)]
 pub struct ContactsState {
+    /// FEAT-0057 П4: the search over requests and contacts, from 9 of them (З-2).
+    pub search: String,
+    /// The identity the search was typed for: another one clears it (A4.4).
+    pub search_for: Option<String>,
+    /// The frame the screen was last drawn in: a frame without it (the screen left) clears the
+    /// search (R-4.4).
+    pub search_seen: u64,
     /// "Add a contact" is open.
     pub adding: Option<AddContact>,
     /// The identity whose profile is open (22).
@@ -256,6 +263,64 @@ fn day_or_unknown(at: Option<evolite_api::Timestamp>, now: DateTime<Local>) -> S
     at.map_or_else(|| tr!("time unknown").into(), |at| text::when(at, now))
 }
 
+/// FEAT-0057 П4 (З-2): from this many requests and contacts together, the search.
+pub const SEARCH_FROM: usize = 9;
+
+/// UC-4.2 (BUG-268's rule): `@name` from its start, a word of the display name from its start,
+/// the id from its start — case aside. The display name is the contact's own words (R-4.2):
+/// searching does not change how it is shown.
+pub fn contact_matches(c: &Contact, query: &str) -> bool {
+    let bare = query.trim().trim_start_matches('@');
+    if bare.is_empty() {
+        return true;
+    }
+    let low = bare.to_lowercase();
+    c.name
+        .as_deref()
+        .is_some_and(|n| n.to_lowercase().starts_with(&low))
+        || c.profile
+            .display
+            .as_deref()
+            .is_some_and(|d| crate::components::name_suggest::word_start(d, bare).is_some())
+        || c.identity_id.starts_with(bare)
+}
+
+/// «Name, @name or id», the whole width of the section; Esc or «×» clears it (UC-4.4).
+fn search_field(ui: &mut Ui, p: &crate::theme::Palette, width: f32, search: &mut String) {
+    let mut clear = false;
+    ui.scope(|ui| {
+        ui.set_width(width);
+        let filled = !search.is_empty();
+        // No label above it (the frame has the hint only): the hint is its name for a screen
+        // reader too (BUG-41).
+        crate::a11y::name_next_field(ui, tr!("Name, @name or id"));
+        let field = text_field(
+            ui,
+            p,
+            "contacts-search",
+            search,
+            tr!("Name, @name or id"),
+            FieldKind::Text,
+            |ui| {
+                if filled {
+                    let x = ui.add(egui::Button::new("×").frame(false));
+                    crate::components::named(
+                        &x,
+                        egui::WidgetType::Button,
+                        true,
+                        tr!("Clear the search"),
+                    );
+                    clear |= x.clicked();
+                }
+            },
+        );
+        clear |= field.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape));
+    });
+    if clear {
+        search.clear();
+    }
+}
+
 /// The small label and value on the right of a row.
 fn when_line(c: &Contact, now: DateTime<Local>) -> (&'static str, String) {
     match (c.state, c.last_payment) {
@@ -338,16 +403,46 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
         ],
     );
 
-    let requests: Vec<&Contact> = wallet
+    let all_requests: Vec<&Contact> = wallet
         .contacts
         .iter()
         .filter(|c| c.state == ContactState::Incoming)
         .collect();
-    let known: Vec<&Contact> = wallet
+    let all_known: Vec<&Contact> = wallet
         .contacts
         .iter()
         .filter(|c| c.state != ContactState::Incoming)
         .collect();
+    // FEAT-0057 П4: from 9 requests and contacts together, a search over what the snapshot has
+    // (R-4.1); kept only while this screen is drawn, for this identity (R-4.4, A4.4).
+    let pass = ui.ctx().cumulative_pass_nr();
+    let me = wallet.identity.as_ref().map(|i| i.id.clone());
+    if state.search_for != me || pass > state.search_seen + 1 {
+        state.search.clear();
+        state.search_for = me;
+    }
+    state.search_seen = pass;
+    let searchable = all_requests.len() + all_known.len() >= SEARCH_FROM;
+    let query = state.search.trim().to_owned();
+    let searching = searchable && !query.is_empty();
+    let requests: Vec<&Contact> = all_requests
+        .iter()
+        .copied()
+        .filter(|c| !searching || contact_matches(c, &query))
+        .collect();
+    let known: Vec<&Contact> = all_known
+        .iter()
+        .copied()
+        .filter(|c| !searching || contact_matches(c, &query))
+        .collect();
+    // A section's count: «2 of 14» while searching (UC-4.2).
+    let counted = |shown: usize, of: usize| {
+        if searching {
+            format!(tr!("{} of {}"), shown, of)
+        } else {
+            of.to_string()
+        }
+    };
 
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         ui.spacing_mut().item_spacing.y = 16.0;
@@ -382,10 +477,38 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
         if let Some(Err(e)) = &state.result {
             crate::components::error_notice(ui, a, &contact_error(e), crate::text::error_details(e).as_deref());
         }
+        if searchable {
+            search_field(ui, &p, total, &mut state.search);
+        }
+        // UC-4.3: nothing found — said, with the way to the name on the network.
+        if searching && requests.is_empty() && known.is_empty() {
+            ui.label(txt(
+                &format!(tr!("No contacts match \"{}\""), crate::i18n::own(&query)),
+                14.0,
+                Weight::Regular,
+                p.muted,
+            ));
+            let bare = query.trim_start_matches('@');
+            if crate::screens::collection::is_dash_name(bare)
+                && button(
+                    ui,
+                    a,
+                    &format!(tr!("Find @{} in DPNS"), crate::i18n::own(bare)),
+                    ButtonKind::Secondary,
+                    None,
+                )
+                .clicked()
+            {
+                state.adding = Some(AddContact {
+                    name: format!("@{bare}"),
+                    ..AddContact::default()
+                });
+            }
+        }
 
         if !requests.is_empty() {
             ui.label(txt(
-                &format!(tr!("Requests · {}"), requests.len()),
+                &format!(tr!("Requests · {}"), counted(requests.len(), all_requests.len())),
                 15.0,
                 Weight::SemiBold,
                 p.text,
@@ -393,12 +516,12 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
             list(ui, a, total, &requests, now, state, &mut asked);
         }
         ui.label(txt(
-            &format!(tr!("Contacts · {}"), known.len()),
+            &format!(tr!("Contacts · {}"), counted(known.len(), all_known.len())),
             15.0,
             Weight::SemiBold,
             p.text,
         ));
-        if known.is_empty() {
+        if known.is_empty() && !searching {
             card(&p, Margin::same(28)).show(ui, |ui| {
                 ui.set_width(inner(total, 28));
                 ui.vertical_centered(|ui| {
@@ -410,7 +533,7 @@ pub fn contacts(ui: &mut Ui, a: &mut Assets, cx: &mut Ctx, state: &mut ContactsS
                     ))
                 });
             });
-        } else {
+        } else if !known.is_empty() {
             list(ui, a, total, &known, now, state, &mut asked);
         }
 

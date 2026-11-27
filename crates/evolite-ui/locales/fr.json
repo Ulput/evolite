@@ -3107,5 +3107,9 @@
   "Top-up of {} from the pool": "Recharge de {} depuis le pool",
   "Could not read the contract {}: it may be newer than this version of evolite.": "Impossible de lire le contrat {} : il est peut-être plus récent que cette version d’evolite.",
   "Could not read the contract {} from Platform.": "Impossible de lire le contrat {} depuis Platform.",
-  "You sign once: evolite writes the model — 1 record on the network.": "Vous signez une fois : evolite écrit le modèle — 1 enregistrement sur le réseau."
+  "You sign once: evolite writes the model — 1 record on the network.": "Vous signez une fois : evolite écrit le modèle — 1 enregistrement sur le réseau.",
+  "Name, @name or id": "Nom, @nom ou id",
+  "No contacts match \"{}\"": "Aucun contact pour « {} »",
+  "Find @{} in DPNS": "Chercher @{} dans DPNS",
+  "Clear the search": "Effacer la recherche"
 }
