@@ -190,6 +190,14 @@ pub(super) fn demo_app(preset: &str, lang: &str) -> (MutexGuard<'static, ()>, Ki
 /// a frame without load passes before the core has had a turn.
 pub(super) const PATIENCE: Duration = Duration::from_secs(20);
 
+/// A series window's plan is here: its «N records» and its fee («× ≈ …»), which comes after
+/// them (BUG-349: the credits say «calculating…» until then).
+pub(super) fn wait_for_plan(kit: &mut Kit, records: &str) {
+    wait_for(kit, "the plan", |kit| {
+        has_words(kit, records) && has_words(kit, "× ≈")
+    });
+}
+
 /// Frames, without any input, until `done` (at most [`PATIENCE`]): the core answers on its own
 /// thread.
 pub(super) fn wait_for(kit: &mut Kit, what: &str, done: impl Fn(&Kit) -> bool) {

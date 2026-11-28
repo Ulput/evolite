@@ -121,6 +121,10 @@ const DEMO_PHRASES: &[&str] = &[
     "Workshop Hours",
     "Garden Points",
     "Seasons of the city",
+    // FEAT-0038 W10's demo pin and the demo token: names (the pin's description, a catalog key,
+    // makes «pin» and «meetup» words of the interface).
+    "Orange pin",
+    "Meetup Ticket",
     "English",
 ];
 

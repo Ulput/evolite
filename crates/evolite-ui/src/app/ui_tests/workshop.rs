@@ -548,7 +548,7 @@ fn giving_copies_is_one_series_with_one_check() {
     kit.get_by_role_and_label(Role::TextInput, "How many")
         .type_text("2");
     type_into(&mut kit, "Recipient", "@alice");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "2 records"));
+    wait_for_plan(&mut kit, "2 records");
     assert!(
         has_words(&kit, "you cannot take a gift back")
             || has_words(&kit, "You cannot take a gift back")
@@ -926,6 +926,10 @@ fn retype(kit: &mut Kit, label: &str, text: &str) {
 
 /// The password typed and the window's main button pressed.
 fn sign(kit: &mut Kit, label: &str) {
+    // A tall window scrolls at the kit's size: the field brought into view, or the click
+    // misses it and the password is never typed.
+    kit.get_by_role(Role::PasswordInput).scroll_to_me();
+    kit.run_steps(3);
     kit.get_by_role(Role::PasswordInput).click();
     kit.run_steps(2);
     kit.get_by_role(Role::PasswordInput).type_text("demo");
@@ -984,14 +988,18 @@ fn copies_put_up_for_sale_show_in_prices() {
     );
     retype(&mut kit, "How many", "3");
     retype(&mut kit, "Price per copy", "0.5");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "3 records"));
+    wait_for_plan(&mut kit, "3 records");
     assert!(
         has_words(&kit, "3 copies at 0.5000 DASH"),
         "{:?}",
         painted_texts(&kit)
     );
     assert!(has_words(&kit, "1.5000 DASH in credits"));
-    assert!(has_words(&kit, "× ≈ 0.0000"), "one record's fee");
+    assert!(
+        has_words(&kit, "× ≈ 0.0000"),
+        "one record's fee: {:?}",
+        painted_texts(&kit)
+    );
     // FEAT-0057 П3: the one line «Credits: now › after» in place of W9's own row.
     // BUG-259: the estimate with its margin — «at least» after it.
     assert!(has_words(&kit, " › at least "), "the credits now and after");
@@ -1016,13 +1024,24 @@ fn copies_put_up_for_sale_show_in_prices() {
         has_words(kit, "3 copies · no. 1–2, 4") && has_words(kit, "4 copies · no. 3, 6, 9, 12")
     });
     assert!(has_words(&kit, "not for sale 5 · for sale 7"));
+    let closes = |kit: &Kit| {
+        kit.query_all_by_role_and_label(Role::Button, "Close")
+            .count()
+    };
+    let open = closes(&kit);
+    // Brought into view first: the tall window scrolls at the kit's size.
+    kit.query_all_by_role_and_label(Role::Button, "Close")
+        .next()
+        .expect("«Close»")
+        .scroll_to_me();
+    kit.run_steps(3);
     kit.query_all_by_role_and_label(Role::Button, "Close")
         .next()
         .expect("«Close»")
         .click();
-    wait_for(&mut kit, "the plate gone", |kit| {
-        !has_text(kit, "Put up for sale 3 of 3")
-    });
+    // The window gone: its «Close» with it. The run's result plate stays on the model page
+    // (BUG-337), so its words are no sign of the window.
+    wait_for(&mut kit, "the window gone", |kit| closes(kit) < open);
 }
 
 /// UC-7, AC-A11, W9 S4: «Change the price» of the 1 DASH row — the same price holds the button
@@ -1045,7 +1064,7 @@ fn a_price_is_changed_on_the_same_copies() {
             .is_disabled()
     );
     retype(&mut kit, "New price per copy", "0.7");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    wait_for_plan(&mut kit, "4 records");
     assert!(!has_text(&kit, "The same price"));
     assert!(has_words(&kit, "1.0000 DASH per copy"), "now");
     assert!(has_words(&kit, "0.7000 DASH per copy"), "will be");
@@ -1076,7 +1095,7 @@ fn copies_are_taken_off_from_the_highest_numbers() {
         has_words(kit, "“Winter tram” · for sale 4")
     });
     assert!(has_text(&kit, "at 1.0000 DASH · 4") && has_text(&kit, "all 4"));
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    wait_for_plan(&mut kit, "4 records");
     retype(&mut kit, "How many", "2");
     wait_for(&mut kit, "the plan of two", |kit| {
         has_words(kit, "2 records")
@@ -1134,7 +1153,7 @@ fn a_running_series_holds_the_price_actions() {
 #[test]
 fn a_take_off_opened_before_the_copies_are_read_keeps_its_price() {
     let (_turn, mut kit) = demo_app("workshop-unprice", "en");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "2 records"));
+    wait_for_plan(&mut kit, "2 records");
     settle(&mut kit);
     assert!(
         kit.query_by_role_and_label(Role::Button, "Sign and take off 2")
@@ -1174,7 +1193,7 @@ fn a_take_off_is_not_a_gift() {
     };
     assert_eq!(gifts(&kit), 1);
     button(&kit, "Take off 4").click();
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "4 records"));
+    wait_for_plan(&mut kit, "4 records");
     assert!(has_words(
         &kit,
         "A price can only be removed by passing the item to yourself"

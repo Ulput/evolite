@@ -1806,6 +1806,18 @@ impl App {
                 self.identity_keys.change_for_preset(name);
             }
         }
+        // FEAT-0050 (batch 78): a keys screen the «Simple» mode does not keep (the redirect in
+        // `App`, `KeyChange::in_simple`) opens in «Advanced», whichever preset opened it — one
+        // rule with the redirect, so no preset of it falls back to Overview.
+        if self.screen == Screen::IdentityKeys
+            && !self
+                .identity_keys
+                .change
+                .as_ref()
+                .is_some_and(|c| c.in_simple())
+        {
+            self.settings.set("advanced", true);
+        }
         // `--screen gift` opens the collection with the gift dialog.
         self.collection.gifting = preset("gift");
         // FEAT-0038 W10: the card of the demo's one copy, «Orange pin», and its series windows

@@ -46,6 +46,10 @@ fn retype(kit: &mut Kit, label: &str, text: &str) {
 
 /// The password typed and the window's main button pressed.
 fn sign(kit: &mut Kit, label: &str) {
+    // A tall window scrolls at the kit's size: the field brought into view, or the click
+    // misses it and the password is never typed.
+    kit.get_by_role(Role::PasswordInput).scroll_to_me();
+    kit.run_steps(3);
     kit.get_by_role(Role::PasswordInput).click();
     kit.run_steps(2);
     kit.get_by_role(Role::PasswordInput).type_text("demo");
@@ -113,7 +117,7 @@ fn the_one_copys_price_is_changed() {
         has_words(kit, "“Orange pin” · No. 1 · 0.5000 DASH")
     });
     retype(&mut kit, "New price per copy", "0.75");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "1 record"));
+    wait_for_plan(&mut kit, "1 record");
     assert!(has_words(&kit, "The price changes only on No. 1."));
     assert!(!has_text(&kit, "If all are bought"), "it repeats «Will be»");
     sign(&mut kit, "Sign and change the price");
@@ -142,7 +146,7 @@ fn the_one_copy_taken_off_sale_can_be_sold_again() {
         .next()
         .is_none()
     );
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "1 record"));
+    wait_for_plan(&mut kit, "1 record");
     sign(&mut kit, "Sign and take off sale");
     wait_for(&mut kit, "no price", |kit| {
         pin(kit).is_some_and(|n| n.price.is_none())
@@ -181,7 +185,7 @@ fn a_gift_of_the_copy_for_sale_warns_and_gives_it() {
     kit.run_steps(2);
     kit.get_by_role_and_label(Role::TextInput, "Recipient")
         .type_text("@alice");
-    wait_for(&mut kit, "the plan", |kit| has_words(kit, "1 record"));
+    wait_for_plan(&mut kit, "1 record");
     sign(&mut kit, "Sign and give");
     wait_for(&mut kit, "the pin given away", |kit| pin(kit).is_none());
 }
